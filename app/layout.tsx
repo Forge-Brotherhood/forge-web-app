@@ -14,6 +14,11 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Forge - Prayer Request Network",
   description: "A social network for sharing and supporting prayer requests",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+    ],
+  },
 };
 
 export default function RootLayout({
