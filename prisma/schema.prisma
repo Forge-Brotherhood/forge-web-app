@@ -1,0 +1,219 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+enum ThreadStatus {
+  open
+  answered
+  expired
+  removed
+}
+
+enum BanState {
+  active
+  shadow_banned
+  banned
+}
+
+enum NotificationKind {
+  new_prayer
+  new_encouragement
+  thread_expiring
+}
+
+enum Role {
+  user
+  moderator
+  admin
+}
+
+// ---------- Models ----------
+model User {
+  id                 String    @id @default(uuid())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Clerk mapping
+  clerkId            String    @unique
+  email              String?   @unique
+  displayName        String?   @db.VarChar(80)
+  handle             String?   @unique @db.VarChar(32)
+  avatarUrl          String?
+
+  role               Role      @default(user)
+  banState           BanState  @default(active)
+  firstPostConsentedAt DateTime?
+
+  // Relations
+  threads            PrayerThread[] @relation("ThreadAuthor")
+  encouragements     Encouragement[]
+  updates            ThreadUpdate[]
+  notifications      Notification[]
+  reportsFiled       Report[]       @relation("ReportsFiledBy")
+  blocks             UserBlock[]    @relation("Blocker")
+  blockedBy          UserBlock[]    @relation("Blocked")
+  mergedSessions     GuestSession[] @relation("MergedGuestSession")
+  prayers            Prayer[]
+  cartItems          PrayerCartItem[]
+
+  @@index([banState])
+  @@index([role])
+}
+
+model GuestSession {
+  id            String    @id @default(uuid())
+  createdAt     DateTime  @default(now())
+  deviceHash    String    // hash of a device cookie; not PII
+  mergedUserId  String?   // set if/when merged into User
+
+  mergedUser    User?     @relation("MergedGuestSession", fields: [mergedUserId], references: [id])
+  cartItems     PrayerCartItem[]
+  prayers       Prayer[]
+
+  @@index([deviceHash])
+}
+
+model PrayerThread {
+  id            String       @id @default(uuid())
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  title         String       @db.VarChar(100)
+  body          String
+  tags          String[]
+  status        ThreadStatus @default(open)
+  isAnonymous   Boolean      @default(false)
+  expiresAt     DateTime     // default set in SQL addon to now()+7d
+  answeredAt    DateTime?
+
+  authorId      String
+  author        User         @relation("ThreadAuthor", fields: [authorId], references: [id])
+
+  prayers         Prayer[]
+  encouragements  Encouragement[]
+  updates         ThreadUpdate[]
+  reports         Report[]
+  cartItems       PrayerCartItem[]
+
+  @@index([status, expiresAt])
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+}
+
+model Prayer {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+
+  threadId        String
+  thread          PrayerThread  @relation(fields: [threadId], references: [id])
+
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id])
+
+  guestSessionId  String?
+  guestSession    GuestSession? @relation(fields: [guestSessionId], references: [id])
+
+  // once-per-actor/day uniqueness & actor checks are enforced via SQL addon
+  @@index([threadId])
+  @@index([userId])
+  @@index([guestSessionId])
+}
+
+model Encouragement {
+  id         String       @id @default(uuid())
+  createdAt  DateTime     @default(now())
+  body       String       @db.VarChar(300)
+
+  threadId   String
+  thread     PrayerThread @relation(fields: [threadId], references: [id])
+
+  authorId   String
+  author     User         @relation(fields: [authorId], references: [id])
+
+  @@index([threadId, createdAt])
+}
+
+model ThreadUpdate {
+  id         String       @id @default(uuid())
+  createdAt  DateTime     @default(now())
+  body       String
+
+  threadId   String
+  thread     PrayerThread @relation(fields: [threadId], references: [id])
+
+  authorId   String
+  author     User         @relation(fields: [authorId], references: [id])
+
+  @@index([threadId, createdAt])
+}
+
+model PrayerCartItem {
+  id              String        @id @default(uuid())
+  addedAt         DateTime      @default(now())
+
+  threadId        String
+  thread          PrayerThread  @relation(fields: [threadId], references: [id])
+
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id])
+
+  guestSessionId  String?
+  guestSession    GuestSession? @relation(fields: [guestSessionId], references: [id])
+
+  // owner uniqueness is enforced via SQL addon
+  @@index([threadId])
+  @@index([userId])
+  @@index([guestSessionId])
+}
+
+model Notification {
+  id         String            @id @default(uuid())
+  createdAt  DateTime          @default(now())
+  readAt     DateTime?
+  kind       NotificationKind
+  payload    Json
+
+  userId     String
+  user       User              @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([kind])
+}
+
+model Report {
+  id            String       @id @default(uuid())
+  createdAt     DateTime     @default(now())
+  reason        String
+  details       String?
+
+  threadId      String
+  thread        PrayerThread @relation(fields: [threadId], references: [id])
+
+  reporterId    String
+  reporter      User         @relation("ReportsFiledBy", fields: [reporterId], references: [id])
+}
+
+model UserBlock {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+
+  blockerId   String
+  blockedId   String
+
+  blocker     User     @relation("Blocker", fields: [blockerId], references: [id])
+  blocked     User     @relation("Blocked", fields: [blockedId], references: [id])
+
+  @@unique([blockerId, blockedId])
+}
