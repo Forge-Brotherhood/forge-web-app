@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ClerkProvider } from "@clerk/nextjs";
-import { AuthHandler } from "@/components/auth-handler";
+import { ConditionalLayout } from "@/components/conditional-layout";
+import { Toaster } from "@/components/ui/toaster";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -12,13 +13,20 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Forge - Prayer Request Network",
-  description: "A social network for sharing and supporting prayer requests",
+  title: "Forge - Prayer & Brotherhood",
+  description: "A prayer and brotherhood app for believers to support each other",
   icons: {
     icon: [
       { url: "/favicon.ico" },
     ],
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -32,12 +40,14 @@ export default function RootLayout({
         <body className={`${inter.variable} font-sans antialiased`}>
           <ThemeProvider
             attribute="class"
-            defaultTheme="system"
-            enableSystem
+            defaultTheme="dark"
+            enableSystem={true}
             disableTransitionOnChange
           >
-            <AuthHandler />
-            {children}
+            <ConditionalLayout>
+              {children}
+            </ConditionalLayout>
+            <Toaster />
           </ThemeProvider>
         </body>
       </html>

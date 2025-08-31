@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
@@ -18,7 +18,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { clerkId: userId },
       select: {
         id: true,
@@ -31,8 +31,26 @@ export async function GET() {
       },
     });
 
+    // If user doesn't exist in database, create them
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+      const clerkUser = await currentUser();
+      user = await prisma.user.create({
+        data: {
+          clerkId: userId,
+          email: clerkUser?.emailAddresses?.[0]?.emailAddress ?? null,
+          displayName: clerkUser?.firstName ?? clerkUser?.username ?? null,
+          avatarUrl: clerkUser?.imageUrl ?? null,
+        },
+        select: {
+          id: true,
+          displayName: true,
+          handle: true,
+          email: true,
+          avatarUrl: true,
+          createdAt: true,
+          role: true,
+        },
+      });
     }
 
     return NextResponse.json(user);

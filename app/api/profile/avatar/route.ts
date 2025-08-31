@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { S3Service } from "@/lib/s3";
@@ -44,11 +44,25 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get existing user to check for old avatar
-    const existingUser = await prisma.user.findUnique({
+    // Get existing user to check for old avatar (create if doesn't exist)
+    let existingUser = await prisma.user.findUnique({
       where: { clerkId: userId },
       select: { avatarUrl: true }
     });
+    
+    // If user doesn't exist in database, create them
+    if (!existingUser) {
+      const user = await currentUser();
+      await prisma.user.create({
+        data: {
+          clerkId: userId,
+          email: user?.emailAddresses?.[0]?.emailAddress ?? null,
+          displayName: user?.firstName ?? user?.username ?? null,
+          avatarUrl: null,
+        }
+      });
+      existingUser = { avatarUrl: null };
+    }
 
     // Delete old avatar variants if they exist and are stored in S3
     if (existingUser?.avatarUrl && existingUser.avatarUrl.includes(process.env.S3_BUCKET_NAME || '')) {

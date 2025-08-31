@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Heart, MessageCircle, Clock, Send, ArrowLeft, Trash2, MoreHorizontal } from "lucide-react";
+import { Heart, MessageCircle, Send, ArrowLeft, Trash2, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,16 +15,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { PrayerThreadDropdown } from "@/components/prayer-thread-dropdown";
 import { formatDistanceToNow } from "date-fns";
 import { useRouter } from "next/navigation";
-import { Navbar } from "@/components/navbar";
 import { SignInButton, useAuth } from "@clerk/nextjs";
+import { cn } from "@/lib/utils";
+import { FeedCard, type PrayerRequest } from "@/components/feed-card";
 
 interface User {
   id: string;
   displayName: string | null;
   handle: string | null;
   avatarUrl: string | null;
+}
+
+interface ThreadEntry {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: User;
+  type: 'encouragement' | 'update';
 }
 
 interface Encouragement {
@@ -75,20 +85,42 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
   const [prayerStatus, setPrayerStatus] = useState(initialPrayerStatus);
   const [encouragementText, setEncouragementText] = useState("");
   const [isSubmittingEncouragement, setIsSubmittingEncouragement] = useState(false);
+  const [showEncouragementForm, setShowEncouragementForm] = useState(false);
   const [isSubmittingPrayer, setIsSubmittingPrayer] = useState(false);
   const [encouragements, setEncouragements] = useState(thread.encouragements);
   const [updates, setUpdates] = useState(thread.updates);
+
+  // Create combined thread entries sorted by creation date
+  const threadEntries: ThreadEntry[] = [...encouragements.map(e => ({...e, type: 'encouragement' as const})), ...updates.map(u => ({...u, type: 'update' as const}))]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   const [updateText, setUpdateText] = useState("");
   const [isSubmittingUpdate, setIsSubmittingUpdate] = useState(false);
   const [deletingEncouragement, setDeletingEncouragement] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [encouragementToDelete, setEncouragementToDelete] = useState<Encouragement | null>(null);
-  const [deleteThreadDialogOpen, setDeleteThreadDialogOpen] = useState(false);
   const [isDeletingThread, setIsDeletingThread] = useState(false);
   const router = useRouter();
   const { isSignedIn } = useAuth();
 
-  const handlePrayerToggle = async () => {
+  // Convert thread to PrayerRequest format for FeedCard
+  const prayerRequest: PrayerRequest = {
+    id: thread.id,
+    userId: thread.author?.id || "anonymous",
+    userName: thread.author?.displayName || "Anonymous",
+    userAvatar: thread.author?.avatarUrl || undefined,
+    isAnonymous: thread.isAnonymous,
+    title: thread.title,
+    content: thread.body,
+    createdAt: new Date(thread.createdAt),
+    prayerCount: prayerStatus.prayerCount,
+    encouragementCount: thread._count.encouragements,
+    isFollowing: false, // Not used in thread detail
+    hasPrayed: prayerStatus.hasPrayed,
+    hasEncouraged: false, // We'll handle encouragement differently
+    updateStatus: thread.status === "answered" ? "answered" : null,
+  };
+
+  const handlePrayerToggle = async (id?: string) => {
     if (!isSignedIn) return;
 
     setIsSubmittingPrayer(true);
@@ -173,7 +205,7 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
     setDeleteDialogOpen(true);
   };
 
-  const handleDeleteThread = async () => {
+  const handleDeleteThread = async (id?: string) => {
     if (!currentUser) return;
 
     setIsDeletingThread(true);
@@ -193,7 +225,6 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
       // You could add a toast notification here
     } finally {
       setIsDeletingThread(false);
-      setDeleteThreadDialogOpen(false);
     }
   };
 
@@ -238,159 +269,84 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
 
   return (
     <div className="min-h-screen bg-background">
-      <Navbar />
-      <main className="container max-w-2xl mx-auto py-6 px-4">
-        <div className="space-y-6">
+      <main className="max-w-2xl mx-auto px-4 py-6 pb-24 md:pb-6">
+        <div className="space-y-8">
           {/* Back button */}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => router.back()}
-            className="mb-4"
+            className="mb-6 -ml-2"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
 
-          {/* Thread header */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex items-start space-x-3">
-                  <Avatar className="h-10 w-10">
-                    {thread.author ? (
-                      <>
-                        <AvatarImage src={thread.author.avatarUrl || undefined} />
-                        <AvatarFallback>{getAuthorInitials(thread.author)}</AvatarFallback>
-                      </>
-                    ) : (
-                      <AvatarFallback>?</AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div className="flex-1">
-                    <h1 className="text-lg font-semibold">{thread.title}</h1>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                      <span>
-                        {thread.isAnonymous
-                          ? "Anonymous"
-                          : thread.author?.displayName || "Unknown"}
-                      </span>
-                      <span>•</span>
-                      <span>{formatDistanceToNow(new Date(thread.createdAt))} ago</span>
-                    </div>
-                  </div>
-                </div>
-                {thread.status === "answered" && (
-                  <Badge variant="secondary">
-                    Answered
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm leading-6 whitespace-pre-wrap">{thread.body}</p>
-              
-              {thread.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-4">
-                  {thread.tags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              )}
+          {/* Thread as Feed Card */}
+          <FeedCard
+            prayer={prayerRequest}
+            onPray={handlePrayerToggle}
+            onEncourage={() => setShowEncouragementForm(!showEncouragementForm)}
+            currentUserId={currentUser?.id}
+            isSignedIn={isSignedIn}
+            onDelete={handleDeleteThread}
+            isDeletingId={isDeletingThread ? thread.id : undefined}
+            onCardClick={() => {}} // Disable card click on detail page
+          />
 
-              {/* Prayer button or Thread actions */}
-              <div className="flex items-center justify-between mt-6">
-                <div>
-                  {/* Prayer button - only show for non-authors */}
-                  {isSignedIn && currentUser && thread.author?.id !== currentUser.id ? (
-                    <Button
-                      variant={prayerStatus.hasPrayed ? "default" : "outline"}
-                      size="sm"
-                      onClick={handlePrayerToggle}
-                      disabled={isSubmittingPrayer || thread.status !== "open"}
-                      className="flex items-center gap-2"
-                    >
-                      <Heart
-                        className={`h-4 w-4 ${
-                          prayerStatus.hasPrayed ? "fill-current" : ""
-                        }`}
-                      />
-                      {prayerStatus.hasPrayed ? "Praying" : "Pray"}
-                      <span>({prayerStatus.prayerCount})</span>
-                    </Button>
-                  ) : !isSignedIn ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Heart className="h-4 w-4" />
-                      <span>{prayerStatus.prayerCount} praying</span>
-                      <SignInButton mode="redirect">
-                        <Button variant="outline" size="sm">
-                          Sign in to pray
-                        </Button>
-                      </SignInButton>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Heart className="h-4 w-4" />
-                      <span>{prayerStatus.prayerCount} praying</span>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Delete button for thread authors */}
-                {isSignedIn && currentUser && thread.author?.id === currentUser.id && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setDeleteThreadDialogOpen(true)}
-                    className="flex items-center gap-2"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete Request
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Add encouragement (signed-in users only, but not thread authors) */}
-          {isSignedIn && currentUser && thread.status === "open" && thread.author?.id !== currentUser.id && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
+          {/* Add encouragement form (inline) */}
+          {isSignedIn && currentUser && thread.status === "open" && thread.author?.id !== currentUser.id && showEncouragementForm && (
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50 -mt-4">
+              <CardContent className="p-6">
+                <div className="flex items-center space-x-3 mb-4">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={currentUser.avatarUrl || undefined} />
-                    <AvatarFallback>{getAuthorInitials(currentUser)}</AvatarFallback>
+                    <AvatarFallback className="bg-secondary text-secondary-foreground">{getAuthorInitials(currentUser)}</AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="text-sm font-medium">Share encouragement</p>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="pt-0">
                 <div className="space-y-3">
                   <Textarea
                     placeholder="Write an encouraging message..."
                     value={encouragementText}
                     onChange={(e) => setEncouragementText(e.target.value)}
                     maxLength={300}
-                    className="min-h-[80px]"
+                    className="min-h-[80px] bg-secondary/50 border-border/50 focus:border-accent/50"
+                    autoFocus
                   />
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-muted-foreground">
                       {300 - encouragementText.length} characters remaining
                     </span>
-                    <Button
-                      onClick={handleEncouragementSubmit}
-                      disabled={
-                        !encouragementText.trim() || isSubmittingEncouragement
-                      }
-                      size="sm"
-                    >
-                      <Send className="h-4 w-4 mr-2" />
-                      {isSubmittingEncouragement ? "Posting..." : "Post"}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setShowEncouragementForm(false);
+                          setEncouragementText("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          handleEncouragementSubmit();
+                          setShowEncouragementForm(false);
+                        }}
+                        disabled={
+                          !encouragementText.trim() || isSubmittingEncouragement
+                        }
+                        size="sm"
+                        className="bg-accent/20 text-accent border-accent/40 hover:bg-accent/30 hover:border-accent/60"
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        {isSubmittingEncouragement ? "Sending..." : "Send"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -399,26 +355,24 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
 
           {/* Add update (thread authors only) */}
           {isSignedIn && currentUser && thread.status === "open" && thread.author?.id === currentUser.id && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50">
+              <CardContent className="p-6">
+                <div className="flex items-center space-x-3 mb-4">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={currentUser.avatarUrl || undefined} />
-                    <AvatarFallback>{getAuthorInitials(currentUser)}</AvatarFallback>
+                    <AvatarFallback className="bg-secondary text-secondary-foreground">{getAuthorInitials(currentUser)}</AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="text-sm font-medium">Post an update</p>
+                    <p className="text-sm font-medium">Share an update</p>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="pt-0">
                 <div className="space-y-3">
                   <Textarea
-                    placeholder="Share an update about this prayer request..."
+                    placeholder="Share an update..."
                     value={updateText}
                     onChange={(e) => setUpdateText(e.target.value)}
                     maxLength={1000}
-                    className="min-h-[80px]"
+                    className="min-h-[80px] bg-secondary/50 border-border/50 focus:border-accent/50"
                   />
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-muted-foreground">
@@ -430,9 +384,10 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
                         !updateText.trim() || isSubmittingUpdate
                       }
                       size="sm"
+                      className="bg-accent/20 text-accent border-accent/40 hover:bg-accent/30 hover:border-accent/60"
                     >
                       <Send className="h-4 w-4 mr-2" />
-                      {isSubmittingUpdate ? "Posting..." : "Post Update"}
+                      {isSubmittingUpdate ? "Sending..." : "Send"}
                     </Button>
                   </div>
                 </div>
@@ -440,124 +395,70 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
             </Card>
           )}
 
-          {/* Encouragements */}
-          {encouragements.length > 0 && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <MessageCircle className="h-5 w-5" />
-                Encouragements ({encouragements.length})
-              </h2>
-              
-              <div className="space-y-3">
-                {encouragements.map((encouragement) => (
-                  <Card key={encouragement.id}>
-                    <CardContent className="pt-4">
-                      <div className="flex space-x-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={encouragement.author.avatarUrl || undefined} />
-                          <AvatarFallback>
-                            {getAuthorInitials(encouragement.author)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className="font-medium">
-                                {encouragement.author.displayName || "Unknown"}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {formatDistanceToNow(new Date(encouragement.createdAt))} ago
-                              </span>
-                            </div>
-                            {currentUser && encouragement.author.id === currentUser.id && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem 
-                                    className="text-destructive"
-                                    onClick={() => openDeleteDialog(encouragement)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                          </div>
-                          <p className="text-sm mt-1 leading-5">
-                            {encouragement.body}
-                          </p>
-                        </div>
+          {/* Thread entries */}
+          {threadEntries.length > 0 ? (
+            <div className="space-y-3">
+              {threadEntries.map((entry) => (
+                <div key={entry.id} className="flex space-x-3 p-4 bg-card/30 backdrop-blur-sm border border-border/30 rounded-lg hover:bg-card/40 transition-colors">
+                  <Avatar className="h-8 w-8 flex-shrink-0">
+                    <AvatarImage src={entry.author.avatarUrl || undefined} />
+                    <AvatarFallback className="bg-secondary text-secondary-foreground">
+                      {getAuthorInitials(entry.author)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="font-medium truncate">
+                          {entry.author.displayName || "Unknown"}
+                        </span>
+                        {entry.type === 'update' && (
+                          <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800">
+                            Update
+                          </Badge>
+                        )}
+                        <span className="text-muted-foreground text-xs">
+                          {formatDistanceToNow(new Date(entry.createdAt))} ago
+                        </span>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      {currentUser && entry.author.id === currentUser.id && entry.type === 'encouragement' && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem 
+                              className="text-destructive"
+                              onClick={() => openDeleteDialog(entry as Encouragement)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    <p className="text-sm mt-1 leading-relaxed whitespace-pre-wrap break-words">
+                      {entry.body}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
-
-          {/* Updates */}
-          {updates.length > 0 && (
-            <div className="space-y-4">
-              <Separator />
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Updates ({updates.length})
-              </h2>
-              
-              <div className="space-y-3">
-                {updates.map((update) => (
-                  <Card key={update.id}>
-                    <CardContent className="pt-4">
-                      <div className="flex space-x-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={update.author.avatarUrl || undefined} />
-                          <AvatarFallback>
-                            {getAuthorInitials(update.author)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 text-sm">
-                            <span className="font-medium">
-                              {update.author.displayName || "Unknown"}
-                            </span>
-                            <Badge variant="outline" className="text-xs">
-                              Update
-                            </Badge>
-                            <span className="text-muted-foreground">
-                              {formatDistanceToNow(new Date(update.createdAt))} ago
-                            </span>
-                          </div>
-                          <p className="text-sm mt-1 leading-5 whitespace-pre-wrap">
-                            {update.body}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+          ) : (
+            <div className="py-12 text-center">
+              <MessageCircle className="h-8 w-8 mx-auto mb-3 text-muted-foreground/50" />
+              <p className="text-muted-foreground mb-1">No responses yet</p>
+              <p className="text-sm text-muted-foreground/70">
+                Be the first to encourage this prayer request
+              </p>
             </div>
-          )}
-
-          {/* No encouragements message */}
-          {encouragements.length === 0 && (
-            <Card>
-              <CardContent className="py-8 text-center">
-                <MessageCircle className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-muted-foreground">No encouragements yet</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Be the first to encourage this prayer request
-                </p>
-              </CardContent>
-            </Card>
           )}
         </div>
       </main>
+
 
       <ConfirmationDialog
         open={deleteDialogOpen}
@@ -575,23 +476,6 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
         }}
       />
 
-      <ConfirmationDialog
-        open={deleteThreadDialogOpen}
-        onOpenChange={setDeleteThreadDialogOpen}
-        title="Delete Prayer Request"
-        description={
-          <>
-            Are you sure you want to delete this prayer request? This action cannot be undone.
-            <br /><br />
-            All encouragements, updates, and prayers associated with this request will be permanently removed.
-          </>
-        }
-        confirmText="Delete Prayer Request"
-        confirmVariant="destructive"
-        loading={isDeletingThread}
-        loadingText="Deleting..."
-        onConfirm={handleDeleteThread}
-      />
     </div>
   );
 }

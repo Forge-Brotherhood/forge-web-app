@@ -225,9 +225,32 @@ export async function DELETE(
       );
     }
 
-    // Delete the thread (cascade will handle related records)
-    await prisma.prayerThread.delete({
-      where: { id },
+    // Delete related records first to avoid foreign key constraint errors
+    await prisma.$transaction(async (tx) => {
+      // Delete all prayer cart items for this thread
+      await tx.prayerCartItem.deleteMany({
+        where: { threadId: id },
+      });
+
+      // Delete all prayers for this thread
+      await tx.prayer.deleteMany({
+        where: { threadId: id },
+      });
+
+      // Delete all encouragements for this thread
+      await tx.encouragement.deleteMany({
+        where: { threadId: id },
+      });
+
+      // Delete all thread updates
+      await tx.threadUpdate.deleteMany({
+        where: { threadId: id },
+      });
+
+      // Finally delete the thread
+      await tx.prayerThread.delete({
+        where: { id },
+      });
     });
 
     return NextResponse.json({ success: true });

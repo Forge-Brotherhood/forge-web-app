@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, ThreadStatus } from '@prisma/client';
 import { faker } from '@faker-js/faker';
 
 const prisma = new PrismaClient();
@@ -105,6 +105,86 @@ const prayerCategories = {
       'Community divided over recent events. Praying for unity and healing.',
     ],
   },
+  education: {
+    titles: [
+      'College decisions',
+      'Struggling in school',
+      'Teacher needs prayer',
+      'Student loan stress',
+      'Career training',
+      'Educational goals',
+      'Learning difficulties',
+    ],
+    bodies: [
+      'Senior year and still don\'t know what to major in. Need wisdom for college choice.',
+      'Struggling with chemistry class. Please pray for understanding and good grades.',
+      'Teaching at a difficult school this year. Pray for patience and impact.',
+      'Overwhelmed by student loan debt. Need prayers for financial breakthrough.',
+      'Starting nursing program next month. Prayers for success and perseverance.',
+      'Child has been diagnosed with learning disability. Need guidance and resources.',
+      'Working full-time while going to school. Pray for energy and balance.',
+    ],
+  },
+  travel: {
+    titles: [
+      'Safe travels needed',
+      'Mission trip prayers',
+      'Military deployment',
+      'Family vacation safety',
+      'Work travel',
+      'Moving across country',
+      'International travel',
+    ],
+    bodies: [
+      'Driving cross-country for job relocation. Prayers for safe travel and smooth transition.',
+      'Husband deploying overseas for 12 months. Pray for his safety and our family.',
+      'Taking teenagers on mission trip to Mexico. Prayers for safety and hearts to be changed.',
+      'Flying for the first time with anxiety. Please pray for peace and safe flight.',
+      'Moving elderly parents to assisted living. Pray for emotional adjustment.',
+      'Business trip to potentially dangerous region. Need prayers for protection.',
+      'Backpacking through Europe after graduation. Pray for safety and wisdom.',
+    ],
+  },
+  pregnancy: {
+    titles: [
+      'Pregnancy complications',
+      'Trying to conceive',
+      'High-risk pregnancy',
+      'Miscarriage grief',
+      'Adoption process',
+      'New parent anxiety',
+      'Infertility journey',
+    ],
+    bodies: [
+      'Just found out we\'re expecting after years of trying. Prayers for healthy pregnancy.',
+      'Doctors found complications at 20-week ultrasound. Need prayers for baby\'s health.',
+      'Third miscarriage this year. Heartbroken and need prayers for healing.',
+      'Adoption home study next week. Prayers that everything goes smoothly.',
+      'First-time parent and feeling overwhelmed. Need wisdom and peace.',
+      'Wife is high-risk pregnancy. Prayers for both mom and baby to stay healthy.',
+      'Five years of infertility treatments. Running out of hope and money.',
+    ],
+  },
+  mental: {
+    titles: [
+      'Depression battle',
+      'Anxiety overwhelm',
+      'Panic attacks',
+      'Therapy journey',
+      'Medication concerns',
+      'Suicidal thoughts',
+      'PTSD healing',
+    ],
+    bodies: [
+      'Depression has been worse lately. Struggling to get out of bed. Need prayers.',
+      'Panic attacks started after car accident. Please pray for healing and peace.',
+      'Starting therapy for childhood trauma. Pray for courage and breakthrough.',
+      'Considering medication for anxiety. Need wisdom about treatment options.',
+      'Been having dark thoughts lately. Please pray for hope and professional help.',
+      'PTSD from military service affecting my family. Need prayers for healing.',
+      'Seasonal depression hitting hard this winter. Pray for light and joy.',
+    ],
+  },
 };
 
 const encouragementTemplates = [
@@ -147,7 +227,13 @@ const tags = [
   'urgent', 'health', 'family', 'relationships', 'work', 'finances', 
   'spiritual-growth', 'healing', 'guidance', 'provision', 'protection',
   'peace', 'wisdom', 'strength', 'faith', 'hope', 'breakthrough',
-  'restoration', 'deliverance', 'salvation', 'ministry', 'community'
+  'restoration', 'deliverance', 'salvation', 'ministry', 'community',
+  'anxiety', 'depression', 'grief', 'loss', 'addiction', 'recovery',
+  'children', 'teens', 'parenting', 'marriage', 'divorce', 'dating',
+  'school', 'college', 'career', 'retirement', 'military', 'travel',
+  'pregnancy', 'infertility', 'adoption', 'surgery', 'chronic-illness',
+  'mental-health', 'elderly', 'loneliness', 'housing', 'legal-issues',
+  'persecution', 'evangelism', 'missions', 'church', 'worship', 'prayer'
 ];
 
 async function seed() {
@@ -166,34 +252,34 @@ async function seed() {
   await prisma.guestSession.deleteMany();
   await prisma.user.deleteMany();
 
-  // Create 50 users
-  console.log('👥 Creating 50 users...');
-  const users = [];
+  // Create 100 users
+  console.log('👥 Creating 100 users...');
+  const usersData = [];
   
-  for (let i = 1; i <= 50; i++) {
+  for (let i = 1; i <= 100; i++) {
     const firstName = faker.person.firstName();
     const lastName = faker.person.lastName();
-    const user = await prisma.user.create({
-      data: {
-        clerkId: `test_user_${i}`,
-        email: faker.internet.email({ firstName, lastName }).toLowerCase(),
-        displayName: `${firstName} ${lastName}`,
-        handle: faker.internet.username({ firstName, lastName }).toLowerCase().slice(0, 20),
-        avatarUrl: Math.random() > 0.3 ? faker.image.avatar() : null,
-        createdAt: faker.date.past({ years: 2 }),
-        firstPostConsentedAt: Math.random() > 0.2 ? faker.date.past({ years: 1 }) : null,
-      },
+    usersData.push({
+      clerkId: `test_user_${i}`,
+      email: faker.internet.email({ firstName, lastName }).toLowerCase(),
+      displayName: `${firstName} ${lastName}`,
+      handle: faker.internet.username({ firstName, lastName }).toLowerCase().slice(0, 20),
+      avatarUrl: Math.random() > 0.3 ? faker.image.avatar() : null,
+      createdAt: faker.date.past({ years: 2 }),
+      firstPostConsentedAt: Math.random() > 0.2 ? faker.date.past({ years: 2 }) : null,
     });
-    users.push(user);
   }
+  
+  await prisma.user.createMany({ data: usersData });
+  const users = await prisma.user.findMany();
 
   console.log('✅ Users created');
 
-  // Create 100 prayer threads
-  console.log('🙏 Creating 100 prayer threads...');
-  const threads = [];
+  // Create 1000 prayer threads
+  console.log('🙏 Creating 1000 prayer threads...');
+  const threadsData = [];
   
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 1000; i++) {
     const author = users[Math.floor(Math.random() * users.length)];
     const categoryKeys = Object.keys(prayerCategories);
     const category = categoryKeys[Math.floor(Math.random() * categoryKeys.length)] as keyof typeof prayerCategories;
@@ -204,58 +290,64 @@ async function seed() {
     const isAnonymous = Math.random() < 0.2; // 20% anonymous
     const isAnswered = Math.random() < 0.15; // 15% answered
     
-    const createdAt = faker.date.recent({ days: 30 });
+    const createdAt = faker.date.recent({ days: 90 });
     const expiresAt = new Date(createdAt);
     expiresAt.setDate(expiresAt.getDate() + 7);
     
     const threadTags = faker.helpers.arrayElements(tags, { min: 0, max: 4 });
     
-    const thread = await prisma.prayerThread.create({
-      data: {
-        title,
-        body,
-        tags: threadTags,
-        isAnonymous,
-        status: isAnswered ? 'answered' : 'open',
-        createdAt,
-        expiresAt,
-        answeredAt: isAnswered ? faker.date.between({ from: createdAt, to: new Date() }) : null,
-        authorId: author.id,
-      },
+    threadsData.push({
+      title,
+      body,
+      tags: threadTags,
+      isAnonymous,
+      status: isAnswered ? ThreadStatus.answered : ThreadStatus.open,
+      createdAt,
+      expiresAt,
+      answeredAt: isAnswered ? faker.date.between({ from: createdAt, to: new Date() }) : null,
+      authorId: author.id,
     });
-    threads.push(thread);
   }
+  
+  await prisma.prayerThread.createMany({ data: threadsData });
+  const threads = await prisma.prayerThread.findMany();
 
   console.log('✅ Prayer threads created');
 
-  // Create encouragements (200-300 total)
+  // Create encouragements (2000-3000 total)
   console.log('💬 Creating encouragements...');
-  const encouragementCount = faker.number.int({ min: 200, max: 300 });
+  const encouragementCount = faker.number.int({ min: 2000, max: 3000 });
+  const encouragementsData = [];
   
   for (let i = 0; i < encouragementCount; i++) {
     const thread = faker.helpers.arrayElement(threads);
     const availableUsers = users.filter(u => u.id !== thread.authorId);
     const author = faker.helpers.arrayElement(availableUsers);
     
-    await prisma.encouragement.create({
-      data: {
-        body: faker.helpers.arrayElement(encouragementTemplates),
-        threadId: thread.id,
-        authorId: author.id,
-        createdAt: faker.date.between({ 
-          from: thread.createdAt, 
-          to: new Date() 
-        }),
-      },
+    encouragementsData.push({
+      body: faker.helpers.arrayElement(encouragementTemplates),
+      threadId: thread.id,
+      authorId: author.id,
+      createdAt: faker.date.between({ 
+        from: thread.createdAt, 
+        to: new Date() 
+      }),
     });
+  }
+  
+  // Create encouragements in batches of 500
+  for (let i = 0; i < encouragementsData.length; i += 500) {
+    const batch = encouragementsData.slice(i, i + 500);
+    await prisma.encouragement.createMany({ data: batch });
   }
 
   console.log('✅ Encouragements created');
 
-  // Create prayers (500-800 total)
+  // Create prayers (5000-8000 total)
   console.log('❤️ Creating prayers...');
-  const prayerCount = faker.number.int({ min: 500, max: 800 });
+  const prayerCount = faker.number.int({ min: 5000, max: 8000 });
   const prayerPairs = new Set<string>();
+  const prayersData = [];
   
   for (let i = 0; i < prayerCount; i++) {
     const thread = faker.helpers.arrayElement(threads);
@@ -269,53 +361,58 @@ async function seed() {
     
     prayerPairs.add(pairKey);
     
-    await prisma.prayer.create({
-      data: {
-        threadId: thread.id,
-        userId: user.id,
-        createdAt: faker.date.between({ 
-          from: thread.createdAt, 
-          to: new Date() 
-        }),
-      },
+    prayersData.push({
+      threadId: thread.id,
+      userId: user.id,
+      createdAt: faker.date.between({ 
+        from: thread.createdAt, 
+        to: new Date() 
+      }),
     });
+  }
+  
+  // Create prayers in batches of 1000
+  for (let i = 0; i < prayersData.length; i += 1000) {
+    const batch = prayersData.slice(i, i + 1000);
+    await prisma.prayer.createMany({ data: batch });
   }
 
   console.log('✅ Prayers created');
 
-  // Create thread updates (30-50 total)
+  // Create thread updates (200-400 total)
   console.log('📝 Creating thread updates...');
-  const updateCount = faker.number.int({ min: 30, max: 50 });
+  const updateCount = faker.number.int({ min: 200, max: 400 });
   const threadsWithUpdates = faker.helpers.arrayElements(threads, updateCount);
+  const updatesData = [];
   
   for (const thread of threadsWithUpdates) {
     const updateText = faker.helpers.arrayElement(updateTemplates);
     const additionalContext = faker.lorem.sentence();
     
-    await prisma.threadUpdate.create({
-      data: {
-        body: `${updateText} ${additionalContext}`,
-        threadId: thread.id,
-        authorId: thread.authorId,
-        createdAt: faker.date.between({ 
-          from: thread.createdAt, 
-          to: new Date() 
-        }),
-      },
+    updatesData.push({
+      body: `${updateText} ${additionalContext}`,
+      threadId: thread.id,
+      authorId: thread.authorId,
+      createdAt: faker.date.between({ 
+        from: thread.createdAt, 
+        to: new Date() 
+      }),
     });
   }
+  
+  await prisma.threadUpdate.createMany({ data: updatesData });
 
   console.log('✅ Thread updates created');
 
   // Create some guest sessions with prayers
   console.log('👤 Creating guest sessions...');
-  const guestSessionCount = faker.number.int({ min: 10, max: 20 });
+  const guestSessionCount = faker.number.int({ min: 50, max: 100 });
   
   for (let i = 0; i < guestSessionCount; i++) {
     const guestSession = await prisma.guestSession.create({
       data: {
         deviceHash: faker.string.alphanumeric(64),
-        createdAt: faker.date.recent({ days: 7 }),
+        createdAt: faker.date.recent({ days: 30 }),
       },
     });
     

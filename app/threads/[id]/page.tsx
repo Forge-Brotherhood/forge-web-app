@@ -2,9 +2,44 @@ import { notFound } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { ThreadDetail } from "./thread-detail";
+import type { Metadata } from "next";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
+  
+  const thread = await prisma.prayerThread.findUnique({
+    where: { id },
+    select: {
+      title: true,
+      body: true,
+      isAnonymous: true,
+      author: {
+        select: {
+          displayName: true,
+        },
+      },
+    },
+  });
+
+  if (!thread) {
+    return {
+      title: "Prayer Request Not Found - Forge",
+    };
+  }
+
+  const authorName = thread.isAnonymous ? "Anonymous" : (thread.author?.displayName || "Unknown");
+  const description = thread.body.length > 160 
+    ? thread.body.substring(0, 157) + "..." 
+    : thread.body;
+
+  return {
+    title: `${thread.title} - Forge Prayer Request`,
+    description: `Prayer request by ${authorName}: ${description}`,
+  };
 }
 
 export default async function ThreadPage({ params }: PageProps) {

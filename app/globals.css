@@ -5,24 +5,24 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
+    --foreground: 0 0% 10%; /* Darkened from 3.9% for better contrast */
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
+    --card-foreground: 0 0% 10%; /* Darkened for better contrast */
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
+    --popover-foreground: 0 0% 10%; /* Darkened for better contrast */
     --primary: 0 0% 9%;
     --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    --secondary: 0 0% 94%; /* Slightly darker for better visibility */
+    --secondary-foreground: 0 0% 15%; /* Darkened for better contrast */
+    --muted: 0 0% 94%; /* Slightly darker for better visibility */
+    --muted-foreground: 0 0% 35%; /* Darkened from 45.1% for better contrast */
+    --accent: 33 90% 40%; /* #B45309 - darker amber for better contrast in light mode */
+    --accent-foreground: 0 0% 100%; /* Pure white for maximum contrast */
+    --destructive: 0 84.2% 50%; /* Darkened for better contrast */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 85%; /* Slightly darker border */
+    --input: 0 0% 85%; /* Matching border */
+    --ring: 33 90% 40%; /* matching darker amber for focus */
     --radius: 0.5rem;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
@@ -32,25 +32,26 @@
   }
 
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
+    --background: 220 15% 6%; /* #0a0b0e - darker for better depth */
+    --foreground: 0 0% 92%; /* #ebebeb - slightly less bright for eye comfort */
+    --card: 220 15% 9%; /* #101215 - better separation from background */
+    --card-foreground: 0 0% 92%;
+    --popover: 220 15% 9%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 0 0% 92%;
     --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --secondary: 220 15% 13%; /* #1a1c22 - better visibility */
+    --secondary-foreground: 0 0% 90%;
+    --muted: 220 15% 18%; /* #232530 - darker for better contrast */
+    --muted-foreground: 0 0% 65%; /* #a6a6a6 - lighter for better readability */
+    --accent: 45 95% 62%; /* #FABD23 - slightly less bright for better contrast */
+    --accent-foreground: 0 0% 5%; /* Near black for maximum contrast */
+    --destructive: 0 70% 45%; /* Brighter for better visibility */
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 15% 16%; /* #1f2129 - more visible borders */
+    --input: 220 15% 13%;
+    --ring: 45 95% 62%; /* matching accent for focus */
+    --forge-glow: 45 100% 68%; /* #FCC434 - adjusted glow */
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
@@ -73,5 +74,68 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* Typography improvements */
+  h1 {
+    @apply text-3xl font-bold tracking-tight;
+  }
+  
+  h2 {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+  
+  h3 {
+    @apply text-xl font-semibold tracking-tight;
+  }
+  
+  p {
+    @apply leading-relaxed;
+  }
+  
+  /* Better focus states */
+  button:focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .forge-glow {
+    @apply shadow-[0_0_20px_rgba(217,119,6,0.5)] dark:shadow-[0_0_20px_rgba(251,191,36,0.5)];
+  }
+  
+  .forge-gradient {
+    @apply bg-gradient-to-r from-amber-500 to-amber-600 dark:from-amber-400 dark:to-yellow-500;
+  }
+  
+  .forge-text-gradient {
+    @apply bg-gradient-to-r from-amber-500 to-amber-600 bg-clip-text text-transparent dark:from-amber-400 dark:to-yellow-500;
+  }
+  
+  .sidebar-icon {
+    @apply w-7 h-7 transition-all duration-200 ease-in-out;
+  }
+  
+  .sidebar-icon-active {
+    @apply text-accent drop-shadow-[0_0_10px_rgba(217,119,6,0.8)] dark:drop-shadow-[0_0_10px_rgba(251,191,36,0.8)];
+  }
+  
+  /* Subtle brand colors */
+  .forge-amber-subtle {
+    @apply bg-amber-500/10 text-amber-700 border-amber-500/20 dark:text-amber-400;
+  }
+  
+  .forge-amber-subtle-hover {
+    @apply hover:bg-amber-500/20 hover:border-amber-500/30;
+  }
+  
+  .forge-success-subtle {
+    @apply bg-green-500/15 text-green-700 border-green-500/30 dark:bg-green-500/10 dark:text-green-400 dark:border-green-500/20;
+  }
+  
+  .forge-muted-subtle {
+    @apply bg-gray-500/10 text-gray-600 border-gray-500/20 dark:text-gray-400;
   }
 }
