@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { User, Heart, MessageCircle, Clock, Trash2, MoreHorizontal } from "lucide-react";
+import { User, BookmarkPlus, HandHeart, Clock, Trash2, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -168,7 +168,7 @@ export function PrayerThreadList() {
   return (
     <div className="space-y-6">
       {threads.map((thread) => (
-        <Link key={thread.id} href={`/threads/${thread.id}`} className="block">
+        <Link key={thread.id} href={`/threads/${thread.id}`} prefetch={true} className="block">
           <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
@@ -184,7 +184,9 @@ export function PrayerThreadList() {
                     )}
                   </Avatar>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-sm">{thread.title}</h3>
+                    <div className="text-sm line-clamp-2 mb-1">
+                      {thread.body || "Prayer request"}
+                    </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                       <span>
                         {thread.isAnonymous
@@ -238,11 +240,11 @@ export function PrayerThreadList() {
               
               <div className="flex items-center gap-4 mt-4 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
-                  <Heart className="h-3 w-3" />
+                  <BookmarkPlus className="h-3 w-3" />
                   <span>{thread._count.prayers} praying</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <MessageCircle className="h-3 w-3" />
+                  <HandHeart className="h-3 w-3" />
                   <span>{thread._count.encouragements} encouragements</span>
                 </div>
                 {thread._count.updates > 0 && (

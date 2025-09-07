@@ -9,11 +9,12 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Moon, Sun, Monitor, Settings, User, Bell, LogOut, Edit, Camera, Loader2 } from "lucide-react";
+import { Moon, Sun, Monitor, Settings, User, Bell, LogOut, Edit, Camera, Loader2, Bug, Users, Plus, Trash, RefreshCw, Zap, Database, Shield, Trophy, Flame } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useClerk, useUser } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
 
 export default function ProfilePage() {
   const { theme, setTheme } = useTheme();
@@ -29,10 +30,17 @@ export default function ProfilePage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugLoading, setDebugLoading] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  
+  // Check if we're in development mode
+  const isDev = process.env.NODE_ENV === "development";
 
   // Prevent hydration mismatch and initialize form data
   useEffect(() => {
@@ -40,6 +48,7 @@ export default function ProfilePage() {
     if (clerkUser) {
       setFirstName(clerkUser.firstName || "");
       setLastName(clerkUser.lastName || "");
+      setDisplayName(clerkUser.fullName || "");
     }
   }, [clerkUser]);
 
@@ -60,8 +69,11 @@ export default function ProfilePage() {
         const profileResponse = await fetch(`/api/profile`);
         if (profileResponse.ok) {
           const profile = await profileResponse.json();
-          if (profile.avatarUrl) {
-            setUserAvatar(profile.avatarUrl);
+          if (profile.profileImageUrl) {
+            setUserAvatar(profile.profileImageUrl);
+          }
+          if (profile.displayName) {
+            setDisplayName(profile.displayName);
           }
         }
       } catch (error) {
@@ -126,16 +138,19 @@ export default function ProfilePage() {
         
         const avatarResult = await avatarResponse.json();
         avatarUrl = avatarResult.avatarUrl;
+        // Immediately update the avatar state
+        setUserAvatar(avatarUrl);
       }
       
       // Update user profile information
       const updateData = {
+        displayName: displayName.trim() || undefined,
         firstName,
         lastName,
         ...(avatarUrl && { profileImageUrl: avatarUrl })
       };
       
-      const response = await fetch(`/api/users/${clerkUser.id}/update`, {
+      const response = await fetch(`/api/profile`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -147,7 +162,12 @@ export default function ProfilePage() {
         throw new Error("Failed to update profile");
       }
       
-      await response.json();
+      const updatedProfile = await response.json();
+      
+      // Update the avatar state if it was changed
+      if (updatedProfile.profileImageUrl) {
+        setUserAvatar(updatedProfile.profileImageUrl);
+      }
       
       toast({
         title: "Profile updated",
@@ -157,9 +177,6 @@ export default function ProfilePage() {
       setIsEditDialogOpen(false);
       setSelectedImage(null);
       setPreviewUrl(null);
-      
-      // Reload user data to reflect changes
-      window.location.reload();
     } catch (error) {
       console.error("Failed to update profile:", error);
       toast({
@@ -176,8 +193,61 @@ export default function ProfilePage() {
     setIsEditDialogOpen(false);
     setFirstName(clerkUser?.firstName || "");
     setLastName(clerkUser?.lastName || "");
+    setDisplayName(clerkUser?.fullName || "");
     setSelectedImage(null);
     setPreviewUrl(null);
+  };
+
+  // Debug menu functions
+  const handleDebugAction = async (action: string, data?: any) => {
+    setDebugLoading(action);
+    try {
+      const response = await fetch("/api/debug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, data }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || "Debug action failed");
+      }
+
+      toast({
+        title: "Debug Action Success",
+        description: result.message || `Action ${action} completed`,
+      });
+
+      // Refresh debug info if it was loaded
+      if (debugInfo) {
+        await loadDebugInfo();
+      }
+    } catch (error) {
+      console.error("Debug action failed:", error);
+      toast({
+        title: "Debug Action Failed",
+        description: error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setDebugLoading(null);
+    }
+  };
+
+  const loadDebugInfo = async () => {
+    try {
+      const response = await fetch("/api/debug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "getDebugInfo" }),
+      });
+
+      const data = await response.json();
+      setDebugInfo(data);
+    } catch (error) {
+      console.error("Failed to load debug info:", error);
+    }
   };
 
   // Get the current theme for display, defaulting to dark during SSR
@@ -222,7 +292,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <Avatar className="w-16 h-16">
-                  <AvatarImage src={userAvatar || clerkUser.imageUrl} alt={clerkUser.fullName || clerkUser.username || "User"} />
+                  <AvatarImage src={userAvatar || undefined} alt={clerkUser.fullName || clerkUser.username || "User"} />
                   <AvatarFallback className="bg-secondary text-secondary-foreground text-lg">
                     {(clerkUser.fullName || clerkUser.username || "U").split(' ').map(n => n[0]).join('').toUpperCase()}
                   </AvatarFallback>
@@ -258,7 +328,7 @@ export default function ProfilePage() {
                       <div className="relative">
                         <Avatar className="w-24 h-24">
                           <AvatarImage 
-                            src={previewUrl || userAvatar || clerkUser.imageUrl} 
+                            src={previewUrl || userAvatar || undefined} 
                             alt="Profile preview" 
                           />
                           <AvatarFallback className="bg-secondary text-secondary-foreground text-2xl">
@@ -283,6 +353,16 @@ export default function ProfilePage() {
                           onChange={handleImageSelect}
                         />
                       </div>
+                    </div>
+                    
+                    <div className="grid gap-2">
+                      <Label htmlFor="displayName">Display Name</Label>
+                      <Input
+                        id="displayName"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Enter your display name"
+                      />
                     </div>
                     
                     <div className="grid gap-2">
@@ -484,6 +564,248 @@ export default function ProfilePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Debug Menu - Only show in development */}
+        {isDev && (
+          <Card className="mt-6 bg-card/50 backdrop-blur-sm border-amber-500/20">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-amber-500">
+                  <Bug className="w-5 h-5" />
+                  Developer Debug Menu
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="debug-mode" className="text-sm text-muted-foreground">
+                    Enable Debug
+                  </Label>
+                  <Switch
+                    id="debug-mode"
+                    checked={debugMode}
+                    onCheckedChange={(checked) => {
+                      setDebugMode(checked);
+                      if (checked) {
+                        loadDebugInfo();
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            
+            {debugMode && (
+              <CardContent className="space-y-4">
+                {/* Group Management */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    Group Management
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("joinCoreGroup", { addFakeMembers: true })}
+                      disabled={debugLoading === "joinCoreGroup"}
+                    >
+                      {debugLoading === "joinCoreGroup" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4 mr-2" />
+                      )}
+                      Join Core Group
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("joinCircleGroup")}
+                      disabled={debugLoading === "joinCircleGroup"}
+                    >
+                      {debugLoading === "joinCircleGroup" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4 mr-2" />
+                      )}
+                      Join Prayer Circle
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("leaveAllGroups")}
+                      disabled={debugLoading === "leaveAllGroups"}
+                      className="text-destructive"
+                    >
+                      {debugLoading === "leaveAllGroups" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Trash className="w-4 h-4 mr-2" />
+                      )}
+                      Leave All Groups
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Test Data Generation */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Database className="w-4 h-4" />
+                    Test Data
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("createTestThread", { 
+                        title: "Test Prayer Request",
+                        content: "This is a test prayer request created from the debug menu.",
+                        sharedToCommunity: true 
+                      })}
+                      disabled={debugLoading === "createTestThread"}
+                    >
+                      {debugLoading === "createTestThread" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4 mr-2" />
+                      )}
+                      Create Test Thread
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("generateTestData", { numThreads: 5 })}
+                      disabled={debugLoading === "generateTestData"}
+                    >
+                      {debugLoading === "generateTestData" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Zap className="w-4 h-4 mr-2" />
+                      )}
+                      Generate 5 Threads
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("clearAllData")}
+                      disabled={debugLoading === "clearAllData"}
+                      className="text-destructive"
+                    >
+                      {debugLoading === "clearAllData" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Trash className="w-4 h-4 mr-2" />
+                      )}
+                      Clear All Data
+                    </Button>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* User Settings */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    User Settings
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("setPrayerStreak", { streak: 7 })}
+                      disabled={debugLoading === "setPrayerStreak"}
+                    >
+                      {debugLoading === "setPrayerStreak" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Flame className="w-4 h-4 mr-2" />
+                      )}
+                      Set 7-Day Streak
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("resetPrayerStreak")}
+                      disabled={debugLoading === "resetPrayerStreak"}
+                    >
+                      {debugLoading === "resetPrayerStreak" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                      )}
+                      Reset Streak
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDebugAction("toggleSponsor")}
+                      disabled={debugLoading === "toggleSponsor"}
+                    >
+                      {debugLoading === "toggleSponsor" ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Trophy className="w-4 h-4 mr-2" />
+                      )}
+                      Toggle Sponsor
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Debug Info Display */}
+                {debugInfo && (
+                  <>
+                    <Separator />
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-foreground">Debug Information</h4>
+                      <div className="bg-secondary/50 rounded-lg p-3 text-xs font-mono overflow-auto max-h-64">
+                        <div className="space-y-2">
+                          <div>
+                            <span className="text-muted-foreground">User ID:</span> {debugInfo.id}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Prayer Streak:</span> {debugInfo.prayerStreak} days
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Is Sponsor:</span> {debugInfo.isSponsor ? "Yes" : "No"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Groups:</span>
+                            {debugInfo.memberships?.map((m: any, index: number) => (
+                              <div key={m.id || `membership-${index}`} className="ml-4 mt-1">
+                                • {m.group.name} ({m.group.groupType}) - {m.status}
+                                <span className="text-muted-foreground ml-2">
+                                  ({m.group._count.members} members, {m.group._count.threads} threads)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Stats:</span>
+                            <div className="ml-4">
+                              • Threads: {debugInfo._count?.threads || 0}<br/>
+                              • Posts: {debugInfo._count?.posts || 0}<br/>
+                              • Prayers: {debugInfo._count?.prayerActions || 0}<br/>
+                              • Reactions: {debugInfo._count?.reactions || 0}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadDebugInfo}
+                        className="w-full"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Refresh Debug Info
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            )}
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -92,7 +92,7 @@ export function Navbar() {
                     aria-label="User menu"
                   >
                     <Avatar className="h-8 w-8 cursor-pointer">
-                      <AvatarImage src={profile?.avatarUrl || user?.imageUrl} alt={profile?.displayName || user?.firstName || "User"} />
+                      <AvatarImage src={profile?.avatarUrl || profile?.profileImageUrl || undefined} alt={profile?.displayName || user?.firstName || "User"} />
                       <AvatarFallback>{getInitials()}</AvatarFallback>
                     </Avatar>
                   </button>

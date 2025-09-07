@@ -14,7 +14,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const encouragements = await prisma.encouragement.findMany({
+    const encouragements = await prisma.post.findMany({
       where: { threadId: id },
       include: {
         author: {
@@ -22,7 +22,7 @@ export async function GET(
             id: true,
             displayName: true,
             handle: true,
-            avatarUrl: true,
+            profileImageUrl: true,
           },
         },
       },
@@ -72,7 +72,7 @@ export async function POST(
     }
 
     // Check if thread exists
-    const thread = await prisma.prayerThread.findUnique({
+    const thread = await prisma.thread.findUnique({
       where: { id },
     });
 
@@ -99,11 +99,12 @@ export async function POST(
       );
     }
 
-    const encouragement = await prisma.encouragement.create({
+    const encouragement = await prisma.post.create({
       data: {
-        body: validatedData.body,
+        content: validatedData.body,
         threadId: id,
         authorId: user.id,
+        kind: "encouragement",
       },
       include: {
         author: {
@@ -111,27 +112,27 @@ export async function POST(
             id: true,
             displayName: true,
             handle: true,
-            avatarUrl: true,
+            profileImageUrl: true,
           },
         },
       },
     });
 
-    // Create notification for thread author if not anonymous
-    if (thread.authorId !== user.id) {
-      await prisma.notification.create({
-        data: {
-          userId: thread.authorId,
-          kind: "new_encouragement",
-          payload: {
-            threadId: thread.id,
-            threadTitle: thread.title,
-            encouragementId: encouragement.id,
-            authorName: user.displayName || "Someone",
-          },
-        },
-      });
-    }
+    // TODO: Create notification for thread author (notification model not implemented yet)
+    // if (thread.authorId !== user.id) {
+    //   await prisma.notification.create({
+    //     data: {
+    //       userId: thread.authorId,
+    //       kind: "new_encouragement",
+    //       payload: {
+    //         threadId: thread.id,
+    //         threadTitle: thread.title,
+    //         encouragementId: encouragement.id,
+    //         authorName: user.displayName || "Someone",
+    //       },
+    //     },
+    //   });
+    // }
 
     return NextResponse.json(encouragement, { status: 201 });
   } catch (error) {

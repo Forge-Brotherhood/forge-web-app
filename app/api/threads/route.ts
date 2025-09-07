@@ -4,55 +4,168 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const createThreadSchema = z.object({
-  title: z.string().min(1).max(100),
-  body: z.string().min(1),
-  tags: z.array(z.string()).optional().default([]),
-  isAnonymous: z.boolean().optional().default(false),
+  groupId: z.string().uuid().nullable().optional(),
+  title: z.string().min(1).max(200).optional(),
+  content: z.string().min(1),
+  postKind: z.enum(["request", "update", "testimony"]).default("request"),
+  sharedToCommunity: z.boolean().default(false),
+  isAnonymous: z.boolean().default(false),
+  // New approach: support both mediaIds and mediaUrls
+  mediaIds: z.array(z.string()).optional(), // Array of Media record IDs for videos
+  mediaUrls: z.array(z.object({
+    url: z.string(),
+    type: z.enum(["image", "video", "audio"]),
+    width: z.number().optional(),
+    height: z.number().optional(),
+    durationS: z.number().optional(),
+    // MUX-specific fields for videos
+    muxAssetId: z.string().optional(),
+    muxPlaybackId: z.string().optional(),
+    uploadStatus: z.enum(["uploading", "processing", "ready", "error"]).optional(),
+    uploadId: z.string().optional(),
+    filename: z.string().optional(),
+  })).optional(),
 });
 
-// GET /api/threads - List all threads
+// GET /api/threads - List threads (core group, circle, or community)
 export async function GET(request: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
+    const source = searchParams.get("source") || "core"; // core | circle | community
     const status = searchParams.get("status") || "open";
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    const threads = await prisma.prayerThread.findMany({
-      where: {
-        status: status as any,
-      },
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
       include: {
-        author: {
-          select: {
-            id: true,
-            displayName: true,
-            handle: true,
-            avatarUrl: true,
-          },
-        },
-        _count: {
-          select: {
-            prayers: true,
-            encouragements: true,
-            updates: true,
+        memberships: {
+          include: {
+            group: true,
           },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: limit,
-      skip: offset,
     });
 
-    // Hide author info for anonymous threads
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    let whereClause: any = {
+      status: status as any,
+      deletedAt: null,
+    };
+
+    if (source === "core") {
+      // Get threads from user's core group
+      const coreGroup = user.memberships.find(m => m.group.groupType === "core");
+      if (!coreGroup) {
+        return NextResponse.json({ threads: [], totalCount: 0 });
+      }
+      whereClause.groupId = coreGroup.groupId;
+    } else if (source === "circle") {
+      // Get threads from all user's circle groups
+      const circleGroupIds = user.memberships
+        .filter(m => m.group.groupType === "circle")
+        .map(m => m.groupId);
+      whereClause.groupId = { in: circleGroupIds };
+    } else if (source === "community") {
+      // Get threads shared to community
+      whereClause.sharedToCommunity = true;
+    }
+
+    const [threads, totalCount] = await Promise.all([
+      prisma.thread.findMany({
+        where: whereClause,
+        include: {
+          author: {
+            select: {
+              id: true,
+              displayName: true,
+              firstName: true,
+              profileImageUrl: true,
+            },
+          },
+          group: {
+            select: {
+              id: true,
+              name: true,
+              groupType: true,
+            },
+          },
+          posts: {
+            where: {
+              kind: "request",
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+            take: 1,
+            include: {
+              media: true,
+              author: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  firstName: true,
+                  profileImageUrl: true,
+                },
+              },
+              reactions: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      displayName: true,
+                      firstName: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              posts: true,
+              prayers: true,
+            },
+          },
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+        take: limit,
+        skip: offset,
+      }),
+      prisma.thread.count({ where: whereClause }),
+    ]);
+
+    // Sanitize anonymous threads
     const sanitizedThreads = threads.map(thread => ({
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
+      posts: thread.posts.map(post => ({
+        ...post,
+        author: thread.isAnonymous ? null : post.author,
+      })),
     }));
 
-    return NextResponse.json(sanitizedThreads);
+    return NextResponse.json({
+      threads: sanitizedThreads,
+      totalCount,
+      hasMore: offset + limit < totalCount,
+    });
   } catch (error) {
     console.error("Error fetching threads:", error);
     return NextResponse.json(
@@ -62,7 +175,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/threads - Create a new thread
+// POST /api/threads - Create a new thread with initial post
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -74,11 +187,23 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const validatedData = createThreadSchema.parse(body);
-
-    // Get the user from database
+    
+    console.log('Received request body:', body);
+    
+    // Legacy support: transform 'body' field to 'content'
+    if (body.body && !body.content) {
+      body.content = body.body;
+    }
+    
+    // Get user with memberships
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
+      include: {
+        memberships: {
+          where: { status: "active" },
+          include: { group: true },
+        },
+      },
     });
 
     if (!user) {
@@ -87,44 +212,167 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    
+    // If no groupId provided (undefined), find user's core group or first active group
+    // Note: null means explicitly community-only, undefined means auto-assign
+    if (body.groupId === undefined) {
+      const coreGroup = user.memberships.find(m => m.group.groupType === "core");
+      const activeGroup = coreGroup || user.memberships[0];
+      
+      if (activeGroup) {
+        body.groupId = activeGroup.groupId;
+        // If posting to community without explicit setting, default to true
+        if (body.sharedToCommunity === undefined) {
+          body.sharedToCommunity = true;
+        }
+      } else {
+        // User has no group memberships - only allow community-only posts
+        if (!body.sharedToCommunity) {
+          return NextResponse.json(
+            { error: "Users without group memberships can only post to the community. Set sharedToCommunity to true." },
+            { status: 400 }
+          );
+        }
+        // Allow community-only post by setting groupId to null
+        body.groupId = null;
+      }
+    }
+    
+    console.log('Final body before validation:', body);
+    
+    const validatedData = createThreadSchema.parse(body);
 
-    // Calculate expiration date (7 days from now)
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    // Verify user is member of the group (skip for community-only posts)
+    if (validatedData.groupId) {
+      const membership = await prisma.groupMember.findUnique({
+        where: {
+          groupId_userId: {
+            groupId: validatedData.groupId,
+            userId: user.id,
+          },
+        },
+      });
 
-    const thread = await prisma.prayerThread.create({
-      data: {
-        title: validatedData.title,
-        body: validatedData.body,
-        tags: validatedData.tags,
-        isAnonymous: validatedData.isAnonymous,
-        expiresAt,
-        authorId: user.id,
-      },
+      if (!membership || membership.status !== "active") {
+        return NextResponse.json(
+          { error: "Not a member of this group" },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Create thread with initial post in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const thread = await tx.thread.create({
+        data: {
+          groupId: validatedData.groupId,
+          authorId: user.id,
+          title: validatedData.title,
+          sharedToCommunity: validatedData.sharedToCommunity,
+          isAnonymous: validatedData.isAnonymous,
+          status: "open",
+        },
+      });
+
+      const post = await tx.post.create({
+        data: {
+          threadId: thread.id,
+          authorId: user.id,
+          kind: validatedData.postKind,
+          content: validatedData.content,
+        },
+        include: {
+          media: true,
+        },
+      });
+
+      // Handle linking existing Media records (new approach for videos)
+      if (validatedData.mediaIds && validatedData.mediaIds.length > 0) {
+        // First, verify these media records exist and get their current state
+        const mediaRecords = await tx.media.findMany({
+          where: {
+            id: {
+              in: validatedData.mediaIds,
+            },
+          },
+        });
+
+        console.log(`Found ${mediaRecords.length} media records to link to post ${post.id}`);
+        
+        if (mediaRecords.length > 0) {
+          // Update only the records we found, regardless of their current postId
+          await tx.media.updateMany({
+            where: {
+              id: {
+                in: mediaRecords.map(m => m.id),
+              },
+            },
+            data: {
+              postId: post.id,
+            },
+          });
+          console.log(`✅ Linked ${mediaRecords.length} media records to post ${post.id}`);
+        }
+      }
+
+      // Handle creating new Media records (backward compatibility for images)
+      if (validatedData.mediaUrls && validatedData.mediaUrls.length > 0) {
+        await tx.media.createMany({
+          data: validatedData.mediaUrls.map(media => ({
+            postId: post.id,
+            type: media.type,
+            url: media.url,
+            width: media.width,
+            height: media.height,
+            durationS: media.durationS,
+            muxAssetId: media.muxAssetId,
+            muxPlaybackId: media.muxPlaybackId,
+            uploadStatus: media.uploadStatus || 'ready',
+          })),
+        });
+      }
+
+      return { thread, post };
+    });
+
+    const fullThread = await prisma.thread.findUnique({
+      where: { id: result.thread.id },
       include: {
         author: {
           select: {
             id: true,
             displayName: true,
-            handle: true,
-            avatarUrl: true,
+            firstName: true,
+            profileImageUrl: true,
+          },
+        },
+        group: {
+          select: {
+            id: true,
+            name: true,
+            groupType: true,
+          },
+        },
+        posts: {
+          include: {
+            media: true,
+            reactions: true,
           },
         },
         _count: {
           select: {
+            posts: true,
             prayers: true,
-            encouragements: true,
-            updates: true,
           },
         },
       },
     });
 
-    // Hide author info if anonymous
-    const sanitizedThread = {
-      ...thread,
-      author: thread.isAnonymous ? null : thread.author,
-    };
+    // Sanitize if anonymous
+    const sanitizedThread = fullThread ? {
+      ...fullThread,
+      author: fullThread.isAnonymous ? null : fullThread.author,
+    } : null;
 
     return NextResponse.json(sanitizedThread, { status: 201 });
   } catch (error) {

@@ -138,4 +138,28 @@
   .forge-muted-subtle {
     @apply bg-gray-500/10 text-gray-600 border-gray-500/20 dark:text-gray-400;
   }
+  
+  /* Hide MUX Player default controls using official CSS custom properties */
+  .mux-player-no-controls {
+    --controls: none !important;
+    --top-controls: none !important;
+    --bottom-controls: none !important;
+    --center-controls: none !important;
+    --controls-backdrop-color: transparent !important;
+  }
+  
+  /* Backup CSS targeting in case custom properties don't work in all states */
+  .mux-player-no-controls::part(media-control-bar),
+  .mux-player-no-controls::part(controls),
+  .mux-player-no-controls:hover::part(media-control-bar),
+  .mux-player-no-controls:hover::part(controls),
+  .mux-player-no-controls:focus::part(media-control-bar),
+  .mux-player-no-controls:focus::part(controls),
+  .mux-player-no-controls[paused]::part(media-control-bar),
+  .mux-player-no-controls[paused]::part(controls) {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
 }

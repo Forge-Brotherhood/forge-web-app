@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, BookOpen, Mic, MessageCircle, Flame } from "lucide-react";
+import { BookmarkPlus, BookOpen, Mic, HandHeart, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { Card } from "@/components/ui/card";
@@ -203,7 +203,7 @@ export const FeedCard = ({
             prayer.hasPrayed ? "text-accent" : "text-muted-foreground hover:text-foreground"
           )}
         >
-          <Heart className={cn("w-4 h-4", prayer.hasPrayed && "fill-current")} />
+          <BookmarkPlus className={cn("w-4 h-4", prayer.hasPrayed && "fill-current")} />
           <span>{prayer.prayerCount}</span>
           <span className="hidden sm:inline">
             {prayer.hasPrayed ? "Prayed" : "Pray"}
@@ -217,7 +217,7 @@ export const FeedCard = ({
             prayer.hasEncouraged ? "text-accent" : "text-muted-foreground hover:text-foreground"
           )}
         >
-          <MessageCircle className={cn("w-4 h-4", prayer.hasEncouraged && "fill-current")} />
+          <HandHeart className={cn("w-4 h-4", prayer.hasEncouraged && "fill-current")} />
           <span>{prayer.encouragementCount}</span>
           <span className="hidden sm:inline">
             {prayer.hasEncouraged ? "Encouraged" : "Encourage"}

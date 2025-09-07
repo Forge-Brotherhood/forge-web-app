@@ -2,8 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { FeedCard, type PrayerRequest } from "./feed-card";
-import { type CommunityFeedThread } from "@/hooks/use-community-feed";
-import { useThreadActions } from "@/hooks/use-thread-actions";
+import { type CommunityFeedThread } from "@/hooks/use-community-feed-query";
+import { usePrayerMutation, usePrayerStatus } from "@/hooks/use-prayer-mutations";
+import { BookmarkPlus, HandHeart, Trophy, Clock, Users } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader } from "./ui/card";
+import { MediaGridGallery } from "./photoswipe-gallery";
 
 interface CommunityThreadCardProps {
   thread: CommunityFeedThread;
@@ -22,160 +31,166 @@ export const CommunityThreadCard = ({
   onDelete,
   isDeletingId 
 }: CommunityThreadCardProps) => {
-  const { addPrayer, addToCart, removeFromCart, actionLoading } = useThreadActions();
   const [mounted, setMounted] = useState(false);
-  
-  // Local state to track user interactions
   const [hasPrayed, setHasPrayed] = useState(false);
-  const [hasEncouraged, setHasEncouraged] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
+  const router = useRouter();
+  
+  // TanStack Query mutations
+  const prayerMutation = usePrayerMutation();
+  const prayerStatusMutation = usePrayerStatus(thread.id);
+  
+  // Get the main post (request or testimony)
+  const mainPost = thread.posts?.find(p => p.kind === "request" || p.kind === "testimony") || thread.posts?.[0];
+  const isTestimony = thread.status === "answered" || mainPost?.kind === "testimony";
   
   const loadUserPrayerStatus = useCallback(async () => {
-    if (!isSignedIn || !currentUserId) return;
+    if (!isSignedIn || !currentUserId || !mainPost) return;
     
-    setIsLoadingStatus(true);
     try {
-      const response = await fetch(`/api/threads/${thread.id}/prayers`);
-      if (response.ok) {
-        const data = await response.json();
-        setHasPrayed(data.hasPrayed);
-        
-        // Update the thread data with actual prayer count if different
-        if (data.prayerCount !== thread._count.prayers) {
-          onUpdate?.(thread.id, {
-            ...thread,
-            _count: {
-              ...thread._count,
-              prayers: data.prayerCount
-            }
-          });
-        }
-      }
+      const data = await prayerStatusMutation.mutateAsync();
+      setHasPrayed(data.hasPrayed);
+      
+      // The prayer count is automatically updated in the cache by the mutation
+      // No need to call onUpdate anymore since TanStack Query handles cache updates
     } catch (error) {
       console.error("Failed to load prayer status:", error);
-    } finally {
-      setIsLoadingStatus(false);
     }
-  }, [isSignedIn, currentUserId, thread, onUpdate]);
+  }, [isSignedIn, currentUserId, mainPost, prayerStatusMutation]);
   
   useEffect(() => {
     setMounted(true);
     
     // Load user's prayer status from API if signed in
-    if (isSignedIn && currentUserId) {
+    if (isSignedIn && currentUserId && mainPost) {
       loadUserPrayerStatus();
     }
-  }, [thread.id, isSignedIn, currentUserId, loadUserPrayerStatus]);
+  }, [thread.id, isSignedIn, currentUserId, mainPost, loadUserPrayerStatus]);
 
-  // Convert database thread to FeedCard format
-  const prayerRequest: PrayerRequest = {
-    id: thread.id,
-    userId: thread.author?.id || "anonymous",
-    userName: thread.author?.displayName || thread.author?.handle || "Anonymous",
-    userAvatar: thread.author?.avatarUrl || undefined,
-    isAnonymous: thread.isAnonymous,
-    title: thread.title,
-    content: thread.body,
-    createdAt: new Date(thread.createdAt),
-    prayerCount: thread._count.prayers,
-    encouragementCount: thread._count.encouragements,
-    isFollowing,
-    hasPrayed,
-    hasEncouraged,
-    updateStatus: thread.status === "answered" ? "answered" : null,
-    scriptureReference: undefined, // Not in current schema
-    voiceNoteUrl: undefined, // Not in current schema  
-    streakDays: undefined, // Not in current schema
-  };
-
-  const handlePray = async (id: string) => {
-    if (!isSignedIn || isLoadingStatus) return;
+  const handlePray = async () => {
+    if (!isSignedIn || prayerMutation.isPending || !mainPost) return;
     
-    const isCurrentlyPrayed = hasPrayed;
+    const action = hasPrayed ? 'remove' : 'add';
     
-    // Optimistic update
-    setHasPrayed(!isCurrentlyPrayed);
-    const newCount = thread._count.prayers + (isCurrentlyPrayed ? -1 : 1);
-    onUpdate?.(id, {
-      ...thread,
-      _count: {
-        ...thread._count,
-        prayers: newCount
-      }
-    });
+    // Optimistic local update
+    setHasPrayed(!hasPrayed);
 
     try {
-      const method = isCurrentlyPrayed ? "DELETE" : "POST";
-      const response = await fetch(`/api/threads/${id}/prayers`, {
-        method
+      await prayerMutation.mutateAsync({
+        threadId: thread.id,
+        postId: mainPost.id,
+        action,
       });
       
-      if (!response.ok) {
-        throw new Error("Failed to update prayer");
-      }
-      
-      const result = await response.json();
-      // Update with actual count from server
-      setHasPrayed(result.hasPrayed);
-      onUpdate?.(id, {
-        ...thread,
-        _count: {
-          ...thread._count,
-          prayers: result.prayerCount
-        }
-      });
+      // Success - the cache has been updated by the mutation
+      // No need to manually update anything else
     } catch (error) {
-      // Revert optimistic update on error
-      setHasPrayed(isCurrentlyPrayed);
-      onUpdate?.(id, thread);
+      // Revert local optimistic update on error
+      // The cache rollback is handled by the mutation's onError
+      setHasPrayed(hasPrayed);
       console.error("Failed to update prayer:", error);
     }
   };
 
-  const handleEncourage = async (id: string) => {
-    if (!isSignedIn) return;
-    
-    // For now, this triggers the encouragement form in thread detail
-    // The actual encouragement logic is handled in the thread detail page
-    // This is just a placeholder that navigates to the thread
-    window.location.href = `/threads/${id}`;
+  const handleViewThread = () => {
+    router.push(`/threads/${thread.id}`);
   };
 
-  const handleFollow = async (id: string) => {
-    const isCurrentlyFollowing = isFollowing;
-    
-    // Optimistic update
-    setIsFollowing(!isCurrentlyFollowing);
-
-    try {
-      if (isCurrentlyFollowing) {
-        await removeFromCart(id);
-      } else {
-        await addToCart(id);
-      }
-    } catch (error) {
-      // Revert optimistic update on error
-      setIsFollowing(isCurrentlyFollowing);
-      console.error("Failed to update follow status:", error);
-    }
-  };
-
-  if (!mounted) {
+  if (!mounted || !mainPost) {
     return null;
   }
 
+  const displayAuthor = thread.isAnonymous ? null : (thread.author || mainPost.author);
+  const authorName = displayAuthor ? 
+    (displayAuthor.displayName || displayAuthor.firstName || "Unknown") : 
+    "Anonymous";
+
+  const content = mainPost.content || "";
+  const createdAt = new Date(mainPost.createdAt);
+
   return (
-    <FeedCard
-      prayer={prayerRequest}
-      onPray={handlePray}
-      onEncourage={handleEncourage}
-      onFollow={handleFollow}
-      showGroupFeatures={false}
-      currentUserId={currentUserId}
-      isSignedIn={isSignedIn}
-      onDelete={onDelete}
-      isDeletingId={isDeletingId}
-    />
+    <Card className="w-full no-border border-b border-border last:border-b-0">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center space-x-3">
+            <Avatar className="w-10 h-10">
+              <AvatarImage src={displayAuthor?.profileImageUrl || undefined} />
+              <AvatarFallback>
+                {thread.isAnonymous ? "?" : (authorName.charAt(0).toUpperCase())}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-medium text-foreground">
+                  {authorName}
+                </span>
+                {isTestimony && (
+                  <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-300">
+                    <Trophy className="w-3 h-3 mr-1" />
+                    Testimony
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <Users className="w-3 h-3" />
+                <span>{thread.group ? (thread.group.name || `${thread.group.groupType} group`) : "Community"}</span>
+                <Clock className="w-3 h-3 ml-2" />
+                <span>{formatDistanceToNow(createdAt, { addSuffix: true })}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-0">
+        {/* Content */}
+        <div className="text-foreground mb-4 line-clamp-4 whitespace-pre-wrap">
+          {content}
+        </div>
+
+        {/* Media */}
+        {mainPost.media && mainPost.media.length > 0 && (
+          <div className="mb-2">
+            <MediaGridGallery 
+              media={mainPost.media} 
+              maxItems={4}
+            />
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-6">
+          <div className="flex items-center space-x-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handlePray}
+              disabled={!isSignedIn || prayerMutation.isPending}
+              className={hasPrayed ? "text-red-600 hover:text-red-700" : "text-muted-foreground hover:text-black transition-colors"}
+            >
+              <BookmarkPlus className={`w-4 h-4 mr-2 ${hasPrayed ? "fill-current" : ""}`} />
+              {thread._count.prayers}
+            </Button>
+            
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleViewThread}
+              className="text-muted-foreground hover:text-black transition-colors"
+            >
+              <HandHeart className="w-4 h-4 mr-2" />
+              {thread._count.posts}
+            </Button>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleViewThread}
+          >
+            View Thread
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 };

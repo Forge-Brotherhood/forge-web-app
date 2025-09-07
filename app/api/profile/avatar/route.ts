@@ -1,7 +1,14 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { S3Service } from "@/lib/s3";
+import { v2 as cloudinary } from "cloudinary";
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export async function POST(req: Request) {
   try {
@@ -11,10 +18,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check if S3 is configured
-    if (!S3Service.isConfigured()) {
+    // Check if Cloudinary is configured
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
       return NextResponse.json(
-        { error: "File storage is not configured. Please check server configuration." },
+        { error: "Image storage is not configured. Please check server configuration." },
         { status: 500 }
       );
     }
@@ -35,11 +42,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Validate file size (max 5MB for S3 storage)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    // Validate file size (max 10MB for Cloudinary)
+    const maxSize = 10 * 1024 * 1024; // 10MB
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 5MB." },
+        { error: "File too large. Maximum size is 10MB." },
         { status: 400 }
       );
     }
@@ -47,34 +54,44 @@ export async function POST(req: Request) {
     // Get existing user to check for old avatar (create if doesn't exist)
     let existingUser = await prisma.user.findUnique({
       where: { clerkId: userId },
-      select: { avatarUrl: true }
+      select: { profileImageUrl: true }
     });
     
     // If user doesn't exist in database, create them
     if (!existingUser) {
       const user = await currentUser();
+      const email = user?.emailAddresses?.[0]?.emailAddress;
+      if (!email) {
+        return NextResponse.json({ error: "No email found for user" }, { status: 400 });
+      }
       await prisma.user.create({
         data: {
           clerkId: userId,
-          email: user?.emailAddresses?.[0]?.emailAddress ?? null,
+          email,
+          firstName: user?.firstName ?? null,
+          lastName: user?.lastName ?? null,
           displayName: user?.firstName ?? user?.username ?? null,
-          avatarUrl: null,
+          handle: user?.username ?? null,
+          profileImageUrl: null,
         }
       });
-      existingUser = { avatarUrl: null };
+      existingUser = { profileImageUrl: null };
     }
 
-    // Delete old avatar variants if they exist and are stored in S3
-    if (existingUser?.avatarUrl && existingUser.avatarUrl.includes(process.env.S3_BUCKET_NAME || '')) {
+    // Delete old avatar if it exists in Cloudinary
+    if (existingUser?.profileImageUrl && existingUser.profileImageUrl.includes('cloudinary')) {
       try {
-        // Extract original filename from the stored URL
-        const urlParts = existingUser.avatarUrl.split('/');
-        const filename = urlParts[urlParts.length - 1];
+        // Extract public_id from Cloudinary URL
+        // URL format: https://res.cloudinary.com/[cloud_name]/image/upload/[transformations]/[version]/[public_id].[format]
+        const urlParts = existingUser.profileImageUrl.split('/');
+        const publicIdWithFormat = urlParts[urlParts.length - 1];
+        const publicId = publicIdWithFormat.substring(0, publicIdWithFormat.lastIndexOf('.'));
+        const fullPublicId = `forge/avatars/${publicId}`;
         
-        // Delete all variants of the old avatar
-        await S3Service.deleteAvatarVariants(userId, filename);
+        // Delete from Cloudinary
+        await cloudinary.uploader.destroy(fullPublicId);
       } catch (deleteError) {
-        console.warn("Could not delete old avatar variants:", deleteError);
+        console.warn("Could not delete old avatar from Cloudinary:", deleteError);
         // Continue with upload even if old file deletion fails
       }
     }
@@ -83,31 +100,61 @@ export async function POST(req: Request) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Generate S3 key for the new avatar
-    const s3Key = S3Service.generateAvatarKey(userId, file.name);
+    // Upload to Cloudinary with transformations
+    return new Promise<NextResponse>((resolve) => {
+      cloudinary.uploader.upload_stream(
+        {
+          resource_type: "image",
+          folder: "forge/avatars",
+          public_id: `${userId}_${Date.now()}`,
+          overwrite: true,
+          transformation: [
+            { width: 400, height: 400, crop: "fill", gravity: "face" }
+          ],
+          eager: [
+            { width: 50, height: 50, crop: "fill", gravity: "face" },
+            { width: 200, height: 200, crop: "fill", gravity: "face" }
+          ],
+          eager_async: false,
+          allowed_formats: ["jpg", "jpeg", "png", "webp", "avif", "gif"],
+        },
+        async (error, result) => {
+          if (error) {
+            console.error("Cloudinary upload error:", error);
+            resolve(
+              NextResponse.json(
+                { error: `Upload failed: ${error.message}` },
+                { status: 500 }
+              )
+            );
+          } else if (result) {
+            // Update avatar URL in database
+            await prisma.user.update({
+              where: { clerkId: userId },
+              data: { profileImageUrl: result.secure_url },
+            });
 
-    // Upload to S3
-    const uploadResult = await S3Service.uploadFile(
-      buffer,
-      s3Key,
-      file.type
-    );
+            // Get the transformation URLs
+            const thumbnailUrl = result.eager?.[0]?.secure_url || result.secure_url;
+            const avatarUrl = result.eager?.[1]?.secure_url || result.secure_url;
 
-    // Update avatar URL in database
-    await prisma.user.update({
-      where: { clerkId: userId },
-      data: { avatarUrl: uploadResult.url },
-    });
-
-    // Generate processed image URLs (these will be available after Lambda processing)
-    const processedUrls = S3Service.getProcessedAvatarUrls(userId, file.name);
-
-    return NextResponse.json({ 
-      success: true, 
-      avatarUrl: uploadResult.url, // Original image URL for immediate use
-      key: uploadResult.key,
-      processedUrls, // URLs for optimized variants (will be available shortly)
-      message: "Avatar uploaded successfully. Optimized versions will be available shortly."
+            resolve(
+              NextResponse.json({ 
+                success: true, 
+                avatarUrl: result.secure_url,
+                publicId: result.public_id,
+                processedUrls: {
+                  original: result.secure_url,
+                  thumbnail: thumbnailUrl,
+                  avatar: avatarUrl,
+                  large: result.secure_url
+                },
+                message: "Avatar uploaded successfully."
+              })
+            );
+          }
+        }
+      ).end(buffer);
     });
   } catch (error) {
     console.error("Error uploading avatar:", error);
@@ -129,28 +176,30 @@ export async function DELETE() {
     // Get existing user to find the avatar to delete
     const existingUser = await prisma.user.findUnique({
       where: { clerkId: userId },
-      select: { avatarUrl: true }
+      select: { profileImageUrl: true }
     });
 
-    // Delete all avatar variants from S3 if they exist
-    if (existingUser?.avatarUrl && S3Service.isConfigured() && existingUser.avatarUrl.includes(process.env.S3_BUCKET_NAME || '')) {
+    // Delete avatar from Cloudinary if it exists
+    if (existingUser?.profileImageUrl && existingUser.profileImageUrl.includes('cloudinary')) {
       try {
-        // Extract original filename from the stored URL
-        const urlParts = existingUser.avatarUrl.split('/');
-        const filename = urlParts[urlParts.length - 1];
+        // Extract public_id from Cloudinary URL
+        const urlParts = existingUser.profileImageUrl.split('/');
+        const publicIdWithFormat = urlParts[urlParts.length - 1];
+        const publicId = publicIdWithFormat.substring(0, publicIdWithFormat.lastIndexOf('.'));
+        const fullPublicId = `forge/avatars/${publicId}`;
         
-        // Delete all variants of the avatar
-        await S3Service.deleteAvatarVariants(userId, filename);
+        // Delete from Cloudinary
+        await cloudinary.uploader.destroy(fullPublicId);
       } catch (deleteError) {
-        console.warn("Could not delete avatar variants from S3:", deleteError);
-        // Continue with database update even if S3 deletion fails
+        console.warn("Could not delete avatar from Cloudinary:", deleteError);
+        // Continue with database update even if Cloudinary deletion fails
       }
     }
 
     // Clear avatar URL from database
     await prisma.user.update({
       where: { clerkId: userId },
-      data: { avatarUrl: null },
+      data: { profileImageUrl: null },
     });
 
     return NextResponse.json({ success: true });

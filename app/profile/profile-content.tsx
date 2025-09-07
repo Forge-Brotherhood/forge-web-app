@@ -12,7 +12,7 @@ import { Calendar, Edit2, Mail, User, Hash, Shield } from "lucide-react";
 import { format } from "date-fns";
 import { ProfileEditDialog } from "./profile-edit-dialog";
 import { AvatarUploadDialog } from "./avatar-upload-dialog";
-import { Role } from "@prisma/client";
+import { BanState } from "@prisma/client";
 
 interface ProfileContentProps {
   user: {
@@ -22,7 +22,7 @@ interface ProfileContentProps {
     email: string;
     avatarUrl: string;
     createdAt: Date;
-    role: Role;
+    banState: BanState;
   };
   stats: {
     prayerRequests: number;
@@ -58,12 +58,12 @@ export function ProfileContent({ user, stats }: ProfileContentProps) {
     return user.email ? user.email[0].toUpperCase() : "U";
   };
 
-  const getRoleBadgeVariant = (role: Role) => {
-    switch (role) {
-      case "admin":
+  const getRoleBadgeVariant = (banState: BanState) => {
+    switch (banState) {
+      case "banned":
         return "destructive";
-      case "moderator":
-        return "secondary";
+      case "active":
+        return "outline";
       default:
         return "outline";
     }
@@ -119,11 +119,11 @@ export function ProfileContent({ user, stats }: ProfileContentProps) {
               <Calendar className="h-4 w-4" />
               <span>Joined {format(user.createdAt, "MMMM yyyy")}</span>
             </div>
-            {user.role !== "user" && (
+            {user.banState !== "active" && (
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
-                <Badge variant={getRoleBadgeVariant(user.role)}>
-                  {user.role}
+                <Badge variant={getRoleBadgeVariant(user.banState)}>
+                  {user.banState}
                 </Badge>
               </div>
             )}

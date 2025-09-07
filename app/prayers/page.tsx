@@ -1,20 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Archive, CheckCircle2, Circle, Filter, Search } from "lucide-react";
+import { Archive, CheckCircle2, Circle, Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
@@ -97,36 +89,12 @@ export default function YourPrayers() {
   const [prayers, setPrayers] = useState<Prayer[]>(mockPrayers);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newPrayerContent, setNewPrayerContent] = useState("");
-  const [newPrayerPrivate, setNewPrayerPrivate] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const handleCreatePrayer = () => {
-    if (!newPrayerContent.trim()) return;
-
-    const newPrayer: Prayer = {
-      id: `p${Date.now()}`,
-      content: newPrayerContent,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      status: "active",
-      prayerCount: 0,
-      encouragementCount: 0,
-      isPrivate: newPrayerPrivate,
-      tags: [],
-      updates: [],
-    };
-
-    setPrayers([newPrayer, ...prayers]);
-    setNewPrayerContent("");
-    setNewPrayerPrivate(false);
-    setIsCreateOpen(false);
-  };
 
   const handleStatusChange = (id: string, newStatus: Prayer["status"]) => {
     setPrayers(prayers.map(p => 
@@ -358,66 +326,10 @@ export default function YourPrayers() {
         {filteredPrayers.length === 0 && (
           <div className="text-center py-12">
             <p className="text-muted-foreground mb-4">No prayers found</p>
-            <Button onClick={() => setIsCreateOpen(true)} className="bg-amber-500/10 text-amber-200 border-amber-500/20 hover:bg-amber-500/20 hover:border-amber-500/40 hover:text-amber-200 h-11 px-6 transition-all duration-200 text-sm font-medium">
-              <Plus className="w-5 h-5 mr-2" />
-              Create your first prayer
-            </Button>
+            <p className="text-muted-foreground text-sm">Use the + button to create your first prayer</p>
           </div>
         )}
 
-        {/* Floating Action Button */}
-        {filteredPrayers.length > 0 && (
-          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-            <DialogTrigger asChild>
-              <Button
-                className="fixed bottom-28 right-6 md:bottom-6 w-16 h-16 rounded-full bg-accent text-accent-foreground border-2 border-accent/30 hover:bg-accent/90 hover:border-accent/50 forge-glow transition-all duration-200 shadow-lg"
-                size="icon"
-              >
-                <Plus className="w-7 h-7" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="bg-card border-border">
-              <DialogHeader>
-                <DialogTitle>Create New Prayer</DialogTitle>
-                <DialogDescription>
-                  Write your prayer request. You can choose to keep it private or share it with the community.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <Textarea
-                  placeholder="Write your prayer here..."
-                  value={newPrayerContent}
-                  onChange={(e) => setNewPrayerContent(e.target.value)}
-                  className="min-h-[120px] bg-secondary/50 border-border/50"
-                />
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="private"
-                    checked={newPrayerPrivate}
-                    onChange={(e) => setNewPrayerPrivate(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  <label htmlFor="private" className="text-sm text-muted-foreground">
-                    Keep this prayer private
-                  </label>
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button 
-                    onClick={handleCreatePrayer}
-                    className="bg-accent hover:bg-accent/90"
-                    disabled={!newPrayerContent.trim()}
-                  >
-                    Create Prayer
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
       </div>
     </div>
   );

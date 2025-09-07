@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "WebSearch",
+      "WebFetch(domain:www.mux.com)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(node:*)",
+      "mcp__ide__getDiagnostics",
+      "WebFetch(domain:docs.mux.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:tanstack.com)"
     ],
     "deny": [],
     "ask": []

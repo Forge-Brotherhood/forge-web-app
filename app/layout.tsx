@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ConditionalLayout } from "@/components/conditional-layout";
 import { Toaster } from "@/components/ui/toaster";
+import { QueryProvider } from "@/components/query-provider";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -38,17 +39,19 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en" suppressHydrationWarning>
         <body className={`${inter.variable} font-sans antialiased`}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="dark"
-            enableSystem={true}
-            disableTransitionOnChange
-          >
-            <ConditionalLayout>
-              {children}
-            </ConditionalLayout>
-            <Toaster />
-          </ThemeProvider>
+          <QueryProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="dark"
+              enableSystem={true}
+              disableTransitionOnChange
+            >
+              <ConditionalLayout>
+                {children}
+              </ConditionalLayout>
+              <Toaster />
+            </ThemeProvider>
+          </QueryProvider>
         </body>
       </html>
     </ClerkProvider>

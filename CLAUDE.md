@@ -1,0 +1,2 @@
+- Please stop running a build, I will have a dev build running
+- do not build the app

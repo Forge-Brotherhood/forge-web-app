@@ -4,9 +4,10 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { Home, Users, Heart, MoreHorizontal } from "lucide-react";
+import { Home, Users, BookmarkPlus, MoreHorizontal, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
+import { useAuth } from "@clerk/nextjs";
 
 interface NavItem {
   name: string;
@@ -31,7 +32,7 @@ const navItems: NavItem[] = [
   {
     name: "Prayers",
     href: "/prayers",
-    icon: Heart,
+    icon: BookmarkPlus,
     label: "My Prayers",
   },
 ];
@@ -41,6 +42,7 @@ export const Sidebar = () => {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const { theme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const { isSignedIn, isLoaded } = useAuth();
 
   useEffect(() => {
     setMounted(true);
@@ -119,8 +121,32 @@ export const Sidebar = () => {
         })}
         </div>
         
-        {/* More/Settings button at bottom */}
-        <div className="absolute bottom-0 flex items-center justify-center w-full py-6">
+        {/* Create Prayer and Profile buttons at bottom */}
+        <div className="absolute bottom-0 flex flex-col items-center justify-center w-full py-6 space-y-4">
+          {/* Create Prayer Button */}
+          {isSignedIn && isLoaded && (
+            <Link
+              href="/create"
+              className={cn(
+                "group relative flex items-center justify-center w-16 h-16 rounded-xl transition-all duration-200",
+                "hover:bg-secondary/50"
+              )}
+              aria-label="Share a Prayer Request"
+            >
+              <Plus
+                className={cn(
+                  "sidebar-icon",
+                  "text-muted-foreground group-hover:text-foreground"
+                )}
+              />
+              {/* Tooltip */}
+              <span className="absolute left-full ml-3 px-2 py-1 bg-popover text-popover-foreground text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none">
+                Share a Prayer Request
+              </span>
+            </Link>
+          )}
+          
+          {/* Profile/Settings Button */}
           <Link
             href="/profile"
             className={cn(
@@ -149,11 +175,13 @@ export const Sidebar = () => {
   );
 
       // Mobile Bottom Navigation
-  const MobileNav = () => (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border px-3 pt-3 md:hidden" style={{
-      paddingBottom: `calc(12px + env(safe-area-inset-bottom, 0px))`,
-    }}>
-      <div className="grid grid-cols-4 gap-2">
+  const MobileNav = () => {
+    const totalColumns = isSignedIn && isLoaded ? 5 : 4;
+    return (
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border px-3 pt-3 md:hidden" style={{
+        paddingBottom: `calc(12px + env(safe-area-inset-bottom, 0px))`,
+      }}>
+        <div className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${totalColumns}, minmax(0, 1fr))` }}>
         {navItems.map((item) => {
           const isActive = pathname === item.href || 
                           (item.href === "/community" && pathname === "/");
@@ -180,7 +208,26 @@ export const Sidebar = () => {
           );
         })}
         
-        {/* More/Settings button */}
+        {/* Create Prayer Button */}
+        {isSignedIn && isLoaded && (
+          <Link
+            href="/create"
+            className={cn(
+              "flex items-center justify-center p-3 rounded-lg transition-all duration-200 h-12",
+              "hover:bg-secondary/50"
+            )}
+            aria-label="Share a Prayer Request"
+          >
+            <Plus
+              className={cn(
+                "w-6 h-6",
+                "text-muted-foreground"
+              )}
+            />
+          </Link>
+        )}
+        
+        {/* Profile/Settings button */}
         <Link
           href="/profile"
           className={cn(
@@ -199,19 +246,20 @@ export const Sidebar = () => {
             )}
           />
         </Link>
-      </div>
-    </nav>
-  );
+        </div>
+      </nav>
+    );
+  };
 
-  // Don't render until we know if it's mobile or not
-  if (isMobile === null) {
-    return null;
-  }
-
+  // Always render to maintain consistent hook ordering
   return (
     <>
-      <DesktopSidebar />
-      {isMobile && <MobileNav />}
+      {isMobile !== null && (
+        <>
+          <DesktopSidebar />
+          {isMobile && <MobileNav />}
+        </>
+      )}
     </>
   );
 };

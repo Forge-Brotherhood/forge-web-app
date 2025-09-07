@@ -62,24 +62,72 @@ export async function POST(req: Request) {
 
   if (type === "user.created" || type === "user.updated") {
     const u = evt.data;
-    const email =
-      u.email_addresses?.find((e) => e.id === u.primary_email_address_id)
-        ?.email_address ?? null;
+    const primaryEmail = u.email_addresses?.find((e) => e.id === u.primary_email_address_id);
+    const email = primaryEmail?.email_address;
 
-    await prisma.user.upsert({
-      where: { clerkId: u.id },
-      update: {
-        email,
-        displayName: u.first_name ?? u.username ?? null,
-        avatarUrl: u.image_url ?? null,
-      },
-      create: {
-        clerkId: u.id,
-        email,
-        displayName: u.first_name ?? u.username ?? null,
-        avatarUrl: u.image_url ?? null,
-      },
-    });
+    if (!email) {
+      console.error("No email found for user", u.id);
+      return new Response("No email found", { status: 400 });
+    }
+
+    try {
+      await prisma.user.upsert({
+        where: { clerkId: u.id },
+        update: {
+          email,
+          firstName: u.first_name ?? null,
+          lastName: u.last_name ?? null,
+          displayName: u.first_name ?? u.username ?? null,
+          handle: u.username ?? null,
+          profileImageUrl: u.image_url ?? null,
+        },
+        create: {
+          clerkId: u.id,
+          email,
+          firstName: u.first_name ?? null,
+          lastName: u.last_name ?? null,
+          displayName: u.first_name ?? u.username ?? null,
+          handle: u.username ?? null,
+          profileImageUrl: u.image_url ?? null,
+          role: "user",
+          banState: BanState.active,
+        },
+      });
+    } catch (error: any) {
+      // Handle unique constraint errors
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        console.error(`Email ${email} already exists for another user. Skipping update for Clerk ID ${u.id}`);
+        // For email conflicts, we can either:
+        // 1. Skip the update (current approach)
+        // 2. Update everything except email
+        // 3. Delete the conflicting user (dangerous)
+        
+        // Option 2: Update without changing email
+        await prisma.user.upsert({
+          where: { clerkId: u.id },
+          update: {
+            firstName: u.first_name ?? null,
+            lastName: u.last_name ?? null,
+            displayName: u.first_name ?? u.username ?? null,
+            handle: u.username ?? null,
+            profileImageUrl: u.image_url ?? null,
+          },
+          create: {
+            clerkId: u.id,
+            email: `${u.id}@clerk.placeholder`, // Temporary email placeholder
+            firstName: u.first_name ?? null,
+            lastName: u.last_name ?? null,
+            displayName: u.first_name ?? u.username ?? null,
+            handle: u.username ?? null,
+            profileImageUrl: u.image_url ?? null,
+            role: "user",
+            banState: BanState.active,
+          },
+        });
+      } else {
+        throw error; // Re-throw other errors
+      }
+    }
   }
 
   if (type === "user.deleted") {

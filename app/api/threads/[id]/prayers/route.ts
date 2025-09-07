@@ -1,105 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
-import crypto from "crypto";
+import { z } from "zod";
 
-// Helper to get or create guest session
-async function getOrCreateGuestSession(request: NextRequest) {
-  const cookieStore = await cookies();
-  let deviceHash = cookieStore.get("device_id")?.value;
-  
-  if (!deviceHash) {
-    // Generate a new device ID
-    deviceHash = crypto.randomBytes(32).toString("hex");
-    cookieStore.set("device_id", deviceHash, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-    });
-  }
+const createPrayerSchema = z.object({
+  postId: z.string().uuid().optional(),
+});
 
-  // Find or create guest session
-  let guestSession = await prisma.guestSession.findFirst({
-    where: { deviceHash },
-  });
-
-  if (!guestSession) {
-    guestSession = await prisma.guestSession.create({
-      data: { deviceHash },
-    });
-  }
-
-  return guestSession;
-}
-
-// GET /api/threads/[id]/prayers - Check if current user has prayed
+// GET /api/threads/[id]/prayers - Get all prayer actions for a thread
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
+    const { id: threadId } = await params;
     const { userId } = await auth();
-    
-    let hasPrayed = false;
-    let prayerCount = 0;
-
-    // Get total prayer count
-    prayerCount = await prisma.prayer.count({
-      where: { threadId: id },
-    });
-
-    if (userId) {
-      // Check if authenticated user has prayed
-      const user = await prisma.user.findUnique({
-        where: { clerkId: userId },
-      });
-
-      if (user) {
-        const userPrayer = await prisma.prayer.findFirst({
-          where: {
-            threadId: id,
-            userId: user.id,
-          },
-        });
-        hasPrayed = !!userPrayer;
-      }
-    } else {
-      // Check if guest has prayed
-      const guestSession = await getOrCreateGuestSession(request);
-      const guestPrayer = await prisma.prayer.findFirst({
-        where: {
-          threadId: id,
-          guestSessionId: guestSession.id,
-        },
-      });
-      hasPrayed = !!guestPrayer;
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    return NextResponse.json({ hasPrayed, prayerCount });
-  } catch (error) {
-    console.error("Error checking prayer status:", error);
-    return NextResponse.json(
-      { error: "Failed to check prayer status" },
-      { status: 500 }
-    );
-  }
-}
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+    });
 
-// POST /api/threads/[id]/prayers - Add a prayer to the thread
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const { userId } = await auth();
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
 
-    // Check if thread exists
-    const thread = await prisma.prayerThread.findUnique({
-      where: { id },
+    // Verify thread exists and user has access
+    const thread = await prisma.thread.findUnique({
+      where: { 
+        id: threadId,
+        deletedAt: null,
+      },
+      include: {
+        group: {
+          include: {
+            members: {
+              where: {
+                userId: user.id,
+                status: "active",
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!thread) {
@@ -109,159 +60,285 @@ export async function POST(
       );
     }
 
-    // Check if thread is open
-    if (thread.status !== "open") {
+    const isMember = thread.group ? thread.group.members.length > 0 : false;
+    if (!isMember && !thread.sharedToCommunity) {
       return NextResponse.json(
-        { error: "Cannot pray for closed thread" },
-        { status: 400 }
+        { error: "Access denied" },
+        { status: 403 }
       );
     }
 
-    if (userId) {
-      // Authenticated user
-      const user = await prisma.user.findUnique({
-        where: { clerkId: userId },
-      });
-
-      if (!user) {
-        return NextResponse.json(
-          { error: "User not found" },
-          { status: 404 }
-        );
-      }
-
-      // Prevent thread author from praying for their own request
-      if (thread.authorId === user.id) {
-        return NextResponse.json(
-          { error: "You cannot pray for your own prayer request" },
-          { status: 400 }
-        );
-      }
-
-      // Check if user already prayed today
-      const existingPrayer = await prisma.prayer.findFirst({
-        where: {
-          threadId: id,
-          userId: user.id,
+    const prayers = await prisma.prayerAction.findMany({
+      where: {
+        threadId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            firstName: true,
+            profileImageUrl: true,
+          },
         },
-      });
-
-      if (existingPrayer) {
-        return NextResponse.json(
-          { error: "You have already prayed for this request" },
-          { status: 400 }
-        );
-      }
-
-      await prisma.prayer.create({
-        data: {
-          threadId: id,
-          userId: user.id,
+        post: {
+          select: {
+            id: true,
+            kind: true,
+            content: true,
+          },
         },
-      });
-    } else {
-      // Guest user
-      const guestSession = await getOrCreateGuestSession(request);
-
-      // Check if guest already prayed
-      const existingPrayer = await prisma.prayer.findFirst({
-        where: {
-          threadId: id,
-          guestSessionId: guestSession.id,
-        },
-      });
-
-      if (existingPrayer) {
-        return NextResponse.json(
-          { error: "You have already prayed for this request" },
-          { status: 400 }
-        );
-      }
-
-      await prisma.prayer.create({
-        data: {
-          threadId: id,
-          guestSessionId: guestSession.id,
-        },
-      });
-    }
-
-    // Get updated prayer count
-    const prayerCount = await prisma.prayer.count({
-      where: { threadId: id },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
-    return NextResponse.json(
-      { 
-        message: "Prayer recorded successfully",
-        prayerCount,
-        hasPrayed: true 
-      },
-      { status: 201 }
-    );
+    // Check if current user has prayed for this thread
+    const userPrayer = prayers.find(p => p.user.id === user.id);
+    const hasPrayed = !!userPrayer;
+    const prayerCount = prayers.length;
+
+    return NextResponse.json({
+      hasPrayed,
+      prayerCount,
+      prayers,
+    });
   } catch (error) {
-    console.error("Error recording prayer:", error);
+    console.error("Error fetching prayers:", error);
     return NextResponse.json(
-      { error: "Failed to record prayer" },
+      { error: "Failed to fetch prayers" },
       { status: 500 }
     );
   }
 }
 
-// DELETE /api/threads/[id]/prayers - Remove prayer from thread
+// POST /api/threads/[id]/prayers - Record a prayer action
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: threadId } = await params;
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const body = await request.json();
+    const validatedData = createPrayerSchema.parse(body);
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    // Verify thread exists and user has access
+    const thread = await prisma.thread.findUnique({
+      where: { 
+        id: threadId,
+        deletedAt: null,
+      },
+      include: {
+        group: {
+          include: {
+            members: {
+              where: {
+                userId: user.id,
+                status: "active",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!thread) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    const isMember = thread.group ? thread.group.members.length > 0 : false;
+    if (!isMember && !thread.sharedToCommunity) {
+      return NextResponse.json(
+        { error: "Access denied" },
+        { status: 403 }
+      );
+    }
+
+    // If postId provided, verify it belongs to the thread
+    if (validatedData.postId) {
+      const post = await prisma.post.findFirst({
+        where: {
+          id: validatedData.postId,
+          threadId,
+        },
+      });
+
+      if (!post) {
+        return NextResponse.json(
+          { error: "Post not found in this thread" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Create prayer action and update user streak
+    const result = await prisma.$transaction(async (tx) => {
+      const prayer = await tx.prayerAction.create({
+        data: {
+          userId: user.id,
+          threadId,
+          postId: validatedData.postId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              displayName: true,
+              firstName: true,
+              profileImageUrl: true,
+            },
+          },
+          post: {
+            select: {
+              id: true,
+              kind: true,
+              content: true,
+            },
+          },
+        },
+      });
+
+      // Update user's prayer streak
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const lastPrayer = user.lastPrayerAt;
+      const lastPrayerDate = lastPrayer ? new Date(
+        lastPrayer.getFullYear(),
+        lastPrayer.getMonth(),
+        lastPrayer.getDate()
+      ) : null;
+
+      let newStreak = user.prayerStreak;
+
+      if (!lastPrayerDate) {
+        // First prayer ever
+        newStreak = 1;
+      } else if (lastPrayerDate.getTime() === yesterday.getTime()) {
+        // Prayed yesterday, continue streak
+        newStreak += 1;
+      } else if (lastPrayerDate.getTime() < yesterday.getTime()) {
+        // Missed days, reset streak
+        newStreak = 1;
+      }
+      // If prayed today already, streak stays same
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          prayerStreak: newStreak,
+          lastPrayerAt: now,
+        },
+      });
+
+      return { prayer, newStreak };
+    });
+
+    return NextResponse.json({
+      prayer: result.prayer,
+      updatedStreak: result.newStreak,
+    }, { status: 201 });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid request data", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error creating prayer:", error);
+    return NextResponse.json(
+      { error: "Failed to create prayer" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/threads/[id]/prayers - Remove a prayer action
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
+    const { id: threadId } = await params;
     const { userId } = await auth();
-
-    if (userId) {
-      // Authenticated user
-      const user = await prisma.user.findUnique({
-        where: { clerkId: userId },
-      });
-
-      if (!user) {
-        return NextResponse.json(
-          { error: "User not found" },
-          { status: 404 }
-        );
-      }
-
-      await prisma.prayer.deleteMany({
-        where: {
-          threadId: id,
-          userId: user.id,
-        },
-      });
-    } else {
-      // Guest user
-      const guestSession = await getOrCreateGuestSession(request);
-
-      await prisma.prayer.deleteMany({
-        where: {
-          threadId: id,
-          guestSessionId: guestSession.id,
-        },
-      });
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    // Get updated prayer count
-    const prayerCount = await prisma.prayer.count({
-      where: { threadId: id },
+    const body = await request.json();
+    const validatedData = createPrayerSchema.parse(body);
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
     });
 
-    return NextResponse.json({
-      message: "Prayer removed successfully",
-      prayerCount,
-      hasPrayed: false,
+    if (!user) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    // Find the user's prayer action for this thread
+    const prayerAction = await prisma.prayerAction.findFirst({
+      where: {
+        userId: user.id,
+        threadId,
+        ...(validatedData.postId && { postId: validatedData.postId }),
+      },
     });
+
+    if (!prayerAction) {
+      return NextResponse.json(
+        { error: "Prayer action not found" },
+        { status: 404 }
+      );
+    }
+
+    // Delete the prayer action
+    await prisma.prayerAction.delete({
+      where: { id: prayerAction.id },
+    });
+
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error removing prayer:", error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid request data", details: error.issues },
+        { status: 400 }
+      );
+    }
+    console.error("Error deleting prayer:", error);
     return NextResponse.json(
-      { error: "Failed to remove prayer" },
+      { error: "Failed to delete prayer" },
       { status: 500 }
     );
   }

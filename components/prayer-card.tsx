@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart, MessageCircle, MoreHorizontal } from "lucide-react";
+import { BookmarkPlus, HandHeart, MoreHorizontal } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
@@ -59,11 +59,11 @@ export function PrayerCard({
       </CardContent>
       <CardFooter className="flex justify-between pt-0">
         <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground -ml-2">
-          <Heart className="h-4 w-4 mr-1" />
+          <BookmarkPlus className="h-4 w-4 mr-1" />
           <span className="text-sm">{prayerCount}</span>
         </Button>
         <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground -mr-2">
-          <MessageCircle className="h-4 w-4 mr-1" />
+          <HandHeart className="h-4 w-4 mr-1" />
           <span className="text-sm">{commentCount}</span>
         </Button>
       </CardFooter>

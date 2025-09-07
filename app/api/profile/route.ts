@@ -8,6 +8,9 @@ const updateProfileSchema = z.object({
   handle: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/, {
     message: "Handle can only contain letters, numbers, and underscores",
   }).optional(),
+  firstName: z.string().max(50).optional(),
+  lastName: z.string().max(50).optional(),
+  profileImageUrl: z.string().url().optional().nullable(),
 });
 
 export async function GET() {
@@ -25,9 +28,23 @@ export async function GET() {
         displayName: true,
         handle: true,
         email: true,
-        avatarUrl: true,
+        profileImageUrl: true,
         createdAt: true,
         role: true,
+        memberships: {
+          where: { status: "active" },
+          select: {
+            groupId: true,
+            role: true,
+            group: {
+              select: {
+                id: true,
+                name: true,
+                groupType: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -37,18 +54,32 @@ export async function GET() {
       user = await prisma.user.create({
         data: {
           clerkId: userId,
-          email: clerkUser?.emailAddresses?.[0]?.emailAddress ?? null,
+          email: clerkUser?.emailAddresses?.[0]?.emailAddress ?? "",
           displayName: clerkUser?.firstName ?? clerkUser?.username ?? null,
-          avatarUrl: clerkUser?.imageUrl ?? null,
+          profileImageUrl: null,
         },
         select: {
           id: true,
           displayName: true,
           handle: true,
           email: true,
-          avatarUrl: true,
+          profileImageUrl: true,
           createdAt: true,
           role: true,
+          memberships: {
+            where: { status: "active" },
+            select: {
+              groupId: true,
+              role: true,
+              group: {
+                select: {
+                  id: true,
+                  name: true,
+                  groupType: true,
+                },
+              },
+            },
+          },
         },
       });
     }
@@ -99,9 +130,23 @@ export async function PATCH(req: Request) {
         displayName: true,
         handle: true,
         email: true,
-        avatarUrl: true,
+        profileImageUrl: true,
         createdAt: true,
         role: true,
+        memberships: {
+          where: { status: "active" },
+          select: {
+            groupId: true,
+            role: true,
+            group: {
+              select: {
+                id: true,
+                name: true,
+                groupType: true,
+              },
+            },
+          },
+        },
       },
     });
 

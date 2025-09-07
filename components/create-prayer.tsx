@@ -82,7 +82,7 @@ export function CreatePrayer() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Avatar className="h-8 w-8">
-              <AvatarImage src={profile?.avatarUrl || user?.imageUrl} alt="You" />
+              <AvatarImage src={profile?.avatarUrl || profile?.profileImageUrl || undefined} alt="You" />
               <AvatarFallback>
                 {isAnonymous ? "?" : getInitials()}
               </AvatarFallback>

@@ -1,0 +1,133 @@
+{
+  "prayerCategories": {
+    "health": {
+      "titles": [
+        "Prayers for recovery",
+        "Healing needed",
+        "Surgery tomorrow",
+        "Health struggles",
+        "Medical test results",
+        "Chronic pain relief",
+        "Mental health support"
+      ],
+      "bodies": [
+        "Please pray for my upcoming surgery. I'm feeling anxious but trusting in God's plan.",
+        "My mother was diagnosed with cancer. We need prayers for strength and healing.",
+        "Struggling with chronic pain for years. Please pray for relief and patience.",
+        "Awaiting test results that could change everything. Need peace and wisdom.",
+        "My child is in the hospital. We desperately need your prayers.",
+        "Depression has been overwhelming lately. Please pray for hope and healing.",
+        "Recovery from addiction is harder than I thought. Need spiritual strength."
+      ]
+    },
+    "family": {
+      "titles": [
+        "Marriage restoration",
+        "Family healing needed",
+        "Prayers for my children",
+        "Relationship struggles",
+        "Parents need prayer",
+        "Family unity",
+        "Difficult family situation"
+      ],
+      "bodies": [
+        "My marriage is going through a rough patch. Please pray for wisdom and reconciliation.",
+        "My teenager is making destructive choices. I need prayers for guidance.",
+        "Estranged from my family for years. Praying for reconciliation and forgiveness.",
+        "Single parent struggling to make ends meet. Need prayers for provision and strength.",
+        "My parents are getting divorced after 30 years. This is devastating.",
+        "Blended family challenges are overwhelming. Please pray for unity and love.",
+        "Infertility journey has been heartbreaking. Prayers for peace and hope appreciated."
+      ]
+    },
+    "work": {
+      "titles": [
+        "Job search prayers",
+        "Work situation",
+        "Career guidance needed",
+        "Workplace challenges",
+        "Financial provision",
+        "Business prayers",
+        "Employment needed"
+      ],
+      "bodies": [
+        "Lost my job last month. Please pray for provision and new opportunities.",
+        "Toxic work environment is affecting my mental health. Need wisdom on next steps.",
+        "Starting a new business venture. Prayers for wisdom and success appreciated.",
+        "Facing potential layoffs at work. Please pray for peace and provision.",
+        "Struggling to find purpose in my career. Need guidance and clarity.",
+        "Interview tomorrow for my dream job. Please pray for confidence and favor.",
+        "Financial stress is overwhelming our family. Prayers for breakthrough needed."
+      ]
+    },
+    "spiritual": {
+      "titles": [
+        "Spiritual growth",
+        "Faith struggles",
+        "Seeking God's will",
+        "Spiritual warfare",
+        "Need spiritual guidance",
+        "Growing in faith",
+        "Spiritual dryness"
+      ],
+      "bodies": [
+        "Feeling distant from God lately. Please pray for renewed faith and connection.",
+        "New Christian seeking mentorship and growth. Prayers for wisdom appreciated.",
+        "Struggling with doubt and questions about faith. Need prayers for clarity.",
+        "Called to ministry but facing obstacles. Please pray for open doors.",
+        "Spiritual attacks have been intense. Need prayers for protection and strength.",
+        "Trying to discern God's will for my life. Prayers for clarity needed.",
+        "Want to grow deeper in my faith. Pray for discipline and hunger for God's word."
+      ]
+    }
+  },
+  "encouragementTemplates": [
+    "Praying for you during this difficult time. God is with you.",
+    "Standing with you in prayer. May you feel God's peace and presence.",
+    "Just lifted you up in prayer. Trust that God is working in your situation.",
+    "Your faith is inspiring. Continuing to pray for breakthrough.",
+    "God sees your struggle and He cares. Praying for His comfort and strength.",
+    "Remember that you're not alone. This community is praying for you.",
+    "May God's peace that surpasses understanding guard your heart.",
+    "Believing with you for God's intervention. Stay strong in faith.",
+    "Praying Psalm 91 over you today. God is your refuge and fortress.",
+    "Your testimony is being written. Praying for God's perfect will.",
+    "Trusting God to work all things for your good. Praying for His best.",
+    "May the Lord give you strength for each day. You are so loved.",
+    "Praying for God's healing touch in every area of your life.",
+    "God's timing is perfect. Continue to trust His plan for you.",
+    "Sending love and prayers your way. God is faithful and true."
+  ],
+  "updateTemplates": [
+    "Thank you for your prayers! We've seen some improvement.",
+    "Update: God is moving! Things are getting better slowly but surely.",
+    "Praise report! Your prayers are working. Situation is improving.",
+    "Still waiting on God's timing, but feeling more peaceful. Thank you for praying.",
+    "Small victories this week! Please continue praying.",
+    "God showed up in an unexpected way! Thank you for your faithful prayers."
+  ],
+  "testimonyTemplates": [
+    "PRAISE REPORT! God answered our prayers in an amazing way!",
+    "Testimony: God did exactly what we asked for. Thank you for praying!",
+    "ANSWERED PRAYER: The situation has been completely resolved!",
+    "God's faithfulness is incredible. Here's what happened...",
+    "Update: God exceeded our expectations! Thank you for your prayers."
+  ],
+  "groupNames": [
+    "Iron Sharpens Iron",
+    "Band of Brothers", 
+    "Men of Valor",
+    "Warriors for Christ",
+    "Brotherhood United",
+    "Faith & Fellowship",
+    "Stand Firm",
+    "Kingdom Men",
+    "Strength & Honor",
+    "Bold & Courageous",
+    "Prayer Warriors",
+    "Living Stones",
+    "Sons of the King",
+    "Faithful Few",
+    "Brothers in Arms"
+  ]
+}

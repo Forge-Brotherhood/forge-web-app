@@ -24,7 +24,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { Role } from "@prisma/client";
+import { BanState } from "@prisma/client";
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, "Display name is required").max(80),
@@ -48,7 +48,7 @@ interface ProfileEditDialogProps {
     email: string;
     avatarUrl: string;
     createdAt: Date;
-    role: Role;
+    banState: BanState;
   };
   onSuccess: () => void;
 }

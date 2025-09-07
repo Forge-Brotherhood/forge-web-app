@@ -1,125 +1,97 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
-import { CommunityThreadCard } from "@/components/community-thread-card";
-import { Button } from "@/components/ui/button";
-import { useCommunityFeed, type CommunityFeedThread } from "@/hooks/use-community-feed";
-import { AlertCircle } from "lucide-react";
+import React, { useState, useCallback } from "react";
+import { UnifiedFeed } from "@/components/unified-feed";
+import { useCommunityFeed, type CommunityFeedThread } from "@/hooks/use-community-feed-query";
+import { usePrayerMutation } from "@/hooks/use-prayer-mutations";
+import { useDeleteThreadMutation } from "@/hooks/use-thread-mutations";
+import { Trophy, BookmarkPlus, Users } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 import { useProfile } from "@/hooks/use-profile";
 
+type FilterType = "all" | "testimonies" | "requests";
 
-export default function CommunityFeed() {
-  const { threads, isLoading, error, refetch, hasMore, loadMore, isLoadingMore } = useCommunityFeed("open", 20);
-  const [localThreads, setLocalThreads] = useState<CommunityFeedThread[]>([]);
-  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+export default function CommunityPage() {
+  const [filter, setFilter] = useState<FilterType>("all");
+  const { threads, isLoading, error, refetch, hasMore, loadMore, isLoadingMore } = useCommunityFeed(filter, 20);
   const { isSignedIn } = useAuth();
   const { profile } = useProfile();
+  const prayerMutation = usePrayerMutation();
+  const deleteThreadMutation = useDeleteThreadMutation();
 
-  // Sync threads with local state for optimistic updates
-  useEffect(() => {
-    setLocalThreads(threads);
-  }, [threads]);
-
-  const handleThreadUpdate = useCallback((threadId: string, updates: Partial<CommunityFeedThread>) => {
-    setLocalThreads(prev => 
-      prev.map(thread => 
-        thread.id === threadId ? { ...thread, ...updates } : thread
-      )
-    );
-  }, []);
-
-  const handleDeleteThread = useCallback(async (threadId: string) => {
-    if (!isSignedIn || !profile) return;
-
-    setIsDeletingId(threadId);
+  const handlePray = useCallback(async (threadId: string) => {
+    if (!isSignedIn || prayerMutation.isPending) return;
+    
     try {
-      const response = await fetch(`/api/threads/${threadId}`, {
-        method: "DELETE",
+      const thread = threads.find(t => t.id === threadId);
+      const mainPost = thread?.posts.find(p => p.kind === "request") || thread?.posts[0];
+      if (!mainPost) return;
+
+      // TanStack Query handles optimistic updates and cache invalidation
+      await prayerMutation.mutateAsync({
+        threadId,
+        postId: mainPost.id,
+        action: 'add', // For now, assume we're always adding prayers from the community page
       });
+    } catch (error) {
+      console.error("Error praying:", error);
+    }
+  }, [threads, isSignedIn, prayerMutation]);
 
-      if (!response.ok) {
-        throw new Error("Failed to delete thread");
-      }
+  const handleDelete = useCallback(async (threadId: string) => {
+    if (!isSignedIn || !profile || deleteThreadMutation.isPending) return;
 
-      // Remove thread from local state
-      setLocalThreads(prev => prev.filter(thread => thread.id !== threadId));
+    try {
+      // TanStack Query handles optimistic updates and cache invalidation
+      await deleteThreadMutation.mutateAsync({ threadId });
     } catch (error) {
       console.error("Error deleting thread:", error);
-    } finally {
-      setIsDeletingId(null);
     }
-  }, [isSignedIn, profile]);
+  }, [isSignedIn, profile, deleteThreadMutation]);
+
+  // Stats config removed - no longer displaying stats in community feed
+
+  const filters = [
+    { key: "all", label: "All" },
+    { key: "requests", label: "Prayer Requests" },
+    { key: "testimonies", label: "Testimonies", icon: Trophy }
+  ];
+
+  const emptyStateConfig = {
+    icon: filter === "testimonies" ? Trophy : filter === "requests" ? BookmarkPlus : Users,
+    title: filter === "testimonies" 
+      ? "No testimonies shared yet" 
+      : filter === "requests" 
+        ? "No prayer requests found"
+        : "No community posts found",
+    description: filter === "testimonies" 
+      ? "Answered prayers and testimonies will appear here" 
+      : "Prayer requests shared to the community will appear here"
+  };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-4 py-6">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-foreground mb-2">Community</h1>
-        </div>
-
-        {/* Prayer Feed */}
-        <div className="space-y-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-4">
-              <AlertCircle className="w-12 h-12 text-muted-foreground" />
-              <div className="text-center">
-                <p className="text-foreground font-medium">Failed to load prayers</p>
-                <p className="text-muted-foreground text-sm mt-1">{error}</p>
-                <Button 
-                  onClick={refetch} 
-                  variant="outline" 
-                  className="mt-3"
-                >
-                  Try Again
-                </Button>
-              </div>
-            </div>
-          ) : localThreads.length > 0 ? (
-            localThreads.map((thread) => (
-              <CommunityThreadCard
-                key={thread.id}
-                thread={thread}
-                onUpdate={handleThreadUpdate}
-                currentUserId={profile?.id}
-                isSignedIn={isSignedIn}
-                onDelete={handleDeleteThread}
-                isDeletingId={isDeletingId || undefined}
-              />
-            ))
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No prayers found</p>
-            </div>
-          )}
-        </div>
-
-        {/* Load More */}
-        {hasMore && localThreads.length > 0 && (
-          <div className="mt-8 text-center">
-            <Button 
-              onClick={loadMore}
-              disabled={isLoadingMore}
-              variant="outline" 
-              className="w-full sm:max-w-xs h-10 text-sm font-medium"
-            >
-              {isLoadingMore ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                  Loading...
-                </>
-              ) : (
-                "Load more prayers"
-              )}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
+    <UnifiedFeed
+      threads={threads}
+      isLoading={isLoading}
+      error={error}
+      feedType="community"
+      title="Community"
+      description="Join brothers in prayer and celebrate God's faithfulness together"
+      showFilters={true}
+      filters={filters}
+      activeFilter={filter}
+      onFilterChange={(newFilter) => setFilter(newFilter as FilterType)}
+      onPray={handlePray}
+      onDelete={handleDelete}
+      onRefetch={refetch}
+      hasMore={hasMore}
+      loadMore={loadMore}
+      isLoadingMore={isLoadingMore}
+      enableInfiniteScroll={true}
+      infiniteScrollThreshold={300}
+      currentUserId={profile?.id}
+      isSignedIn={isSignedIn}
+      emptyStateConfig={emptyStateConfig}
+    />
   );
 }
