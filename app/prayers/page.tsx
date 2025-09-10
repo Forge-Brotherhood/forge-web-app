@@ -1,201 +1,190 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Archive, CheckCircle2, Circle, Search } from "lucide-react";
+import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { Search, BookOpen, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { formatDistanceToNow } from "date-fns";
+import { FeedCard, PrayerRequest } from "@/components/feed-card";
+import { usePrayerListQuery, useRemoveFromPrayerList } from "@/hooks/use-prayer-list-query";
+import { useAuth } from "@clerk/nextjs";
 
-interface Prayer {
-  id: string;
-  content: string;
-  createdAt: Date;
-  updatedAt: Date;
-  status: "active" | "answered" | "archived";
-  prayerCount: number;
-  encouragementCount: number;
-  isPrivate: boolean;
-  tags: string[];
-  updates: Array<{
-    id: string;
-    content: string;
-    createdAt: Date;
-  }>;
-}
+type FilterType = "all" | "community" | "groups";
 
-const mockPrayers: Prayer[] = [
-  {
-    id: "p1",
-    content: "Lord, help me find clarity in my career path. I'm at a crossroads and need Your guidance on which direction to take.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7), // 7 days ago
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2), // 2 days ago
-    status: "active",
-    prayerCount: 24,
-    encouragementCount: 8,
-    isPrivate: false,
-    tags: ["career", "guidance"],
-    updates: [
-      {
-        id: "u1",
-        content: "Had a great conversation with a mentor today. Feeling more peaceful about the decision.",
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2),
-      },
-    ],
-  },
-  {
-    id: "p2",
-    content: "Thank You God! My sister's surgery was successful and she's recovering well. Your faithfulness is amazing!",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14), // 14 days ago
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5), // 5 days ago
-    status: "answered",
-    prayerCount: 67,
-    encouragementCount: 23,
-    isPrivate: false,
-    tags: ["health", "family", "praise"],
-    updates: [
-      {
-        id: "u2",
-        content: "Surgery went perfectly! Doctors are amazed at how well it went.",
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10),
-      },
-      {
-        id: "u3",
-        content: "She's home and recovering. God is so good!",
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
-      },
-    ],
-  },
-  {
-    id: "p3",
-    content: "Struggling with forgiveness towards someone who hurt me deeply. I know I need to forgive but it's so hard.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30), // 30 days ago
-    updatedAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30),
-    status: "active",
-    prayerCount: 45,
-    encouragementCount: 19,
-    isPrivate: true,
-    tags: ["relationships", "forgiveness"],
-    updates: [],
-  },
-];
-
-type FilterStatus = "all" | "active" | "answered" | "archived";
-
-export default function YourPrayers() {
-  const [prayers, setPrayers] = useState<Prayer[]>(mockPrayers);
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+export default function BookmarkedPrayers() {
+  const router = useRouter();
+  const { userId } = useAuth();
+  const [filterType, setFilterType] = useState<FilterType>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [mounted, setMounted] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { data, isLoading, error } = usePrayerListQuery();
+  const removeFromPrayerList = useRemoveFromPrayerList();
 
-
-  const handleStatusChange = (id: string, newStatus: Prayer["status"]) => {
-    setPrayers(prayers.map(p => 
-      p.id === id ? { ...p, status: newStatus, updatedAt: new Date() } : p
-    ));
+  const handleRemoveFromPrayerList = async (threadId: string) => {
+    setRemovingId(threadId);
+    try {
+      await removeFromPrayerList.mutateAsync({ threadId });
+    } catch (error) {
+      console.error("Failed to remove from prayer list:", error);
+    } finally {
+      setRemovingId(null);
+    }
   };
 
-  const filteredPrayers = prayers.filter(prayer => {
-    const matchesSearch = !searchQuery || 
-      prayer.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      prayer.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesFilter = filterStatus === "all" || prayer.status === filterStatus;
-    
-    return matchesSearch && matchesFilter;
-  });
+  const handleCardClick = (threadId: string) => {
+    router.push(`/threads/${threadId}`);
+  };
+
+  // Transform prayer list items to FeedCard format
+  const transformedPrayers = useMemo(() => {
+    if (!data?.items) return [];
+
+    return data.items.map((item): PrayerRequest => {
+      const thread = item.thread;
+      const firstPost = thread.posts[0];
+      const author = thread.isAnonymous ? null : thread.author;
+
+      return {
+        id: thread.id,
+        userId: author?.id || "",
+        userName: author?.displayName || "Anonymous",
+        userAvatar: author?.profileImageUrl,
+        isAnonymous: thread.isAnonymous,
+        title: thread.title,
+        content: firstPost?.content || thread.content,
+        createdAt: new Date(thread.createdAt),
+        prayerCount: thread._count.prayers,
+        prayerListCount: thread._count.prayerListItems,
+        encouragementCount: 0,
+        isFollowing: false,
+        hasPrayed: false,
+        isInPrayerList: true,
+        hasEncouraged: false,
+        updateStatus: null,
+        groupName: thread.group?.name,
+        groupId: thread.group?.id,
+        sharedToCommunity: thread.sharedToCommunity,
+      };
+    });
+  }, [data]);
+
+  // Filter prayers based on search and filter type
+  const filteredPrayers = useMemo(() => {
+    let prayers = transformedPrayers;
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      prayers = prayers.filter(prayer => 
+        prayer.content.toLowerCase().includes(query) ||
+        prayer.title?.toLowerCase().includes(query) ||
+        prayer.userName.toLowerCase().includes(query) ||
+        prayer.groupName?.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply type filter
+    if (filterType === "community") {
+      prayers = prayers.filter(prayer => prayer.sharedToCommunity);
+    } else if (filterType === "groups") {
+      prayers = prayers.filter(prayer => prayer.groupId && !prayer.sharedToCommunity);
+    }
+
+    return prayers;
+  }, [transformedPrayers, searchQuery, filterType]);
 
   const stats = {
-    total: prayers.length,
-    active: prayers.filter(p => p.status === "active").length,
-    answered: prayers.filter(p => p.status === "answered").length,
-    archived: prayers.filter(p => p.status === "archived").length,
+    total: transformedPrayers.length,
+    community: transformedPrayers.filter(p => p.sharedToCommunity).length,
+    groups: transformedPrayers.filter(p => p.groupId && !p.sharedToCommunity).length,
   };
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="p-6 max-w-md w-full">
+          <p className="text-center text-destructive">Failed to load prayer list</p>
+          <Button 
+            onClick={() => window.location.reload()} 
+            className="w-full mt-4"
+          >
+            Retry
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-2xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-foreground mb-2">My Prayers</h1>
+          <h1 className="text-foreground mb-2 flex items-center gap-2">
+            <BookOpen className="h-6 w-6" />
+            Bookmarked Prayers
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Prayers you're committed to praying for
+          </p>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-2 mb-6">
+        <div className="grid grid-cols-3 gap-2 mb-6">
           <Card 
             className={cn(
               "p-3 sm:p-4 text-center cursor-pointer transition-all duration-200",
               "bg-card/50 backdrop-blur-sm border-border/50",
-              filterStatus === "all" && "bg-accent/20 text-accent border-accent/40"
+              filterType === "all" && "bg-accent/20 text-accent border-accent/40"
             )}
-            onClick={() => setFilterStatus("all")}
+            onClick={() => setFilterType("all")}
           >
             <p className={cn(
               "text-lg sm:text-2xl font-bold mb-0.5",
-              filterStatus === "all" ? "text-accent" : "text-foreground"
+              filterType === "all" ? "text-accent" : "text-foreground"
             )}>{stats.total}</p>
             <p className={cn(
               "text-[10px] sm:text-xs",
-              filterStatus === "all" ? "text-accent/80" : "text-muted-foreground"
-            )}>Total</p>
+              filterType === "all" ? "text-accent/80" : "text-muted-foreground"
+            )}>All</p>
           </Card>
           <Card 
             className={cn(
               "p-3 sm:p-4 text-center cursor-pointer transition-all duration-200",
               "bg-card/50 backdrop-blur-sm border-border/50",
-              filterStatus === "active" && "bg-accent/20 text-accent border-accent/40"
+              filterType === "community" && "bg-accent/20 text-accent border-accent/40"
             )}
-            onClick={() => setFilterStatus("active")}
+            onClick={() => setFilterType("community")}
           >
             <p className={cn(
               "text-lg sm:text-2xl font-bold mb-0.5",
-              filterStatus === "active" ? "text-accent" : "text-blue-600 dark:text-blue-400"
-            )}>{stats.active}</p>
+              filterType === "community" ? "text-accent" : "text-blue-600 dark:text-blue-400"
+            )}>{stats.community}</p>
             <p className={cn(
               "text-[10px] sm:text-xs",
-              filterStatus === "active" ? "text-accent/80" : "text-muted-foreground"
-            )}>Active</p>
+              filterType === "community" ? "text-accent/80" : "text-muted-foreground"
+            )}>Community</p>
           </Card>
           <Card 
             className={cn(
               "p-3 sm:p-4 text-center cursor-pointer transition-all duration-200",
               "bg-card/50 backdrop-blur-sm border-border/50",
-              filterStatus === "answered" && "bg-accent/20 text-accent border-accent/40"
+              filterType === "groups" && "bg-accent/20 text-accent border-accent/40"
             )}
-            onClick={() => setFilterStatus("answered")}
+            onClick={() => setFilterType("groups")}
           >
             <p className={cn(
               "text-lg sm:text-2xl font-bold mb-0.5",
-              filterStatus === "answered" ? "text-accent" : "text-green-600 dark:text-green-400"
-            )}>{stats.answered}</p>
+              filterType === "groups" ? "text-accent" : "text-green-600 dark:text-green-400"
+            )}>{stats.groups}</p>
             <p className={cn(
               "text-[10px] sm:text-xs",
-              filterStatus === "answered" ? "text-accent/80" : "text-muted-foreground"
-            )}>Answered</p>
-          </Card>
-          <Card 
-            className={cn(
-              "p-3 sm:p-4 text-center cursor-pointer transition-all duration-200",
-              "bg-card/50 backdrop-blur-sm border-border/50",
-              filterStatus === "archived" && "bg-accent/20 text-accent border-accent/40"
-            )}
-            onClick={() => setFilterStatus("archived")}
-          >
-            <p className={cn(
-              "text-lg sm:text-2xl font-bold mb-0.5",
-              filterStatus === "archived" ? "text-accent" : "text-gray-600 dark:text-gray-400"
-            )}>{stats.archived}</p>
-            <p className={cn(
-              "text-[10px] sm:text-xs",
-              filterStatus === "archived" ? "text-accent/80" : "text-muted-foreground"
-            )}>Archived</p>
+              filterType === "groups" ? "text-accent/80" : "text-muted-foreground"
+            )}>Groups</p>
           </Card>
         </div>
 
@@ -204,132 +193,81 @@ export default function YourPrayers() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input
             type="text"
-            placeholder="Search your prayers..."
+            placeholder="Search bookmarked prayers..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 h-12 bg-secondary/50 border-border/50 focus:border-accent/50 text-base"
           />
         </div>
 
-        {/* Prayers List */}
-        <div className="space-y-6">
-          {filteredPrayers.map((prayer) => (
-            <Card key={prayer.id} className="p-6 bg-card/50 backdrop-blur-sm border-border/50 space-y-4">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center space-x-2">
-                  <Badge
-                    variant={
-                      prayer.status === "answered" ? "default" :
-                      prayer.status === "archived" ? "secondary" : "outline"
-                    }
-                    className={cn(
-                      prayer.status === "answered" && "forge-success-subtle",
-                      prayer.status === "archived" && "forge-muted-subtle"
-                    )}
-                  >
-                    {prayer.status}
-                  </Badge>
-                  {prayer.isPrivate && (
-                    <Badge variant="outline" className="text-xs">
-                      Private
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {mounted ? formatDistanceToNow(prayer.createdAt, { addSuffix: true }) : "..."}
-                </p>
-              </div>
-
-              <p className="text-foreground/90 leading-relaxed">{prayer.content}</p>
-
-              {/* Updates */}
-              {prayer.updates.length > 0 && (
-                <div className="space-y-3">
-                  {prayer.updates.map((update) => (
-                    <div key={update.id} className="pl-4 border-l-2 border-accent/30 space-y-1">
-                      <p className="text-sm text-foreground/80 leading-relaxed">{update.content}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {mounted ? `Updated ${formatDistanceToNow(update.createdAt, { addSuffix: true })}` : "..."}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Stats */}
-              {!prayer.isPrivate && (
-                <div className="flex items-center space-x-6 text-sm text-muted-foreground">
-                  <span>{prayer.prayerCount} praying</span>
-                  <span>{prayer.encouragementCount} encouragements</span>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex items-center flex-wrap gap-2">
-                {prayer.status === "active" && (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="default"
-                      onClick={() => handleStatusChange(prayer.id, "answered")}
-                      className="text-green-700 border-green-600/30 hover:bg-green-600/20 hover:border-green-600/50 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 transition-all duration-200 h-11 text-sm font-medium"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-1" />
-                      Mark Answered
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="default"
-                      onClick={() => handleStatusChange(prayer.id, "archived")}
-                      className="hover:bg-secondary/50 hover:border-accent/30 hover:text-foreground transition-all duration-200 h-11 text-sm font-medium"
-                    >
-                      <Archive className="w-4 h-4 mr-1" />
-                      Archive
-                    </Button>
-                  </>
-                )}
-                {prayer.status === "answered" && (
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => handleStatusChange(prayer.id, "active")}
-                    className="hover:bg-secondary/50 hover:border-accent/30 hover:text-foreground transition-all duration-200 h-11 text-sm font-medium"
-                  >
-                    <Circle className="w-4 h-4 mr-1" />
-                    Reopen
-                  </Button>
-                )}
-                {prayer.status === "archived" && (
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => handleStatusChange(prayer.id, "active")}
-                    className="hover:bg-secondary/50 hover:border-accent/30 hover:text-foreground transition-all duration-200 h-11 text-sm font-medium"
-                  >
-                    <Circle className="w-4 h-4 mr-1" />
-                    Restore
-                  </Button>
-                )}
-                <Button 
-                  variant="outline" 
-                  size="default"
-                  className="hover:bg-secondary/50 hover:border-accent/30 hover:text-foreground transition-all duration-200 h-11 text-sm font-medium"
-                >
-                  Add Update
-                </Button>
-              </div>
-            </Card>
-          ))}
+        {/* Future Pray Now Button */}
+        <div className="mb-6">
+          <Button 
+            className="w-full h-12 text-base font-medium"
+            disabled
+          >
+            Pray Now (Coming Soon)
+          </Button>
+          <p className="text-xs text-muted-foreground text-center mt-2">
+            Guided prayer experience coming soon
+          </p>
         </div>
 
-        {/* Empty State */}
-        {filteredPrayers.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground mb-4">No prayers found</p>
-            <p className="text-muted-foreground text-sm">Use the + button to create your first prayer</p>
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         )}
 
+        {/* Prayers List */}
+        {!isLoading && filteredPrayers.length > 0 && (
+          <div className="space-y-4">
+            {filteredPrayers.map((prayer) => (
+              <div key={prayer.id} className="relative">
+                {prayer.groupName && (
+                  <Badge 
+                    variant="outline" 
+                    className="absolute -top-2 left-4 z-10 bg-background"
+                  >
+                    {prayer.groupName}
+                  </Badge>
+                )}
+                <FeedCard
+                  prayer={prayer}
+                  onPrayerListToggle={handleRemoveFromPrayerList}
+                  onCardClick={handleCardClick}
+                  currentUserId={userId || undefined}
+                  isSignedIn={!!userId}
+                  isDeletingId={removingId || undefined}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && filteredPrayers.length === 0 && (
+          <Card className="p-12 text-center bg-card/50 backdrop-blur-sm border-border/50">
+            <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+            <p className="text-muted-foreground mb-2">
+              {searchQuery 
+                ? "No prayers found matching your search" 
+                : "No bookmarked prayers yet"}
+            </p>
+            <p className="text-muted-foreground text-sm">
+              {searchQuery
+                ? "Try adjusting your search terms"
+                : "Browse the community or your groups to bookmark prayers"}
+            </p>
+            <Button 
+              onClick={() => router.push("/community")}
+              className="mt-6"
+            >
+              Browse Community Prayers
+            </Button>
+          </Card>
+        )}
       </div>
     </div>
   );

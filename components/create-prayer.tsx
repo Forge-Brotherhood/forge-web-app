@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, Eye, EyeOff } from "lucide-react";
 import { useUser, SignedIn } from "@clerk/nextjs";
-import { useProfile } from "@/hooks/use-profile";
+import { useProfile } from "@/hooks/use-profile-query";
 import { useRouter } from "next/navigation";
 
 export function CreatePrayer() {

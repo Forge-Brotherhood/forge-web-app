@@ -80,6 +80,7 @@ model User {
   posts           Post[]         @relation("PostAuthor")
   reactions       Reaction[]
   prayerActions   PrayerAction[]
+  prayerListItems PrayerListItem[]
   sponsorships    Sponsorship[]
 
   createdAt       DateTime @default(now())
@@ -132,6 +133,7 @@ model Thread {
   author  User    @relation("ThreadAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   posts   Post[]
   prayers PrayerAction[] // "acts of praying" on this thread
+  prayerListItems PrayerListItem[] // items saved to prayer lists
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -156,6 +158,7 @@ model Post {
 
   // 🔧 Added opposite relation for PrayerAction
   prayerActions PrayerAction[]
+  prayerListItems PrayerListItem[] // items saved to prayer lists
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -219,6 +222,26 @@ model PrayerAction {
   @@index([userId, createdAt])
   @@index([threadId, createdAt])
   @@index([postId])
+}
+
+// ---------- Prayer List ----------
+
+model PrayerListItem {
+  id        String   @id @default(uuid())
+  userId    String
+  threadId  String
+  postId    String?  // Optional specific post
+  
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  post   Post?  @relation(fields: [postId], references: [id], onDelete: SetNull)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([userId, threadId, postId])
+  @@index([userId, createdAt])
+  @@index([threadId])
+  @@index([userId, threadId])
 }
 
 // ---------- Stewardship ----------

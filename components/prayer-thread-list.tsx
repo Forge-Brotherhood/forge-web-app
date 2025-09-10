@@ -15,7 +15,7 @@ import {
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { useProfile } from "@/hooks/use-profile";
+import { useProfile } from "@/hooks/use-profile-query";
 
 interface ThreadAuthor {
   id: string;

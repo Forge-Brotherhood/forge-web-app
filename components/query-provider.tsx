@@ -10,18 +10,20 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            // Background refetch when window refocuses
-            refetchOnWindowFocus: true,
-            // Retry failed requests 3 times with exponential backoff
-            retry: 3,
-            // Consider data stale after 30 seconds (shorter for more responsive updates)
-            staleTime: 30 * 1000,
-            // Keep data in cache for 10 minutes
-            gcTime: 10 * 60 * 1000,
-            // Always refetch on mount to ensure fresh data
-            refetchOnMount: "always",
+            // Disable refetch on window focus to reduce duplicate calls
+            refetchOnWindowFocus: false,
+            // Retry failed requests 2 times (reduced for faster failure feedback)
+            retry: 2,
+            // Consider data stale after 5 minutes (increased for better deduplication)
+            staleTime: 5 * 60 * 1000,
+            // Keep data in cache for 30 minutes (crucial for instant back navigation)
+            gcTime: 30 * 60 * 1000,
+            // Only refetch on mount if data is stale (enables instant loading)
+            refetchOnMount: "stale",
             // Prefer showing stale data while refetching
             notifyOnChangeProps: ["data", "error"],
+            // Use placeholderData instead of deprecated keepPreviousData
+            placeholderData: (previousData) => previousData,
           },
           mutations: {
             // Retry mutations once on failure

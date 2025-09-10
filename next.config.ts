@@ -8,34 +8,12 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   
-  // Webpack optimizations for large string handling
-  webpack: (config, { dev, isServer }) => {
-    // Simple optimization focused on media libraries
-    if (config.optimization?.splitChunks) {
-      config.optimization.splitChunks = {
-        ...config.optimization.splitChunks,
-        cacheGroups: {
-          ...config.optimization.splitChunks.cacheGroups,
-          // Separate media libraries to reduce main bundle
-          media: {
-            test: /[\\/]node_modules[\\/](@mux|photoswipe)[\\/]/,
-            name: 'media-libs',
-            chunks: 'all',
-            priority: 10,
-          },
-        },
-      };
-    }
-
-    return config;
-  },
-
-  // Enable experimental features for better performance
+  // Experimental features for better performance
   experimental: {
-    // Enable webpack memory optimization
+    // Better tree shaking and optimization
+    optimizePackageImports: ['@mux/mux-player-react', 'lucide-react', '@radix-ui/*'],
+    // Enable CSS optimization
     optimizeCss: true,
-    // Better tree shaking
-    optimizePackageImports: ['@mux/mux-player-react', 'lucide-react'],
   },
 };
 

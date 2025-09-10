@@ -52,9 +52,13 @@ export interface CommunityFeedThread {
       };
     }>;
   }>;
+  isInPrayerList?: boolean;
+  hasPrayed?: boolean;
+  prayerListCount?: number;
   _count: {
     posts: number;
     prayers: number;
+    prayerListItems?: number;
   };
 }
 
@@ -125,11 +129,8 @@ export function useCommunityFeed(
       return totalItems;
     },
     initialPageParam: 0,
-    staleTime: 30 * 1000, // Consider data fresh for 30 seconds (shorter for more frequent updates)
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
-    refetchOnWindowFocus: true, // Refetch when coming back to the page
-    refetchOnMount: "always", // Always refetch when component mounts
-    notifyOnChangeProps: ["data", "error"], // Only re-render when data or error changes
+    // Return cached data immediately while fetching fresh data in background
+    placeholderData: (previousData) => previousData,
   });
 
   // Flatten all pages of threads

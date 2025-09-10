@@ -93,6 +93,8 @@ interface Thread {
 interface PrayerStatus {
   hasPrayed: boolean;
   prayerCount: number;
+  isInPrayerList: boolean;
+  prayerListCount: number;
 }
 
 interface Props {
@@ -124,40 +126,53 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
   const canUpdate = canPost && thread.author?.id === currentUser?.id;
   const canEncourage = canPost && thread.author?.id !== currentUser?.id;
 
-  const handlePrayerToggle = async () => {
+  const handlePrayerListToggle = async () => {
     if (!isSignedIn || !mainPost) return;
 
     setIsSubmittingPrayer(true);
     try {
-      const method = prayerStatus.hasPrayed ? "DELETE" : "POST";
-      const response = await fetch(`/api/threads/${thread.id}/prayers`, {
+      const method = prayerStatus.isInPrayerList ? "DELETE" : "POST";
+      const response = await fetch(`/api/prayer-list`, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: mainPost.id }),
+        body: JSON.stringify({ 
+          threadId: thread.id,
+          postId: mainPost.id 
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to update prayer");
+        throw new Error("Failed to update prayer list");
       }
 
+      const result = await response.json();
+      
+      // Update state based on the intended action, not the API response
       if (method === "DELETE") {
         setPrayerStatus({
-          hasPrayed: false,
-          prayerCount: Math.max(0, prayerStatus.prayerCount - 1),
+          ...prayerStatus,
+          isInPrayerList: false,
+          prayerListCount: result.updatedCount || Math.max(0, prayerStatus.prayerListCount - 1),
         });
       } else {
-        const result = await response.json();
         setPrayerStatus({
-          hasPrayed: true,
-          prayerCount: prayerStatus.prayerCount + 1,
+          ...prayerStatus,
+          isInPrayerList: true,
+          prayerListCount: Math.max(prayerStatus.prayerListCount + 1, result.item?.thread?._count?.prayerListItems || prayerStatus.prayerListCount + 1),
         });
       }
+      
+      // Optional: Log if the state was already correct (for debugging)
+      if (result.wasAlreadyInState) {
+        console.log("Prayer list state was corrected:", result.message);
+      }
     } catch (error) {
-      console.error("Error updating prayer:", error);
+      console.error("Error updating prayer list:", error);
     } finally {
       setIsSubmittingPrayer(false);
     }
   };
+
 
   const handlePostSubmit = async (postKind: "encouragement" | "update" | "testimony") => {
     if (!postText.trim() || !currentUser) return;
@@ -339,12 +354,12 @@ export function ThreadDetail({ thread, currentUser, initialPrayerStatus }: Props
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handlePrayerToggle}
+                  onClick={handlePrayerListToggle}
                   disabled={!isSignedIn || isSubmittingPrayer}
-                  className={prayerStatus.hasPrayed ? "text-red-600 hover:text-red-700" : ""}
+                  className={prayerStatus.isInPrayerList ? "text-accent hover:text-accent/90" : ""}
                 >
-                  <BookmarkPlus className={`w-4 h-4 mr-2 ${prayerStatus.hasPrayed ? "fill-current" : ""}`} />
-                  {prayerStatus.prayerCount}
+                  <BookmarkPlus className={`w-4 h-4 mr-2 ${prayerStatus.isInPrayerList ? "fill-current" : ""}`} />
+                  {prayerStatus.prayerListCount || 0}
                 </Button>
 
                 {isSignedIn && canEncourage && (

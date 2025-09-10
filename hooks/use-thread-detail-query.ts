@@ -1,61 +1,78 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { communityKeys } from "./use-community-feed-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@clerk/nextjs";
 
-// Thread detail interface
-export interface ThreadDetail {
+// Types
+interface User {
   id: string;
-  title: string | null;
-  status: "open" | "answered" | "archived";
-  isAnonymous: boolean;
-  sharedToCommunity: boolean;
+  displayName: string | null;
+  firstName: string | null;
+  profileImageUrl: string | null;
+}
+
+interface Media {
+  id: string;
+  type: "image" | "video" | "audio";
+  url: string;
+  width: number | null;
+  height: number | null;
+  durationS: number | null;
+  muxPlaybackId?: string | null;
+  uploadStatus?: string;
+}
+
+interface Reaction {
+  id: string;
+  type: "amen" | "emoji" | "verse_ref";
+  payload: string | null;
   createdAt: string;
-  updatedAt: string;
-  author: {
+  user: {
     id: string;
     displayName: string | null;
     firstName: string | null;
-    lastName: string | null;
-    profileImageUrl: string | null;
-  } | null;
-  group: {
-    id: string;
-    name: string | null;
-    groupType: "core" | "circle";
-  } | null;
-  posts: Array<{
-    id: string;
-    kind: "request" | "update" | "testimony" | "encouragement" | "verse" | "system";
-    content: string | null;
+  };
+}
+
+interface Post {
+  id: string;
+  kind: "request" | "update" | "testimony" | "encouragement" | "verse" | "system";
+  content: string | null;
+  createdAt: string;
+  updatedAt: string;
+  author: User | null;
+  media: Media[];
+  reactions: Reaction[];
+  _count: {
+    prayerActions: number;
+  };
+}
+
+interface Group {
+  id: string;
+  name: string | null;
+  groupType: "core" | "circle";
+}
+
+export interface ThreadDetail {
+  id: string;
+  title: string | null;
+  sharedToCommunity: boolean;
+  isAnonymous: boolean;
+  status: "open" | "answered" | "archived";
+  createdAt: string;
+  updatedAt: string;
+  author: User | null;
+  group: Group | null;
+  posts: Post[];
+  prayers: Array<{
+    userId: string;
     createdAt: string;
-    author: {
+    user: {
       id: string;
       displayName: string | null;
       firstName: string | null;
-      profileImageUrl: string | null;
-    } | null;
-    media: Array<{
-      id: string;
-      type: "image" | "video" | "audio";
-      url: string;
-      width: number | null;
-      height: number | null;
-      durationS: number | null;
-      muxAssetId: string | null;
-      muxPlaybackId: string | null;
-    }>;
-    reactions: Array<{
-      id: string;
-      type: "amen" | "emoji" | "verse_ref";
-      payload: string | null;
-      createdAt: string;
-      user: {
-        id: string;
-        displayName: string | null;
-        firstName: string | null;
-      };
-    }>;
+    };
   }>;
   _count: {
     posts: number;
@@ -63,114 +80,75 @@ export interface ThreadDetail {
   };
 }
 
-interface CreatePostParams {
-  threadId: string;
-  content?: string;
-  kind: "request" | "update" | "testimony" | "encouragement" | "verse" | "system";
-  mediaIds?: string[];
+interface ThreadDetailResponse {
+  thread: ThreadDetail;
+  currentUser: User | null;
+  initialPrayerStatus: {
+    hasPrayed: boolean;
+    prayerCount: number;
+    isInPrayerList: boolean;
+    prayerListCount: number;
+  };
 }
 
-interface CreateReactionParams {
-  postId: string;
-  type: "amen" | "emoji" | "verse_ref";
-  payload?: string;
-}
-
-// Query keys
-export const threadDetailKeys = {
-  all: ['thread-detail'] as const,
-  detail: (id: string) => [...threadDetailKeys.all, id] as const,
+// Query key factory
+export const threadKeys = {
+  all: ['threads'] as const,
+  detail: (threadId: string) => [...threadKeys.all, threadId] as const,
+  posts: (threadId: string) => [...threadKeys.detail(threadId), 'posts'] as const,
+  prayers: (threadId: string) => [...threadKeys.detail(threadId), 'prayers'] as const,
 } as const;
 
-// Fetch thread detail
-const fetchThreadDetail = async (id: string): Promise<ThreadDetail> => {
-  const response = await fetch(`/api/threads/${id}`);
+// Fetch function for thread detail
+const fetchThreadDetail = async (threadId: string): Promise<ThreadDetailResponse> => {
+  const response = await fetch(`/api/threads/${threadId}`);
   
   if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Thread not found');
+    }
     throw new Error(`Failed to fetch thread: ${response.status}`);
   }
-  
+
   return response.json();
 };
 
 // Hook for thread detail
-export function useThreadDetail(id: string) {
+export function useThreadDetail(threadId: string | undefined) {
+  const { isSignedIn } = useAuth();
+  
   return useQuery({
-    queryKey: threadDetailKeys.detail(id),
-    queryFn: () => fetchThreadDetail(id),
+    queryKey: threadKeys.detail(threadId!),
+    queryFn: () => fetchThreadDetail(threadId!),
+    enabled: !!threadId,
     staleTime: 30 * 1000, // Consider fresh for 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-    retry: 2,
-  });
-}
-
-// Hook for creating posts
-export function useCreatePostMutation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ threadId, ...postData }: CreatePostParams) => {
-      const response = await fetch(`/api/threads/${threadId}/posts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postData),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create post: ${response.status}`);
-      }
-
-      return response.json();
-    },
-
-    onSuccess: (data, variables) => {
-      // Invalidate and refetch the thread detail
-      queryClient.invalidateQueries({ 
-        queryKey: threadDetailKeys.detail(variables.threadId) 
-      });
-      
-      // Mark community feed data as stale so it refetches in background
-      queryClient.invalidateQueries({ 
-        queryKey: communityKeys.all,
-        refetchType: 'none' // Don't refetch immediately, just mark as stale
-      });
-      
-      // Let the next access to community feed trigger a background refetch
-      // This way cached data shows immediately while fresh data loads
+    gcTime: 10 * 60 * 1000, // Cache for 10 minutes
+    retry: (failureCount, error) => {
+      // Don't retry 404s
+      if (error.message.includes('not found')) return false;
+      return failureCount < 3;
     },
   });
 }
 
-// Hook for creating reactions
-export function useCreateReactionMutation() {
+// Hook for prefetching thread detail (used from feed cards)
+export function usePrefetchThreadDetail() {
   const queryClient = useQueryClient();
+  
+  return (threadId: string) => {
+    queryClient.prefetchQuery({
+      queryKey: threadKeys.detail(threadId),
+      queryFn: () => fetchThreadDetail(threadId),
+      staleTime: 30 * 1000,
+    });
+  };
+}
 
-  return useMutation({
-    mutationFn: async ({ postId, type, payload }: CreateReactionParams) => {
-      const response = await fetch(`/api/threads/[id]/reactions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postId, type, payload }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create reaction: ${response.status}`);
-      }
-
-      return response.json();
-    },
-
-    onSuccess: (data, variables) => {
-      // Find the thread that contains this post and invalidate its cache
-      // Since we don't know the thread ID from the post ID, we'll invalidate all thread details
-      queryClient.invalidateQueries({ 
-        queryKey: threadDetailKeys.all 
-      });
-      
-      // Also invalidate community feed since reactions affect thread data
-      queryClient.invalidateQueries({ 
-        queryKey: communityKeys.all
-      });
-    },
-  });
+// Hook to get cached thread data without fetching
+export function useCachedThreadDetail(threadId: string) {
+  const queryClient = useQueryClient();
+  
+  return queryClient.getQueryData<ThreadDetailResponse>(
+    threadKeys.detail(threadId)
+  );
 }

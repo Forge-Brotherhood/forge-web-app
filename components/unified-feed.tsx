@@ -5,22 +5,33 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { 
   Users, 
   Trophy, 
   Flame, 
   BookOpen, 
-  HandHeart, 
-  BookmarkPlus, 
   Target,
   Clock,
   TrendingUp,
   AlertCircle,
-  Plus
+  Plus,
+  MoreHorizontal,
+  Edit,
+  Trash2,
+  Send,
+  Share
 } from "lucide-react";
+import { QuickActionsBar } from "@/components/quick-actions-bar";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@clerk/nextjs";
-import { useProfile } from "@/hooks/use-profile";
+import { useProfile } from "@/hooks/use-profile-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -67,9 +78,13 @@ interface BaseThread {
   updatedAt: string;
   author: BaseUser | null;
   posts: BasePost[];
+  isInPrayerList?: boolean;
+  hasPrayed?: boolean;
+  prayerListCount?: number;
   _count: {
     posts: number;
     prayers: number;
+    prayerListItems?: number;
   };
   group?: {
     id: string;
@@ -115,9 +130,17 @@ interface UnifiedFeedProps<TThread extends BaseThread, TStats extends BaseStats>
   onFilterChange?: (filter: string) => void;
   
   // Actions
-  onPray?: (threadId: string) => void | Promise<void>;
+  onPrayerListToggle?: (threadId: string) => void | Promise<void>;
   onDelete?: (threadId: string) => void | Promise<void>;
   onRefetch?: () => void;
+  onThreadClick?: (threadId: string) => void;
+  onThreadHover?: (threadId: string) => void;
+  
+  // Three dot menu actions
+  onSend?: (threadId: string) => void;
+  onShare?: (threadId: string) => void;
+  onEdit?: (threadId: string) => void;
+  onReplyClick?: (threadId: string) => void;
   
   // Pagination
   hasMore?: boolean;
@@ -158,9 +181,15 @@ export function UnifiedFeed<TThread extends BaseThread, TStats extends BaseStats
   filters = [],
   activeFilter,
   onFilterChange,
-  onPray,
+  onPrayerListToggle,
   onDelete,
   onRefetch,
+  onThreadClick,
+  onThreadHover,
+  onSend,
+  onShare,
+  onEdit,
+  onReplyClick,
   hasMore = false,
   loadMore,
   isLoadingMore = false,
@@ -201,14 +230,18 @@ export function UnifiedFeed<TThread extends BaseThread, TStats extends BaseStats
     );
   }, []);
 
-  const handlePrayClick = useCallback(async (threadId: string) => {
-    if (!isSignedIn || !onPray) return;
-    await onPray(threadId);
-  }, [isSignedIn, onPray]);
+  const handlePrayerListToggle = useCallback(async (threadId: string) => {
+    if (!isSignedIn || !onPrayerListToggle) return;
+    await onPrayerListToggle(threadId);
+  }, [isSignedIn, onPrayerListToggle]);
 
   const handleThreadNavigation = useCallback((threadId: string) => {
-    router.push(`/threads/${threadId}`);
-  }, [router]);
+    if (onThreadClick) {
+      onThreadClick(threadId);
+    } else {
+      router.push(`/threads/${threadId}`);
+    }
+  }, [router, onThreadClick]);
 
   const getAuthorName = (user: BaseUser | null) => {
     if (!user) return "Anonymous";
@@ -233,14 +266,17 @@ export function UnifiedFeed<TThread extends BaseThread, TStats extends BaseStats
     const isTestimony = thread.status === "answered" || mainPost.kind === "testimony";
     const displayAuthor = thread.isAnonymous ? null : (thread.author || mainPost.author);
     
-    // Check if current user has prayed (simplified check - would need proper implementation)
-    const hasPrayed = false; // This would need to be tracked properly in a real implementation
+    // Use prayer list status from thread data
+    const isInPrayerList = thread.isInPrayerList || false;
+    const prayerListCount = thread.prayerListCount || thread._count.prayerListItems || 0;
 
     return (
       <Card 
         key={thread.id} 
+        data-thread-id={thread.id}
         className="w-full no-border border-b border-border last:border-b-0 cursor-pointer hover:bg-accent/5 transition-colors"
         onClick={() => handleThreadNavigation(thread.id)}
+        onMouseEnter={() => onThreadHover?.(thread.id)}
       >
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
@@ -275,6 +311,73 @@ export function UnifiedFeed<TThread extends BaseThread, TStats extends BaseStats
                 </div>
               </div>
             </div>
+            
+            {/* Three dot menu */}
+            {isSignedIn && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenuItem 
+                    className="flex items-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSend?.(thread.id);
+                    }}
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    Send
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    className="flex items-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShare?.(thread.id);
+                    }}
+                  >
+                    <Share className="w-4 h-4 mr-2" />
+                    Share
+                  </DropdownMenuItem>
+                  {currentUserId && (thread.author?.id === currentUserId || mainPost.author?.id === currentUserId) && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem 
+                        className="flex items-center"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit?.(thread.id);
+                        }}
+                      >
+                        <Edit className="w-4 h-4 mr-2" />
+                        Edit thread
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="flex items-center text-red-600 hover:text-red-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete?.(thread.id);
+                        }}
+                        disabled={isDeletingId === thread.id}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete thread
+                        {isDeletingId === thread.id && (
+                          <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin ml-2" />
+                        )}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </CardHeader>
 
@@ -323,34 +426,21 @@ export function UnifiedFeed<TThread extends BaseThread, TStats extends BaseStats
         )}
 
         {/* Actions - outside clickable area */}
-        <CardContent className="pt-6">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePrayClick(thread.id);
-              }}
-              disabled={!isSignedIn}
-              className={hasPrayed ? "text-red-600 hover:text-red-700" : "text-muted-foreground hover:text-black transition-colors"}
-            >
-              <BookmarkPlus className={`w-4 h-4 mr-2 ${hasPrayed ? "fill-current" : ""}`} />
-              {thread._count.prayers}
-            </Button>
-            
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleThreadNavigation(thread.id);
-              }}
-              className="text-muted-foreground hover:text-black transition-colors"
-            >
-              <HandHeart className="w-4 h-4 mr-2" />
-              {thread._count.posts}
-            </Button>
+        <CardContent className="pt-4 pb-4 border-t border-border/30">
+          <div onClick={(e) => e.stopPropagation()}>
+            <QuickActionsBar
+              postId={mainPost.id}
+              threadId={thread.id}
+              isMainPost={true}
+              prayerListCount={prayerListCount}
+              isInPrayerList={isInPrayerList}
+              encouragementCount={thread._count.posts - 1}
+              onPrayerListToggle={() => handlePrayerListToggle(thread.id)}
+              onReplyClick={() => handleThreadNavigation(thread.id)}
+              onSendClick={() => onSend?.(thread.id)}
+              onShareClick={() => onShare?.(thread.id)}
+              isPrayerListPending={false}
+            />
           </div>
         </CardContent>
       </Card>
@@ -363,12 +453,7 @@ export function UnifiedFeed<TThread extends BaseThread, TStats extends BaseStats
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-foreground mb-2">{title}</h1>
-          <div className="flex items-center justify-between">
-            <p className="text-muted-foreground">{description}</p>
-            <div className="text-sm text-muted-foreground bg-secondary/50 px-3 py-1 rounded-full">
-              {localThreads.length} {localThreads.length === 1 ? 'post' : 'posts'} loaded
-            </div>
-          </div>
+          <p className="text-muted-foreground">{description}</p>
         </div>
 
         {/* Stats */}

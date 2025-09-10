@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { User, LogOut } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
-import { useProfile } from "@/hooks/use-profile";
+import { useProfile } from "@/hooks/use-profile-query";
 
 export function Navbar() {
   const { isLoaded } = useAuth();

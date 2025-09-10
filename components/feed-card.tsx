@@ -20,19 +20,24 @@ export interface PrayerRequest {
   content: string;
   createdAt: Date;
   prayerCount: number;
+  prayerListCount: number;
   encouragementCount: number;
   isFollowing: boolean;
   hasPrayed: boolean;
+  isInPrayerList: boolean;
   hasEncouraged: boolean;
   updateStatus?: "answered" | "update" | null;
   scriptureReference?: string;
   voiceNoteUrl?: string;
   streakDays?: number;
+  groupName?: string;
+  groupId?: string;
+  sharedToCommunity?: boolean;
 }
 
 interface FeedCardProps {
   prayer: PrayerRequest;
-  onPray?: (id: string) => void;
+  onPrayerListToggle?: (id: string) => void;
   onEncourage?: (id: string) => void;
   onFollow?: (id: string) => void;
   showGroupFeatures?: boolean;
@@ -45,7 +50,7 @@ interface FeedCardProps {
 
 export const FeedCard = ({
   prayer,
-  onPray,
+  onPrayerListToggle,
   onEncourage,
   showGroupFeatures = false,
   onCardClick,
@@ -64,9 +69,9 @@ export const FeedCard = ({
     setMounted(true);
   }, []);
 
-  const handlePray = (e: React.MouseEvent) => {
+  const handlePrayerListToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onPray?.(prayer.id);
+    onPrayerListToggle?.(prayer.id);
   };
 
   const handleEncourage = (e: React.MouseEvent) => {
@@ -197,16 +202,16 @@ export const FeedCard = ({
       {/* Actions */}
       <div className="flex items-center gap-6 pt-6 border-t border-border/20">
         <button
-          onClick={handlePray}
+          onClick={handlePrayerListToggle}
           className={cn(
             "flex items-center gap-2 text-sm font-medium transition-all duration-200 hover:text-accent",
-            prayer.hasPrayed ? "text-accent" : "text-muted-foreground hover:text-foreground"
+            prayer.isInPrayerList ? "text-accent" : "text-muted-foreground hover:text-foreground"
           )}
         >
-          <BookmarkPlus className={cn("w-4 h-4", prayer.hasPrayed && "fill-current")} />
-          <span>{prayer.prayerCount}</span>
+          <BookmarkPlus className={cn("w-4 h-4", prayer.isInPrayerList && "fill-current")} />
+          <span>{prayer.prayerListCount || 0}</span>
           <span className="hidden sm:inline">
-            {prayer.hasPrayed ? "Prayed" : "Pray"}
+            {prayer.isInPrayerList ? "Saved" : "Save"}
           </span>
         </button>
         

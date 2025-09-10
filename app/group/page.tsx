@@ -3,7 +3,14 @@
 import React, { useState, useCallback } from "react";
 import { UnifiedFeed } from "@/components/unified-feed";
 import { GroupNewPost } from "@/components/group-new-post";
-import { useGroupFeed, type GroupFeedThread } from "@/hooks/use-group-feed";
+import { 
+  useGroupBasic, 
+  useGroupMembers, 
+  useGroupStats,
+  useGroupFeed,
+  type GroupFeedThread 
+} from "@/hooks/use-group-feed-query";
+import { useDeleteThreadMutation, usePrayerListToggleMutation } from "@/hooks/use-thread-mutations";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,36 +27,110 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@clerk/nextjs";
-import { useProfile } from "@/hooks/use-profile";
+import { useProfile } from "@/hooks/use-profile-query";
 import { cn } from "@/lib/utils";
+import { useScrollPreservation } from "@/hooks/use-scroll-preservation";
+import { usePrefetchThreadDetail } from "@/hooks/use-thread-detail-query";
 
 export default function CoreGroupPage() {
   const [activeTab, setActiveTab] = useState<"feed" | "members">("feed");
-  const { group, threads, stats, members, isLoading, error, refetch, hasMore, loadMore, isLoadingMore } = useGroupFeed();
+  
+  // Use optimized hooks for better performance
+  const basicQuery = useGroupBasic();
+  const statsQuery = useGroupStats();
+  // Only load feed if we have a group (prevents unnecessary API call)
+  const feedQuery = useGroupFeed(20, !basicQuery.isLoading && !!basicQuery.data);
+  
+  // Only load members when the members tab is active or when data is needed
+  const membersQuery = useGroupMembers(activeTab === "members");
+  
   const { isSignedIn } = useAuth();
   const { profile } = useProfile();
+  const deleteThreadMutation = useDeleteThreadMutation();
+  const prayerListMutation = usePrayerListToggleMutation();
+  const prefetchThread = usePrefetchThreadDetail();
+  
+  // Combine the data
+  const group = basicQuery.data ? {
+    ...basicQuery.data,
+    memberCount: statsQuery.data?.memberCount || 0,
+  } : null;
+  
+  const stats = statsQuery.data;
+  const members = membersQuery.data || [];
+  const threads = feedQuery.threads;
+  // Show loading only while basic query is loading - this determines if user has a group
+  const isLoading = basicQuery.isLoading;
+  const error = basicQuery.error?.message || statsQuery.error?.message || 
+    feedQuery.error || (activeTab === "members" && membersQuery.error?.message) || null;
+  const hasMore = feedQuery.hasMore;
+  const loadMore = feedQuery.loadMore;
+  const isLoadingMore = feedQuery.isLoadingMore;
+  
+  const refetch = useCallback(async () => {
+    await Promise.all([
+      basicQuery.refetch(),
+      statsQuery.refetch(),
+      feedQuery.refetch(),
+      ...(activeTab === "members" ? [membersQuery.refetch()] : []),
+    ]);
+  }, [basicQuery, statsQuery, feedQuery, membersQuery, activeTab]);
+  
+  // Enable scroll preservation for this feed
+  useScrollPreservation(threads, isLoading);
 
-  const handlePray = useCallback(async (threadId: string) => {
+  // Handle thread hover for prefetching
+  const handleThreadHover = useCallback((threadId: string) => {
+    prefetchThread(threadId);
+  }, [prefetchThread]);
+
+  const handlePrayerListToggle = useCallback(async (threadId: string) => {
     if (!isSignedIn) return;
     
+    const thread = threads.find(t => t.id === threadId);
+    const mainPost = thread?.posts.find(p => p.kind === "request") || thread?.posts[0];
+    if (!mainPost) return;
+
     try {
-      const mainPost = threads.find(t => t.id === threadId)?.posts.find(p => p.kind === "request");
-      if (!mainPost) return;
-
-      const response = await fetch(`/api/threads/${threadId}/prayers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: mainPost.id }),
+      await prayerListMutation.mutateAsync({
+        threadId,
+        postId: mainPost.id
       });
-
-      if (response.ok) {
-        // Trigger a refetch to update the data
-        refetch();
-      }
     } catch (error) {
-      console.error("Error praying:", error);
+      console.error("Error updating prayer list:", error);
     }
-  }, [threads, isSignedIn, refetch]);
+  }, [threads, isSignedIn, prayerListMutation]);
+
+
+  const handleDelete = useCallback(async (threadId: string) => {
+    if (!isSignedIn || !profile || deleteThreadMutation.isPending) return;
+    
+    if (!confirm("Are you sure you want to delete this thread? This action cannot be undone.")) return;
+
+    try {
+      // TanStack Query handles optimistic updates and cache invalidation
+      await deleteThreadMutation.mutateAsync({ threadId });
+    } catch (error) {
+      console.error("Error deleting thread:", error);
+      alert(`Failed to delete thread: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [isSignedIn, profile, deleteThreadMutation]);
+
+  const handleSend = useCallback((threadId: string) => {
+    // TODO: Implement send functionality
+    console.log("Send thread:", threadId);
+  }, []);
+
+  const handleShare = useCallback((threadId: string) => {
+    // TODO: Implement share functionality
+    console.log("Share thread:", threadId);
+  }, []);
+
+
+  const handleEdit = useCallback((threadId: string) => {
+    // TODO: Implement edit functionality
+    console.log("Edit thread:", threadId);
+  }, []);
 
   const getAuthorName = (user: any) => {
     if (!user) return "Anonymous";
@@ -67,6 +148,17 @@ export default function CoreGroupPage() {
       .slice(0, 2);
   };
 
+  const formatJoinDate = (dateString: string | null) => {
+    if (!dateString) return 'recently';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'recently';
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (error) {
+      return 'recently';
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -75,7 +167,8 @@ export default function CoreGroupPage() {
     );
   }
 
-  if (!group) {
+  // If basic query completed and no group found, show immediately
+  if (!isLoading && !group) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -86,13 +179,6 @@ export default function CoreGroupPage() {
       </div>
     );
   }
-
-  const statsConfig = stats ? [
-    { key: 'weeklyPrayers', icon: BookmarkPlus, label: 'Prayers This Week', color: 'text-red-500' },
-    { key: 'activeToday', icon: Target, label: 'Active Today', color: 'text-green-500' },
-    { key: 'averageStreak', icon: Flame, label: 'Avg Streak', color: 'text-amber-500', suffix: 'd' },
-    { key: 'groupStreak', icon: Trophy, label: 'Best Streak', color: 'text-yellow-500', suffix: 'd' }
-  ] : undefined;
 
   const emptyStateConfig = {
     icon: BookOpen,
@@ -195,9 +281,14 @@ export default function CoreGroupPage() {
           error={error}
           feedType="group"
           title={group?.name || "Core Group"}
-          description={`Your brotherhood of ${stats?.totalMembers || 0} believers`}
-          onPray={handlePray}
+          description={`Your brotherhood of ${stats?.memberCount || 0} believers`}
+          onPrayerListToggle={handlePrayerListToggle}
+          onDelete={handleDelete}
           onRefetch={refetch}
+          onThreadHover={handleThreadHover}
+          onSend={handleSend}
+          onShare={handleShare}
+          onEdit={handleEdit}
           hasMore={hasMore}
           loadMore={loadMore}
           isLoadingMore={isLoadingMore}
@@ -205,6 +296,7 @@ export default function CoreGroupPage() {
           infiniteScrollThreshold={300}
           currentUserId={profile?.id}
           isSignedIn={isSignedIn}
+          isDeletingId={deleteThreadMutation.isPending ? "loading" : undefined}
           emptyStateConfig={emptyStateConfig}
           headerContent={
             <>
@@ -223,7 +315,7 @@ export default function CoreGroupPage() {
                 {group?.name || "Core Group"}
               </h1>
               <p className="text-muted-foreground">
-                Your brotherhood of {stats?.totalMembers || 0} believers
+                Your brotherhood of {stats?.memberCount || 0} believers
               </p>
             </div>
 
@@ -247,7 +339,7 @@ export default function CoreGroupPage() {
                           {getAuthorName(member.user)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          Joined {formatDistanceToNow(new Date(member.joinedAt), { addSuffix: true })}
+                          Joined {formatJoinDate(member.joinedAt)}
                         </p>
                       </div>
                     </div>

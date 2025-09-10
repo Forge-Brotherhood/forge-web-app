@@ -135,10 +135,32 @@ export async function GET(request: NextRequest) {
               },
             },
           },
+          // Include prayer list items for current user
+          prayerListItems: {
+            where: {
+              userId: user.id,
+            },
+            select: {
+              id: true,
+              postId: true,
+            },
+            take: 1, // We only need to know if it exists
+          },
+          // Include prayer actions for current user
+          prayers: {
+            where: {
+              userId: user.id,
+            },
+            select: {
+              id: true,
+            },
+            take: 1, // We only need to know if it exists
+          },
           _count: {
             select: {
               posts: true,
               prayers: true,
+              prayerListItems: true,
             },
           },
         },
@@ -151,7 +173,7 @@ export async function GET(request: NextRequest) {
       prisma.thread.count({ where: whereClause }),
     ]);
 
-    // Sanitize anonymous threads
+    // Sanitize anonymous threads and add prayer list status
     const sanitizedThreads = threads.map(thread => ({
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
@@ -159,6 +181,12 @@ export async function GET(request: NextRequest) {
         ...post,
         author: thread.isAnonymous ? null : post.author,
       })),
+      isInPrayerList: thread.prayerListItems.length > 0,
+      hasPrayed: thread.prayers.length > 0,
+      prayerListCount: thread._count.prayerListItems,
+      // Remove raw data from response
+      prayerListItems: undefined,
+      prayers: undefined,
     }));
 
     return NextResponse.json({

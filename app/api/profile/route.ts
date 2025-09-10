@@ -21,6 +21,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // First check if user exists with minimal data
     let user = await prisma.user.findUnique({
       where: { clerkId: userId },
       select: {
@@ -31,22 +32,30 @@ export async function GET() {
         profileImageUrl: true,
         createdAt: true,
         role: true,
-        memberships: {
-          where: { status: "active" },
-          select: {
-            groupId: true,
-            role: true,
-            group: {
-              select: {
-                id: true,
-                name: true,
-                groupType: true,
-              },
+      },
+    });
+
+    // Only load memberships if user exists (separate query for better performance)
+    let memberships: any[] = [];
+    if (user) {
+      memberships = await prisma.groupMember.findMany({
+        where: { 
+          userId: user.id,
+          status: "active" 
+        },
+        select: {
+          groupId: true,
+          role: true,
+          group: {
+            select: {
+              id: true,
+              name: true,
+              groupType: true,
             },
           },
         },
-      },
-    });
+      });
+    }
 
     // If user doesn't exist in database, create them
     if (!user) {
@@ -66,25 +75,16 @@ export async function GET() {
           profileImageUrl: true,
           createdAt: true,
           role: true,
-          memberships: {
-            where: { status: "active" },
-            select: {
-              groupId: true,
-              role: true,
-              group: {
-                select: {
-                  id: true,
-                  name: true,
-                  groupType: true,
-                },
-              },
-            },
-          },
         },
       });
+      // New users have no memberships yet
+      memberships = [];
     }
 
-    return NextResponse.json(user);
+    return NextResponse.json({
+      ...user,
+      memberships
+    });
   } catch (error) {
     console.error("Error fetching profile:", error);
     return NextResponse.json(

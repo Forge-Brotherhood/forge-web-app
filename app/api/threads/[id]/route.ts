@@ -120,6 +120,7 @@ export async function GET(
           select: {
             posts: true,
             prayers: true,
+            prayerListItems: true,
           },
         },
       },
@@ -143,6 +144,22 @@ export async function GET(
       );
     }
 
+    // Check if current user has prayed for this thread
+    const mainPost = thread.posts.find(p => p.kind === "request") || thread.posts[0];
+    const hasPrayed = mainPost ? thread.prayers.some(p => p.userId === user.id) : false;
+    const prayerCount = thread._count.prayers;
+
+    // Check if thread is in user's prayer list
+    const prayerListItem = await prisma.prayerListItem.findFirst({
+      where: {
+        userId: user.id,
+        threadId: thread.id,
+        postId: mainPost?.id || null,
+      },
+    });
+    const isInPrayerList = !!prayerListItem;
+    const prayerListCount = thread._count.prayerListItems;
+
     // Sanitize if anonymous
     const sanitizedThread = {
       ...thread,
@@ -153,7 +170,22 @@ export async function GET(
       })),
     };
 
-    return NextResponse.json(sanitizedThread);
+    // Return in format expected by client hook
+    return NextResponse.json({
+      thread: sanitizedThread,
+      currentUser: {
+        id: user.id,
+        displayName: user.displayName,
+        firstName: user.firstName,
+        profileImageUrl: user.profileImageUrl,
+      },
+      initialPrayerStatus: {
+        hasPrayed,
+        prayerCount,
+        isInPrayerList,
+        prayerListCount,
+      },
+    });
   } catch (error) {
     console.error("Error fetching thread:", error);
     return NextResponse.json(

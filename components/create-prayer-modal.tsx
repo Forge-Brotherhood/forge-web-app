@@ -6,9 +6,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
-import { useProfile } from "@/hooks/use-profile";
+import { useProfile } from "@/hooks/use-profile-query";
 import { useRouter } from "next/navigation";
 import { MediaUpload } from "@/components/media-upload";
+import { useCreateThreadMutation } from "@/hooks/use-thread-mutations";
 
 interface CreatePrayerModalProps {
   onClose: () => void;
@@ -19,13 +20,13 @@ type PostingScope = "community" | "group" | "both";
 export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [prayerText, setPrayerText] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<any[]>([]);
   const [postingScope, setPostingScope] = useState<PostingScope>("community");
   const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
   const { user } = useUser();
   const { profile, getPostingOptions } = useProfile();
   const router = useRouter();
+  const createThreadMutation = useCreateThreadMutation();
 
   // Check if any media is still uploading or processing
   const hasUploadingMedia = uploadedMedia.some(media => 
@@ -71,9 +72,8 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
   };
 
   const handleSubmit = async () => {
-    if (!prayerText.trim()) return;
+    if (!prayerText.trim() || createThreadMutation.isPending) return;
 
-    setIsSubmitting(true);
     try {
       // Process media for API
       const mediaIds: string[] = [];
@@ -94,42 +94,22 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
         }
       });
 
-      const requestData = {
-        body: prayerText.trim(), // Use legacy 'body' field for backward compatibility
+      const result = await createThreadMutation.mutateAsync({
+        content: prayerText.trim(),
         isAnonymous,
         sharedToCommunity: postingScope === "community" || postingScope === "both",
         groupId: postingScope === "group" || postingScope === "both" ? 
           postingOptions.groups[0]?.groupId : null,
         mediaIds: mediaIds.length > 0 ? mediaIds : undefined,
         mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
-      };
-
-      console.log('Sending request data:', requestData);
-      console.log('Posting scope:', postingScope);
-      console.log('Posting options:', postingOptions);
-
-      const response = await fetch("/api/threads", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
       });
-
-      if (!response.ok) {
-        throw new Error("Failed to create prayer request");
-      }
-
-      const thread = await response.json();
       
       // Close modal and navigate to the thread
       onClose();
-      router.push(`/threads/${thread.id}`);
+      router.push(`/threads/${result.id}`);
     } catch (error) {
       console.error("Error creating prayer request:", error);
       // TODO: Show error toast
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -190,7 +170,7 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
           <MediaUpload 
             onMediaChange={setUploadedMedia}
             maxItems={3}
-            disabled={isSubmitting}
+            disabled={createThreadMutation.isPending}
           />
         </div>
 
@@ -205,7 +185,7 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
                 size="sm"
                 onClick={() => handleScopeChange("both")}
                 className="justify-start h-10 text-sm"
-                disabled={isSubmitting}
+                disabled={createThreadMutation.isPending}
               >
                 My group and community
               </Button>
@@ -215,7 +195,7 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
                 size="sm"
                 onClick={() => handleScopeChange("group")}
                 className="justify-start h-10 text-sm"
-                disabled={isSubmitting}
+                disabled={createThreadMutation.isPending}
               >
                 My group only
               </Button>
@@ -225,7 +205,7 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
                 size="sm"
                 onClick={() => handleScopeChange("community")}
                 className="justify-start h-10 text-sm"
-                disabled={isSubmitting}
+                disabled={createThreadMutation.isPending}
               >
                 Community only
               </Button>
@@ -263,16 +243,16 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
         <Button 
           variant="ghost" 
           onClick={onClose}
-          disabled={isSubmitting}
+          disabled={createThreadMutation.isPending}
         >
           Cancel
         </Button>
         <Button 
           onClick={handleSubmit} 
-          disabled={!prayerText.trim() || isSubmitting || hasUploadingMedia}
+          disabled={!prayerText.trim() || createThreadMutation.isPending || hasUploadingMedia}
           className="min-w-[100px]"
         >
-          {isSubmitting ? (
+          {createThreadMutation.isPending ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
               Sharing...

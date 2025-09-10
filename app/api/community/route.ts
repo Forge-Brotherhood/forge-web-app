@@ -5,10 +5,19 @@ import { prisma } from "@/lib/prisma";
 // GET /api/community - Get community feed
 export async function GET(request: NextRequest) {
   try {
+    const { userId } = await auth();
     const { searchParams } = new URL(request.url);
     const filter = searchParams.get("filter") || "all"; // all | testimonies | requests
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = parseInt(searchParams.get("offset") || "0");
+
+    // Get current user if authenticated
+    let currentUser = null;
+    if (userId) {
+      currentUser = await prisma.user.findUnique({
+        where: { clerkId: userId },
+      });
+    }
 
     let whereClause: any = {
       sharedToCommunity: true,
@@ -74,10 +83,32 @@ export async function GET(request: NextRequest) {
               },
             },
           },
+          // Include prayer list items for current user
+          prayerListItems: currentUser ? {
+            where: {
+              userId: currentUser.id,
+            },
+            select: {
+              id: true,
+              postId: true,
+            },
+            take: 1, // We only need to know if it exists
+          } : undefined,
+          // Include prayer actions for current user
+          prayers: currentUser ? {
+            where: {
+              userId: currentUser.id,
+            },
+            select: {
+              id: true,
+            },
+            take: 1, // We only need to know if it exists
+          } : undefined,
           _count: {
             select: {
               posts: true,
               prayers: true,
+              prayerListItems: true,
             },
           },
         },
@@ -92,7 +123,7 @@ export async function GET(request: NextRequest) {
       prisma.thread.count({ where: whereClause }),
     ]);
 
-    // Sanitize anonymous threads
+    // Sanitize anonymous threads and add prayer list status
     const sanitizedThreads = threads.map(thread => ({
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
@@ -100,6 +131,12 @@ export async function GET(request: NextRequest) {
         ...post,
         author: thread.isAnonymous ? null : post.author,
       })),
+      isInPrayerList: thread.prayerListItems ? thread.prayerListItems.length > 0 : false,
+      hasPrayed: thread.prayers ? thread.prayers.length > 0 : false,
+      prayerListCount: thread._count.prayerListItems,
+      // Remove raw data from response
+      prayerListItems: undefined,
+      prayers: undefined,
     }));
 
     return NextResponse.json({
