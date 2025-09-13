@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { communityKeys, CommunityFeedThread } from "./use-community-feed-query";
+import { communityKeys, type CommunityThread } from "./use-community-feed-query";
 
 interface PrayerActionResponse {
   success: boolean;
@@ -60,13 +60,13 @@ export function usePrayerMutation() {
             ...old,
             pages: old.pages.map((page: any) => ({
               ...page,
-              threads: page.threads.map((thread: CommunityFeedThread) =>
+              threads: page.threads.map((thread: CommunityThread) =>
                 thread.id === threadId
                   ? {
                       ...thread,
                       _count: {
                         ...thread._count,
-                        prayers: thread._count.prayers + (action === 'add' ? 1 : -1),
+                        actions: thread._count.actions + (action === 'add' ? 1 : -1),
                       },
                     }
                   : thread
@@ -120,7 +120,7 @@ export function usePrayerStatus(threadId: string, postId?: string) {
             ...old,
             pages: old.pages.map((page: any) => ({
               ...page,
-              threads: page.threads.map((thread: CommunityFeedThread) =>
+              threads: page.threads.map((thread: CommunityThread) =>
                 thread.id === threadId
                   ? {
                       ...thread,

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -20,10 +19,9 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { MediaGridGallery } from "@/components/photoswipe-gallery";
 import { VideoPlayer } from "@/components/video-player";
-import { useThreadDetail, threadKeys } from "@/hooks/use-thread-detail-query";
-import { useAddPostMutation, useReactionMutation, useDeletePostMutation, useDeleteThreadMutation, usePrayerListToggleMutation } from "@/hooks/use-thread-mutations";
-import { QuickActionsBar } from "@/components/quick-actions-bar";
-import { useScrollPreservation } from "@/hooks/use-scroll-preservation";
+import { useThreadDetail } from "@/hooks/use-thread-detail-query";
+import { useAddPostMutation, useDeletePostMutation, useDeleteThreadMutation, usePrayerListToggleMutation } from "@/hooks/use-thread-mutations";
+import { FeedCard, type PrayerRequest as FeedCardPrayer } from "@/components/feed-card";
 
 interface Props {
   threadId: string;
@@ -35,35 +33,30 @@ export function ThreadDetailClient({ threadId }: Props) {
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   // TanStack Query hooks
   const { data, isLoading, error } = useThreadDetail(threadId);
   const addPostMutation = useAddPostMutation();
-  const reactionMutation = useReactionMutation();
   const deletePostMutation = useDeletePostMutation();
   const deleteThreadMutation = useDeleteThreadMutation();
   const prayerListMutation = usePrayerListToggleMutation();
 
-  // Scroll preservation
-  const { navigateWithScroll } = useScrollPreservation([], false);
-
   // All hooks must be called before any conditional logic
   const handlePrayerListToggle = useCallback(async () => {
-    if (!data?.thread?.posts) return;
+    if (!data?.thread?.entries) return;
 
-    const mainPost = data.thread.posts.find(p => p.kind === "request" || p.kind === "testimony") || data.thread.posts[0];
+    const mainPost = data.thread.entries.find((p: any) => p.kind === "request" || p.kind === "testimony") || data.thread.entries[0];
     if (!mainPost) return;
 
     try {
       await prayerListMutation.mutateAsync({
-        threadId: data.thread.id,
-        postId: mainPost.id
+        threadId,
+        postId: mainPost.id,
       });
     } catch (error) {
       console.error("Error updating prayer list:", error);
     }
-  }, [data, prayerListMutation]);
+  }, [data, prayerListMutation, threadId]);
 
   const handleSubmitPost = useCallback(async () => {
     if (!postText.trim() || !data?.thread || !data?.currentUser) return;
@@ -82,7 +75,7 @@ export function ThreadDetailClient({ threadId }: Props) {
       setIsComposing(false);
 
       await addPostMutation.mutateAsync({
-        threadId: data.thread.id,
+        threadId,
         content: currentText,
         kind: canUpdate ? "update" : "encouragement",
       });
@@ -94,7 +87,7 @@ export function ThreadDetailClient({ threadId }: Props) {
       setIsComposing(true);
       alert(`Failed to add post: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [postText, data, addPostMutation]);
+  }, [postText, data, addPostMutation, threadId]);
 
   const handleBack = useCallback(() => {
     router.back();
@@ -107,7 +100,7 @@ export function ThreadDetailClient({ threadId }: Props) {
     
     try {
       await deletePostMutation.mutateAsync({
-        threadId: data.thread.id,
+        threadId,
         postId,
       });
     } catch (error) {
@@ -116,7 +109,7 @@ export function ThreadDetailClient({ threadId }: Props) {
     } finally {
       setDeletingPostId(null);
     }
-  }, [data?.thread, deletePostMutation]);
+  }, [data?.thread, deletePostMutation, threadId]);
 
   const handleDeleteThread = useCallback(async () => {
     if (!data?.thread || !confirm("Are you sure you want to delete this entire thread? This action cannot be undone.")) return;
@@ -134,31 +127,10 @@ export function ThreadDetailClient({ threadId }: Props) {
     }
   }, [data?.thread, deleteThreadMutation, router]);
 
-  const handleReplyClick = useCallback(() => {
-    // Scroll to and focus the compose textarea
-    if (composeRef.current) {
-      composeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setTimeout(() => {
-        composeRef.current?.focus();
-        setIsComposing(true);
-      }, 300);
-    }
-  }, []);
-
-  const handleShareClick = useCallback(() => {
-    // TODO: Implement share functionality
-    console.log("Share clicked");
-  }, []);
-
-  const handleSendClick = useCallback(() => {
-    // TODO: Implement send to core group functionality
-    console.log("Send to core group clicked");
-  }, []);
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
-        <div className="max-w-2xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+        <div className="max-w-2xl mx-auto py-6 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between mb-8">
             <Button 
               variant="ghost" 
@@ -223,7 +195,7 @@ export function ThreadDetailClient({ threadId }: Props) {
     );
   }
 
-  const { thread, currentUser, initialPrayerStatus } = data;
+  const { thread, currentUser } = data;
 
   // Use the live prayer status from cache, falling back to initial status
   // This ensures the UI reflects optimistic updates
@@ -234,15 +206,15 @@ export function ThreadDetailClient({ threadId }: Props) {
     prayerListCount: number;
   };
 
-  // Filter out any null/undefined posts and get main post
-  const validPosts = (thread.posts || []).filter(post => post && post.id);
-  const mainPost = validPosts.find(p => p.kind === "request" || p.kind === "testimony") || validPosts[0];
+  // Filter out any null/undefined entries and get main entry
+  const validPosts = ((thread as any).entries || []).filter((post: any) => post && post.id);
+  const mainPost = validPosts.find((p: any) => p.kind === "request" || p.kind === "testimony") || validPosts[0];
   
   // Separate main post from responses
-  const responsePosts = validPosts.filter(post => post.id !== mainPost?.id);
+  const responsePosts = validPosts.filter((post: any) => post.id !== mainPost?.id);
   
   // Sort responses from most recent to oldest
-  const sortedResponses = responsePosts.sort((a, b) => 
+  const sortedResponses = (responsePosts as any[]).sort((a: any, b: any) =>
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
@@ -285,15 +257,10 @@ export function ThreadDetailClient({ threadId }: Props) {
               </Badge>
             )}
           </div>
-          
-          <h1 className="text-3xl font-bold text-foreground mb-2">Prayer Thread</h1>
-          <p className="text-muted-foreground">
-            {isTestimony ? "Celebrating God's faithfulness" : "Join in prayer and encouragement"}
-          </p>
         </div>
 
 
-        {/* Posts */}
+        {/* Thread Content - outer bordered container */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           {!mainPost ? (
             <div className="text-center py-12">
@@ -301,164 +268,42 @@ export function ThreadDetailClient({ threadId }: Props) {
                 <BookOpen className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
               </div>
               <p className="text-muted-foreground text-lg mb-2">No posts found</p>
-              <p className="text-muted-foreground text-sm">
-                This thread doesn't have any posts yet
-              </p>
+              <p className="text-muted-foreground text-sm">This thread doesn&apos;t have any posts yet</p>
             </div>
           ) : (
-            <>
-              {/* Main Post (Request/Testimony) */}
-              <Card 
-                key={mainPost.id} 
-                data-post-id={mainPost.id}
-                className="w-full no-border transition-colors"
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3">
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src={(thread.isAnonymous ? null : (thread.author || mainPost.author))?.profileImageUrl || undefined} />
-                        <AvatarFallback>
-                          {thread.isAnonymous ? "?" : getAuthorInitials(thread.author || mainPost.author)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-medium text-foreground">
-                            {getAuthorName(thread.isAnonymous ? null : (thread.author || mainPost.author))}
-                          </span>
-                          {mainPost.kind === "testimony" && (
-                            <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-300">
-                              <Trophy className="w-3 h-3 mr-1" />
-                              Testimony
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                          <Clock className="w-3 h-3" />
-                          <span>{formatDistanceToNow(new Date(mainPost.createdAt), { addSuffix: true })}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Three dot menu for main post */}
-                    {currentUser && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem className="flex items-center">
-                            <Send className="w-4 h-4 mr-2" />
-                            Send
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="flex items-center">
-                            <Share className="w-4 h-4 mr-2" />
-                            Share
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="flex items-center">
-                            <Flag className="w-4 h-4 mr-2" />
-                            Flag
-                          </DropdownMenuItem>
-                          {(thread.author?.id === currentUser.id || mainPost.author?.id === currentUser.id) && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem className="flex items-center">
-                                <Edit className="w-4 h-4 mr-2" />
-                                Edit post
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                className="flex items-center text-red-600 hover:text-red-700"
-                                onClick={() => {
-                                  // Check if this is the main post - if so, delete entire thread
-                                  if (mainPost.kind === "request") {
-                                    handleDeleteThread();
-                                  } else {
-                                    handleDeletePost(mainPost.id);
-                                  }
-                                }}
-                                disabled={deletingPostId === mainPost.id || deleteThreadMutation.isPending}
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                {mainPost.kind === "request" ? "Delete thread" : "Delete post"}
-                                {(deletingPostId === mainPost.id || deleteThreadMutation.isPending) && (
-                                  <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin ml-2" />
-                                )}
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </div>
-                </CardHeader>
-
-                <CardContent className="pt-0 pb-0">
-                  <div className="text-foreground whitespace-pre-wrap">
-                    {mainPost.content}
-                  </div>
-                </CardContent>
-                
-                {/* Media for main post */}
-                {mainPost.media && mainPost.media.length > 0 && (
-                  <CardContent className="pt-3 pb-0">
-                    {mainPost.media.filter(m => m.type === "image").length > 0 && (
-                      <div>
-                        <MediaGridGallery 
-                          media={mainPost.media.filter(m => m.type === "image")} 
-                          maxItems={4}
-                          className=""
-                        />
-                      </div>
-                    )}
-                    {mainPost.media.filter(m => m.type === "video").map((media: any) => (
-                      <div key={media.id}>
-                        <VideoPlayer
-                          video={media}
-                          autoPlay={true}
-                          muted={true}
-                          className=""
-                        />
-                      </div>
-                    ))}
-                    {mainPost.media.filter(m => m.type === "audio").map((media: any) => (
-                      <div key={media.id} className="bg-secondary/50 rounded-lg p-4 h-32 flex items-center justify-center">
-                        <audio
-                          src={media.url}
-                          controls
-                          className="w-full"
-                        />
-                      </div>
-                    ))}
-                  </CardContent>
-                )}
-
-                {/* Quick Actions Bar */}
-                <CardContent className="pt-4 pb-4">
-                  <QuickActionsBar
-                    postId={mainPost.id}
-                    threadId={thread.id}
-                    isMainPost={true}
-                    prayerListCount={currentPrayerStatus.prayerListCount}
-                    isInPrayerList={currentPrayerStatus.isInPrayerList}
-                    encouragementCount={responsePosts.length}
-                    onPrayerListToggle={handlePrayerListToggle}
-                    onReplyClick={handleReplyClick}
-                    onSendClick={handleSendClick}
-                    onShareClick={handleShareClick}
-                    isPrayerListPending={prayerListMutation.isPending}
-                  />
-                </CardContent>
-              </Card>
-            </>
+            
+              <FeedCard
+                prayer={{
+                  id: (thread as any).shortId || thread.id,
+                  postId: mainPost.id,
+                  userId: thread.isAnonymous ? "" : ((thread.author?.id || mainPost.author?.id) || ""),
+                  userName: thread.isAnonymous ? "Anonymous" : ((thread.author?.displayName || mainPost.author?.displayName || "Unknown")),
+                  userAvatar: thread.isAnonymous ? undefined : ((thread.author?.profileImageUrl || mainPost.author?.profileImageUrl) || undefined),
+                  isAnonymous: thread.isAnonymous,
+                  title: thread.title || undefined,
+                  content: mainPost.content || "",
+                  createdAt: new Date(mainPost.createdAt),
+                  prayerCount: (thread as any)._count?.actions || 0,
+                  prayerListCount: currentPrayerStatus.prayerListCount,
+                  encouragementCount: responsePosts.length,
+                  isFollowing: false,
+                  hasPrayed: currentPrayerStatus.hasPrayed,
+                  isInPrayerList: currentPrayerStatus.isInPrayerList,
+                  hasEncouraged: false,
+                  updateStatus: (thread.status === "answered" || mainPost.kind === "testimony") ? "answered" : null,
+                  groupName: thread.group?.name,
+                  groupId: thread.group?.id,
+                  sharedToCommunity: thread.sharedToCommunity,
+                } as FeedCardPrayer}
+                onPrayerListToggle={() => handlePrayerListToggle()}
+                onCardClick={() => {}}
+              />
           )}
           
-          {/* Inline Compose Form - Twitter-like */}
+          {/* Inline Compose Form */}
           {thread.status === "open" ? (
             <Card className="w-full no-border border-t border-border">
-              <CardContent className="p-4">
+              <CardContent className="text-card-foreground p-8 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border/80 transition-all duration-200 cursor-pointer hover:bg-card/60">
                 <div className="flex space-x-3">
                   <Avatar className="w-10 h-10 flex-shrink-0">
                     <AvatarImage src={currentUser?.profileImageUrl || undefined} />
@@ -493,9 +338,9 @@ export function ThreadDetailClient({ threadId }: Props) {
                       onFocus={() => setIsComposing(true)}
                       placeholder={canUpdate ? "Share an update..." : "Add your encouragement..."}
                       className={cn(
-                        "min-h-[60px] resize-none border-none shadow-none p-0 text-base placeholder:text-muted-foreground/60",
-                        "focus-visible:ring-0 focus-visible:ring-offset-0",
-                        isComposing && "min-h-[100px]"
+                        "min-h-[80px] resize-none bg-card/50 border border-border/50 rounded-md px-3 py-2 text-sm placeholder:text-muted-foreground/70",
+                        "focus-visible:ring-1 focus-visible:ring-accent/20 focus-visible:border-accent/40 focus-visible:ring-offset-0",
+                        isComposing && "min-h-[120px]"
                       )}
                     />
                     
@@ -512,7 +357,7 @@ export function ThreadDetailClient({ threadId }: Props) {
                                 setIsComposing(false);
                               }}
                               disabled={addPostMutation.isPending}
-                              className="group relative h-9 px-4 text-muted-foreground hover:text-foreground transition-colors duration-200"
+                              className="h-9 px-3 text-muted-foreground hover:text-foreground"
                             >
                               <span className="text-sm font-medium">Cancel</span>
                             </Button>
@@ -521,7 +366,7 @@ export function ThreadDetailClient({ threadId }: Props) {
                             size="sm" 
                             onClick={handleSubmitPost}
                             disabled={!postText.trim() || addPostMutation.isPending}
-                            className="group relative h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-all duration-200 rounded-md shadow-sm hover:shadow-md disabled:opacity-50"
+                            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-md shadow-sm hover:shadow-md disabled:opacity-50"
                           >
                             {addPostMutation.isPending ? (
                               <>
@@ -542,16 +387,16 @@ export function ThreadDetailClient({ threadId }: Props) {
           ) : null}
           
           {/* Response Posts (Updates/Encouragements) - Most Recent First */}
-          {sortedResponses.length > 0 && sortedResponses.map((post) => (
+          {sortedResponses.length > 0 && sortedResponses.map((post: any) => (
             <Card 
               key={post.id} 
               data-post-id={post.id}
-              className="w-full no-border border-t border-border transition-colors"
+              className="text-card-foreground p-8 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border/80 transition-all duration-200 cursor-pointer hover:bg-card/60"
             >
-              <CardHeader className="pb-3">
+              <CardHeader className="p-0 pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
-                    <Avatar className="w-10 h-10">
+                    <Avatar className="w-9 h-9">
                       <AvatarImage src={(thread.isAnonymous && post.author?.id === thread.author?.id ? null : post.author)?.profileImageUrl || undefined} />
                       <AvatarFallback>
                         {thread.isAnonymous && post.author?.id === thread.author?.id ? "?" : getAuthorInitials(post.author)}
@@ -617,25 +462,25 @@ export function ThreadDetailClient({ threadId }: Props) {
                 </div>
               </CardHeader>
 
-              <CardContent className="pt-0 pb-6">
-                <div className="text-foreground whitespace-pre-wrap">
+              <CardContent className="p-0">
+                <div className="text-foreground whitespace-pre-wrap text-base leading-7">
                   {post.content}
                 </div>
               </CardContent>
               
               {/* Media for response post */}
-              {post.media && post.media.length > 0 && (
-                <CardContent className="pt-3 pb-0">
-                  {post.media.filter(m => m.type === "image").length > 0 && (
+              {post.attachments && (post.attachments as any[]).length > 0 && (
+                <CardContent className="p-0 pt-3 pb-0">
+                  {post.attachments.filter((m: any) => m.type === "image").length > 0 && (
                     <div>
                       <MediaGridGallery 
-                        media={post.media.filter(m => m.type === "image")} 
+                        media={post.attachments.filter((m: any) => m.type === "image")} 
                         maxItems={4}
                         className=""
                       />
                     </div>
                   )}
-                  {post.media.filter(m => m.type === "video").map((media: any) => (
+                  {post.attachments.filter((m: any) => m.type === "video").map((media: any) => (
                     <div key={media.id}>
                       <VideoPlayer
                         video={media}
@@ -645,7 +490,7 @@ export function ThreadDetailClient({ threadId }: Props) {
                       />
                     </div>
                   ))}
-                  {post.media.filter(m => m.type === "audio").map((media: any) => (
+                  {post.attachments.filter((m: any) => m.type === "audio").map((media: any) => (
                     <div key={media.id} className="bg-secondary/50 rounded-lg p-4 h-32 flex items-center justify-center">
                       <audio
                         src={media.url}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 
 const createThreadSchema = z.object({
   groupId: z.string().uuid().nullable().optional(),
@@ -10,8 +11,8 @@ const createThreadSchema = z.object({
   postKind: z.enum(["request", "update", "testimony"]).default("request"),
   sharedToCommunity: z.boolean().default(false),
   isAnonymous: z.boolean().default(false),
-  // New approach: support both mediaIds and mediaUrls
-  mediaIds: z.array(z.string()).optional(), // Array of Media record IDs for videos
+  // New approach: support both attachmentIds and mediaUrls (back-compat name kept)
+  mediaIds: z.array(z.string()).optional(), // Array of Attachment record IDs for videos
   mediaUrls: z.array(z.object({
     url: z.string(),
     type: z.enum(["image", "video", "audio"]),
@@ -86,7 +87,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [threads, totalCount] = await Promise.all([
-      prisma.thread.findMany({
+      prisma.prayerRequest.findMany({
         where: whereClause,
         include: {
           author: {
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
               groupType: true,
             },
           },
-          posts: {
+          entries: {
             where: {
               kind: "request",
             },
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest) {
             },
             take: 1,
             include: {
-              media: true,
+              attachments: true,
               author: {
                 select: {
                   id: true,
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
                   profileImageUrl: true,
                 },
               },
-              reactions: {
+              responses: {
                 include: {
                   user: {
                     select: {
@@ -135,19 +136,19 @@ export async function GET(request: NextRequest) {
               },
             },
           },
-          // Include prayer list items for current user
-          prayerListItems: {
+          // Include saved prayers for current user
+          savedBy: {
             where: {
               userId: user.id,
             },
             select: {
               id: true,
-              postId: true,
+              entryId: true,
             },
             take: 1, // We only need to know if it exists
           },
           // Include prayer actions for current user
-          prayers: {
+          actions: {
             where: {
               userId: user.id,
             },
@@ -158,35 +159,25 @@ export async function GET(request: NextRequest) {
           },
           _count: {
             select: {
-              posts: true,
-              prayers: true,
-              prayerListItems: true,
+              entries: true,
+              actions: true,
+              savedBy: true,
             },
           },
         },
         orderBy: {
-          updatedAt: "desc",
+          lastActivityAt: "desc",
         },
         take: limit,
         skip: offset,
       }),
-      prisma.thread.count({ where: whereClause }),
+      prisma.prayerRequest.count({ where: whereClause }),
     ]);
 
     // Sanitize anonymous threads and add prayer list status
     const sanitizedThreads = threads.map(thread => ({
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
-      posts: thread.posts.map(post => ({
-        ...post,
-        author: thread.isAnonymous ? null : post.author,
-      })),
-      isInPrayerList: thread.prayerListItems.length > 0,
-      hasPrayed: thread.prayers.length > 0,
-      prayerListCount: thread._count.prayerListItems,
-      // Remove raw data from response
-      prayerListItems: undefined,
-      prayers: undefined,
     }));
 
     return NextResponse.json({
@@ -289,11 +280,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create thread with initial post in a transaction
+    // Create request with initial entry in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      const thread = await tx.thread.create({
+      const request = await tx.prayerRequest.create({
         data: {
-          groupId: validatedData.groupId,
+          shortId: nanoid(12),
+          groupId: validatedData.groupId || undefined,
           authorId: user.id,
           title: validatedData.title,
           sharedToCommunity: validatedData.sharedToCommunity,
@@ -302,69 +294,60 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      const post = await tx.post.create({
+      const entry = await tx.prayerEntry.create({
         data: {
-          threadId: thread.id,
+          shortId: nanoid(12),
+          requestId: request.id,
           authorId: user.id,
-          kind: validatedData.postKind,
+          kind: validatedData.postKind as any,
           content: validatedData.content,
         },
         include: {
-          media: true,
+          attachments: true,
         },
       });
 
-      // Handle linking existing Media records (new approach for videos)
+      // Handle linking existing Attachment records (new approach for videos)
       if (validatedData.mediaIds && validatedData.mediaIds.length > 0) {
-        // First, verify these media records exist and get their current state
-        const mediaRecords = await tx.media.findMany({
+        const attachments = await tx.attachment.findMany({
           where: {
-            id: {
-              in: validatedData.mediaIds,
-            },
+            id: { in: validatedData.mediaIds },
           },
         });
 
-        console.log(`Found ${mediaRecords.length} media records to link to post ${post.id}`);
+        console.log(`Found ${attachments.length} attachments to link to entry ${entry.id}`);
         
-        if (mediaRecords.length > 0) {
-          // Update only the records we found, regardless of their current postId
-          await tx.media.updateMany({
-            where: {
-              id: {
-                in: mediaRecords.map(m => m.id),
-              },
-            },
-            data: {
-              postId: post.id,
-            },
+        if (attachments.length > 0) {
+          await tx.attachment.updateMany({
+            where: { id: { in: attachments.map(a => a.id) } },
+            data: { entryId: entry.id },
           });
-          console.log(`✅ Linked ${mediaRecords.length} media records to post ${post.id}`);
+          console.log(`✅ Linked ${attachments.length} attachments to entry ${entry.id}`);
         }
       }
 
-      // Handle creating new Media records (backward compatibility for images)
+      // Handle creating new Attachment records (backward compatibility for images)
       if (validatedData.mediaUrls && validatedData.mediaUrls.length > 0) {
-        await tx.media.createMany({
+        await tx.attachment.createMany({
           data: validatedData.mediaUrls.map(media => ({
-            postId: post.id,
-            type: media.type,
+            entryId: entry.id,
+            type: media.type as any,
             url: media.url,
             width: media.width,
             height: media.height,
             durationS: media.durationS,
             muxAssetId: media.muxAssetId,
             muxPlaybackId: media.muxPlaybackId,
-            uploadStatus: media.uploadStatus || 'ready',
+            uploadStatus: (media.uploadStatus as any) || 'ready',
           })),
         });
       }
 
-      return { thread, post };
+      return { request, entry };
     });
 
-    const fullThread = await prisma.thread.findUnique({
-      where: { id: result.thread.id },
+    const fullThread = await prisma.prayerRequest.findUnique({
+      where: { id: result.request.id },
       include: {
         author: {
           select: {
@@ -381,16 +364,16 @@ export async function POST(request: NextRequest) {
             groupType: true,
           },
         },
-        posts: {
+        entries: {
           include: {
-            media: true,
-            reactions: true,
+            attachments: true,
+            responses: true,
           },
         },
         _count: {
           select: {
-            posts: true,
-            prayers: true,
+            entries: true,
+            actions: true,
           },
         },
       },
@@ -400,6 +383,12 @@ export async function POST(request: NextRequest) {
     const sanitizedThread = fullThread ? {
       ...fullThread,
       author: fullThread.isAnonymous ? null : fullThread.author,
+      posts: fullThread.entries.map(e => ({
+        ...e,
+        media: e.attachments,
+        reactions: e.responses,
+        _count: { prayerActions: (e as any)._count?.actions ?? 0 },
+      })),
     } : null;
 
     return NextResponse.json(sanitizedThread, { status: 201 });

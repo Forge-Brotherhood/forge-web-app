@@ -251,6 +251,13 @@ export const Sidebar = () => {
     );
   };
 
+  // Hide sidebar on auth pages
+  const isAuthPage = pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up');
+
+  if (isAuthPage) {
+    return null;
+  }
+
   // Always render to maintain consistent hook ordering
   return (
     <>

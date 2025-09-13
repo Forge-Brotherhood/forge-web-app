@@ -3,9 +3,10 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ClerkProvider } from "@clerk/nextjs";
-import { ConditionalLayout } from "@/components/conditional-layout";
+import { Sidebar } from "@/components/sidebar";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryProvider } from "@/components/query-provider";
+import { LayoutWrapper } from "@/components/layout-wrapper";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -46,9 +47,10 @@ export default function RootLayout({
               enableSystem={true}
               disableTransitionOnChange
             >
-              <ConditionalLayout>
+              <Sidebar />
+              <LayoutWrapper>
                 {children}
-              </ConditionalLayout>
+              </LayoutWrapper>
               <Toaster />
             </ThemeProvider>
           </QueryProvider>

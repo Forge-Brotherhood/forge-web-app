@@ -116,7 +116,7 @@ async function handleAssetReady(data: any) {
     let mediaRecord = null;
     
     // Strategy 1: Find by muxAssetId (normal case)
-    mediaRecord = await prisma.media.findFirst({
+    mediaRecord = await prisma.attachment.findFirst({
       where: {
         muxAssetId: asset.id,
       },
@@ -125,7 +125,7 @@ async function handleAssetReady(data: any) {
     // Strategy 2: If not found by asset ID, try finding by upload ID in the URL
     // This handles the case where the post was created before the upload completed
     if (!mediaRecord && asset.upload_id) {
-      mediaRecord = await prisma.media.findFirst({
+      mediaRecord = await prisma.attachment.findFirst({
         where: {
           url: asset.upload_id,
           type: 'video',
@@ -140,7 +140,7 @@ async function handleAssetReady(data: any) {
     }
 
     // Update the media record
-    const updateResult = await prisma.media.update({
+    const updateResult = await prisma.attachment.update({
       where: {
         id: mediaRecord.id,
       },
@@ -169,7 +169,7 @@ async function handleAssetErrored(data: any) {
     let mediaRecord = null;
     
     // Strategy 1: Find by muxAssetId (normal case)
-    mediaRecord = await prisma.media.findFirst({
+    mediaRecord = await prisma.attachment.findFirst({
       where: {
         muxAssetId: asset.id,
       },
@@ -177,7 +177,7 @@ async function handleAssetErrored(data: any) {
 
     // Strategy 2: If not found by asset ID, try finding by upload ID in the URL
     if (!mediaRecord && asset.upload_id) {
-      mediaRecord = await prisma.media.findFirst({
+      mediaRecord = await prisma.attachment.findFirst({
         where: {
           url: asset.upload_id,
           type: 'video',
@@ -192,7 +192,7 @@ async function handleAssetErrored(data: any) {
     }
 
     // Update the media record to error status
-    await prisma.media.update({
+    await prisma.attachment.update({
       where: {
         id: mediaRecord.id,
       },
@@ -226,7 +226,7 @@ async function handleUploadAssetCreated(data: any) {
     console.log("Upload asset created:", upload.id, "-> Asset:", upload.asset_id);
 
     // Find media record by upload ID
-    const mediaRecord = await prisma.media.findFirst({
+    const mediaRecord = await prisma.attachment.findFirst({
       where: {
         url: upload.id, // We initially store upload ID as URL
         type: 'video',
@@ -239,7 +239,7 @@ async function handleUploadAssetCreated(data: any) {
     }
 
     // Update media record with asset ID
-    await prisma.media.update({
+    await prisma.attachment.update({
       where: {
         id: mediaRecord.id,
       },
@@ -265,7 +265,7 @@ async function handleAssetDeleted(data: any) {
     let mediaRecord = null;
     
     // Strategy 1: Find by muxAssetId (normal case)
-    mediaRecord = await prisma.media.findFirst({
+    mediaRecord = await prisma.attachment.findFirst({
       where: {
         muxAssetId: asset.id,
       },
@@ -273,7 +273,7 @@ async function handleAssetDeleted(data: any) {
 
     // Strategy 2: If not found by asset ID, try finding by upload ID in the URL
     if (!mediaRecord && asset.upload_id) {
-      mediaRecord = await prisma.media.findFirst({
+      mediaRecord = await prisma.attachment.findFirst({
         where: {
           url: asset.upload_id,
           type: 'video',
@@ -288,7 +288,7 @@ async function handleAssetDeleted(data: any) {
     }
 
     // Update media record to remove MUX references
-    await prisma.media.update({
+    await prisma.attachment.update({
       where: {
         id: mediaRecord.id,
       },

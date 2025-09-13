@@ -69,11 +69,11 @@ export async function GET(request: NextRequest) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const threads = await prisma.thread.findMany({
+    const threads = await prisma.prayerRequest.findMany({
       where: {
         ...whereClause,
         NOT: {
-          prayers: {
+          prayerActions: {
             some: {
               userId: user.id,
               createdAt: {
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
             groupType: true,
           },
         },
-        posts: {
+        entries: {
           where: {
             kind: "request",
           },
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
           },
           take: 1,
           include: {
-            media: true,
+            attachments: true,
             author: {
               select: {
                 id: true,
@@ -121,8 +121,8 @@ export async function GET(request: NextRequest) {
         },
         _count: {
           select: {
-            prayers: true,
-            posts: true,
+            actions: true,
+            entries: true,
           },
         },
       },
@@ -143,10 +143,10 @@ export async function GET(request: NextRequest) {
     });
 
     // Sanitize anonymous threads
-    const sanitizedThreads = threads.map(thread => ({
+    const sanitizedThreads = threads.map((thread: any) => ({
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
-      posts: thread.posts.map(post => ({
+      entries: thread.entries.map((post: any) => ({
         ...post,
         author: thread.isAnonymous ? null : post.author,
       })),

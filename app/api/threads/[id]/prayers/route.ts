@@ -33,11 +33,22 @@ export async function GET(
       );
     }
 
-    // Verify thread exists and user has access
-    const thread = await prisma.thread.findUnique({
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: { OR: [{ id: threadId }, { shortId: threadId }], deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    // Verify request exists and user has access
+    const thread = await prisma.prayerRequest.findUnique({
       where: { 
-        id: threadId,
-        deletedAt: null,
+        id: resolved.id,
       },
       include: {
         group: {
@@ -70,7 +81,7 @@ export async function GET(
 
     const prayers = await prisma.prayerAction.findMany({
       where: {
-        threadId,
+        requestId: resolved.id,
       },
       include: {
         user: {
@@ -81,7 +92,7 @@ export async function GET(
             profileImageUrl: true,
           },
         },
-        post: {
+        entry: {
           select: {
             id: true,
             kind: true,
@@ -142,11 +153,22 @@ export async function POST(
       );
     }
 
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: { OR: [{ id: threadId }, { shortId: threadId }], deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
     // Verify thread exists and user has access
-    const thread = await prisma.thread.findUnique({
+    const thread = await prisma.prayerRequest.findUnique({
       where: { 
-        id: threadId,
-        deletedAt: null,
+        id: resolved.id,
       },
       include: {
         group: {
@@ -179,10 +201,10 @@ export async function POST(
 
     // If postId provided, verify it belongs to the thread
     if (validatedData.postId) {
-      const post = await prisma.post.findFirst({
+      const post = await prisma.prayerEntry.findFirst({
         where: {
           id: validatedData.postId,
-          threadId,
+          requestId: resolved.id,
         },
       });
 
@@ -199,8 +221,8 @@ export async function POST(
       const prayer = await tx.prayerAction.create({
         data: {
           userId: user.id,
-          threadId,
-          postId: validatedData.postId,
+          requestId: resolved.id,
+          entryId: validatedData.postId,
         },
         include: {
           user: {
@@ -211,7 +233,7 @@ export async function POST(
               profileImageUrl: true,
             },
           },
-          post: {
+          entry: {
             select: {
               id: true,
               kind: true,
@@ -311,8 +333,8 @@ export async function DELETE(
     const prayerAction = await prisma.prayerAction.findFirst({
       where: {
         userId: user.id,
-        threadId,
-        ...(validatedData.postId && { postId: validatedData.postId }),
+        requestId: threadId,
+        ...(validatedData.postId && { entryId: validatedData.postId }),
       },
     });
 

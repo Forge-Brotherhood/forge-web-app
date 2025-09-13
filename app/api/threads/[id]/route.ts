@@ -34,10 +34,25 @@ export async function GET(
       );
     }
 
-    const thread = await prisma.thread.findUnique({
-      where: { 
-        id,
+    // Resolve id or shortId
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: {
+        OR: [{ id }, { shortId: id }],
         deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    const thread = await prisma.prayerRequest.findUnique({
+      where: { 
+        id: resolved.id,
       },
       include: {
         author: {
@@ -68,7 +83,7 @@ export async function GET(
             },
           },
         },
-        posts: {
+        entries: {
           orderBy: {
             createdAt: "asc",
           },
@@ -81,8 +96,8 @@ export async function GET(
                 profileImageUrl: true,
               },
             },
-            media: true,
-            reactions: {
+            attachments: true,
+            responses: {
               include: {
                 user: {
                   select: {
@@ -95,12 +110,12 @@ export async function GET(
             },
             _count: {
               select: {
-                prayerActions: true,
+                actions: true,
               },
             },
           },
         },
-        prayers: {
+        actions: {
           select: {
             userId: true,
             createdAt: true,
@@ -118,9 +133,9 @@ export async function GET(
         },
         _count: {
           select: {
-            posts: true,
-            prayers: true,
-            prayerListItems: true,
+            entries: true,
+            actions: true,
+            savedBy: true,
           },
         },
       },
@@ -145,30 +160,26 @@ export async function GET(
     }
 
     // Check if current user has prayed for this thread
-    const mainPost = thread.posts.find(p => p.kind === "request") || thread.posts[0];
-    const hasPrayed = mainPost ? thread.prayers.some(p => p.userId === user.id) : false;
-    const prayerCount = thread._count.prayers;
+    const mainEntry = thread.entries.find(p => p.kind === "request") || thread.entries[0];
+    const hasPrayed = thread.actions.some(p => p.userId === user.id);
+    const prayerCount = thread._count.actions;
 
     // Check if thread is in user's prayer list
-    const prayerListItem = await prisma.prayerListItem.findFirst({
+    const prayerListItem = await prisma.savedPrayer.findFirst({
       where: {
         userId: user.id,
-        threadId: thread.id,
-        postId: mainPost?.id || null,
+        requestId: thread.id,
+        entryId: mainEntry?.id || null,
       },
     });
     const isInPrayerList = !!prayerListItem;
-    const prayerListCount = thread._count.prayerListItems;
+    const prayerListCount = thread._count.savedBy;
 
     // Sanitize if anonymous
     const sanitizedThread = {
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
-      posts: thread.posts.map(post => ({
-        ...post,
-        author: thread.isAnonymous && post.authorId === thread.authorId ? null : post.author,
-      })),
-    };
+    } as any;
 
     // Return in format expected by client hook
     return NextResponse.json({
@@ -225,11 +236,20 @@ export async function PATCH(
     }
 
     // Check if user owns the thread
-    const thread = await prisma.thread.findUnique({
-      where: { 
-        id,
-        deletedAt: null,
-      },
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: { OR: [{ id }, { shortId: id }], deletedAt: null },
+      select: { id: true, authorId: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    const thread = await prisma.prayerRequest.findUnique({
+      where: { id: resolved.id },
       select: {
         authorId: true,
       },
@@ -249,8 +269,8 @@ export async function PATCH(
       );
     }
 
-    const updatedThread = await prisma.thread.update({
-      where: { id },
+    const updatedThread = await prisma.prayerRequest.update({
+      where: { id: resolved.id },
       data: validatedData,
       include: {
         author: {
@@ -270,8 +290,8 @@ export async function PATCH(
         },
         _count: {
           select: {
-            posts: true,
-            prayers: true,
+            entries: true,
+            actions: true,
           },
         },
       },
@@ -320,11 +340,20 @@ export async function DELETE(
     }
 
     // Check if user owns the thread
-    const thread = await prisma.thread.findUnique({
-      where: { 
-        id,
-        deletedAt: null,
-      },
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: { OR: [{ id }, { shortId: id }], deletedAt: null },
+      select: { id: true, authorId: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    const thread = await prisma.prayerRequest.findUnique({
+      where: { id: resolved.id },
       select: {
         authorId: true,
       },
@@ -344,8 +373,8 @@ export async function DELETE(
       );
     }
 
-    await prisma.thread.update({
-      where: { id },
+    await prisma.prayerRequest.update({
+      where: { id: resolved.id },
       data: {
         deletedAt: new Date(),
       },

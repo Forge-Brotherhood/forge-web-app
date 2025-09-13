@@ -21,16 +21,6 @@ export async function GET(request: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      include: {
-        sponsorships: {
-          where: {
-            active: true,
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        },
-      },
     });
 
     if (!user) {
@@ -40,14 +30,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const totalAmount = user.sponsorships.reduce(
-      (sum, sponsorship) => sum + Number(sponsorship.amount),
-      0
-    );
+    // Sponsorships model doesn't exist yet
+    const sponsorships: any[] = [];
+    const totalAmount = 0;
 
     return NextResponse.json({
       isSponsor: user.isSponsor,
-      sponsorships: user.sponsorships,
+      sponsorships: sponsorships,
       totalAmount,
     });
   } catch (error) {
@@ -84,25 +73,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Create sponsorship record
-      const sponsorship = await tx.sponsorship.create({
-        data: {
-          userId: user.id,
-          amount: validatedData.amount,
-          active: validatedData.active,
-        },
-      });
-
-      // Update user sponsor status
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          isSponsor: true,
-        },
-      });
-
-      return sponsorship;
+    // Sponsorship model doesn't exist yet - just update user status
+    const result = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isSponsor: true,
+      },
     });
 
     return NextResponse.json(result, { status: 201 });
@@ -122,6 +98,8 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH /api/sponsorship - Update sponsorship status
+// Commented out - sponsorship model doesn't exist yet
+/*
 export async function PATCH(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -209,3 +187,4 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
+*/

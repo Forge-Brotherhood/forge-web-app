@@ -1,7 +1,6 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@clerk/nextjs";
 
 // Types
 interface User {
@@ -11,7 +10,7 @@ interface User {
   profileImageUrl: string | null;
 }
 
-interface Media {
+interface Attachment {
   id: string;
   type: "image" | "video" | "audio";
   url: string;
@@ -22,7 +21,7 @@ interface Media {
   uploadStatus?: string;
 }
 
-interface Reaction {
+interface Response {
   id: string;
   type: "amen" | "emoji" | "verse_ref";
   payload: string | null;
@@ -34,17 +33,17 @@ interface Reaction {
   };
 }
 
-interface Post {
+interface Entry {
   id: string;
   kind: "request" | "update" | "testimony" | "encouragement" | "verse" | "system";
   content: string | null;
   createdAt: string;
   updatedAt: string;
   author: User | null;
-  media: Media[];
-  reactions: Reaction[];
+  attachments: Attachment[];
+  responses: Response[];
   _count: {
-    prayerActions: number;
+    actions: number;
   };
 }
 
@@ -56,6 +55,7 @@ interface Group {
 
 export interface ThreadDetail {
   id: string;
+  shortId?: string;
   title: string | null;
   sharedToCommunity: boolean;
   isAnonymous: boolean;
@@ -64,8 +64,8 @@ export interface ThreadDetail {
   updatedAt: string;
   author: User | null;
   group: Group | null;
-  posts: Post[];
-  prayers: Array<{
+  entries: Entry[];
+  actions: Array<{
     userId: string;
     createdAt: string;
     user: {
@@ -75,8 +75,8 @@ export interface ThreadDetail {
     };
   }>;
   _count: {
-    posts: number;
-    prayers: number;
+    entries: number;
+    actions: number;
   };
 }
 
@@ -115,8 +115,6 @@ const fetchThreadDetail = async (threadId: string): Promise<ThreadDetailResponse
 
 // Hook for thread detail
 export function useThreadDetail(threadId: string | undefined) {
-  const { isSignedIn } = useAuth();
-  
   return useQuery({
     queryKey: threadKeys.detail(threadId!),
     queryFn: () => fetchThreadDetail(threadId!),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 
 const createEncouragementSchema = z.object({
   body: z.string().min(1).max(300),
@@ -14,8 +15,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const encouragements = await prisma.post.findMany({
-      where: { threadId: id },
+    const encouragements = await prisma.prayerEntry.findMany({
+      where: { requestId: id },
       include: {
         author: {
           select: {
@@ -72,7 +73,7 @@ export async function POST(
     }
 
     // Check if thread exists
-    const thread = await prisma.thread.findUnique({
+    const thread = await prisma.prayerRequest.findUnique({
       where: { id },
     });
 
@@ -99,10 +100,11 @@ export async function POST(
       );
     }
 
-    const encouragement = await prisma.post.create({
+    const encouragement = await prisma.prayerEntry.create({
       data: {
+        shortId: nanoid(12),
         content: validatedData.body,
-        threadId: id,
+        requestId: id,
         authorId: user.id,
         kind: "encouragement",
       },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { BookmarkPlus, BookOpen, Mic, HandHeart, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,9 +9,12 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PrayerThreadDropdown } from "@/components/prayer-thread-dropdown";
+import { QuickActionsBar } from "@/components/quick-actions-bar";
+import { usePrefetchThreadDetail } from "@/hooks/use-thread-detail-query";
 
 export interface PrayerRequest {
   id: string;
+  postId?: string;
   userId: string;
   userName: string;
   userAvatar?: string;
@@ -46,6 +49,7 @@ interface FeedCardProps {
   isSignedIn?: boolean;
   onDelete?: (id: string) => void;
   isDeletingId?: string;
+  className?: string;
 }
 
 export const FeedCard = ({
@@ -58,15 +62,24 @@ export const FeedCard = ({
   isSignedIn = false,
   onDelete,
   isDeletingId,
+  className,
 }: FeedCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
+  const prefetchThread = usePrefetchThreadDetail();
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const displayName = prayer.isAnonymous ? "Anonymous" : prayer.userName;
   const initials = prayer.isAnonymous ? "A" : prayer.userName.slice(0, 2).toUpperCase();
 
   useEffect(() => {
     setMounted(true);
+    // Cleanup timeout on unmount
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
   }, []);
 
   const handlePrayerListToggle = (e: React.MouseEvent) => {
@@ -85,7 +98,8 @@ export const FeedCard = ({
       onCardClick(prayer.id);
     } else {
       // Default behavior: navigate to thread page
-      router.push(`/threads/${prayer.id}`);
+      const urlId = (prayer as any).shortId || prayer.id;
+      router.push(`/threads/${urlId}`);
     }
   };
 
@@ -93,12 +107,34 @@ export const FeedCard = ({
     e.stopPropagation();
   };
 
+  const handleMouseEnter = () => {
+    // Clear any existing timeout
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+
+    // Set a new timeout to prefetch after 100ms
+    hoverTimeoutRef.current = setTimeout(() => {
+      prefetchThread(prayer.id);
+    }, 100);
+  };
+
+  const handleMouseLeave = () => {
+    // Clear the timeout if user leaves before prefetch triggers
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+  };
+
 
 
   return (
-    <Card 
-      className="p-8 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border/80 transition-all duration-200 cursor-pointer hover:bg-card/60" 
+    <Card
+      className={cn("p-8 bg-card/50 backdrop-blur-sm border-border/50 hover:border-border/80 transition-all duration-200 cursor-pointer hover:bg-card/60", className)}
       onClick={handleCardClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
@@ -200,34 +236,18 @@ export const FeedCard = ({
 
 
       {/* Actions */}
-      <div className="flex items-center gap-6 pt-6 border-t border-border/20">
-        <button
-          onClick={handlePrayerListToggle}
-          className={cn(
-            "flex items-center gap-2 text-sm font-medium transition-all duration-200 hover:text-accent",
-            prayer.isInPrayerList ? "text-accent" : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <BookmarkPlus className={cn("w-4 h-4", prayer.isInPrayerList && "fill-current")} />
-          <span>{prayer.prayerListCount || 0}</span>
-          <span className="hidden sm:inline">
-            {prayer.isInPrayerList ? "Saved" : "Save"}
-          </span>
-        </button>
-        
-        <button
-          onClick={handleEncourage}
-          className={cn(
-            "flex items-center gap-2 text-sm font-medium transition-all duration-200 hover:text-accent",
-            prayer.hasEncouraged ? "text-accent" : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          <HandHeart className={cn("w-4 h-4", prayer.hasEncouraged && "fill-current")} />
-          <span>{prayer.encouragementCount}</span>
-          <span className="hidden sm:inline">
-            {prayer.hasEncouraged ? "Encouraged" : "Encourage"}
-          </span>
-        </button>
+      <div className="pt-6" onClick={(e) => e.stopPropagation()}>
+        <QuickActionsBar
+          postId={prayer.postId || prayer.id}
+          threadId={prayer.id}
+          isMainPost={true}
+          prayerListCount={prayer.prayerListCount}
+          isInPrayerList={prayer.isInPrayerList}
+          encouragementCount={prayer.encouragementCount}
+          onPrayerListToggle={() => onPrayerListToggle?.(prayer.id)}
+          onReplyClick={() => onCardClick?.(prayer.id)}
+          isPrayerListPending={false}
+        />
       </div>
     </Card>
   );

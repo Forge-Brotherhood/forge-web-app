@@ -16,23 +16,23 @@ export async function GET(
     const { userId } = await params;
 
     // Get user's threads count
-    const totalThreads = await prisma.thread.count({
+    const totalThreads = await prisma.prayerRequest.count({
       where: { authorId: userId }
     });
 
     // Get total prayer actions received on user's threads
     const prayersReceived = await prisma.prayerAction.count({
       where: {
-        thread: {
+        request: {
           authorId: userId
         }
       }
     });
 
     // Get total encouragement posts received on user's threads
-    const encouragementsReceived = await prisma.post.count({
+    const encouragementsReceived = await prisma.prayerEntry.count({
       where: {
-        thread: {
+        request: {
           authorId: userId
         },
         kind: 'encouragement'
@@ -40,7 +40,7 @@ export async function GET(
     });
 
     // Get active threads (open status)
-    const activeThreads = await prisma.thread.count({
+    const activeThreads = await prisma.prayerRequest.count({
       where: {
         authorId: userId,
         status: 'open'
@@ -48,7 +48,7 @@ export async function GET(
     });
 
     // Get answered threads
-    const answeredThreads = await prisma.thread.count({
+    const answeredThreads = await prisma.prayerRequest.count({
       where: {
         authorId: userId,
         status: 'answered'

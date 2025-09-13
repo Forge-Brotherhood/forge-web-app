@@ -69,21 +69,22 @@ export async function GET(request: NextRequest) {
               },
             },
           },
-          orderBy: {
-            createdAt: "asc",
-          },
+          orderBy: [
+            // Prefer explicit joinedAt ordering; fallback to createdAt for older rows
+            { joinedAt: "asc" },
+          ],
         });
 
         return {
           ...group,
           members: members.map(member => ({
-            id: member.id,
+            id: `${member.groupId}:${member.userId}`,
             userId: member.user.id,
             displayName: member.user.displayName,
             firstName: member.user.firstName,
             profileImageUrl: member.user.profileImageUrl,
             role: member.role,
-            joinedAt: member.createdAt,
+            joinedAt: member.joinedAt?.toISOString?.() || (member as any).createdAt?.toISOString?.() || new Date().toISOString(),
             user: member.user,
             prayerStreak: 0, // TODO: Calculate actual prayer streak
           })),

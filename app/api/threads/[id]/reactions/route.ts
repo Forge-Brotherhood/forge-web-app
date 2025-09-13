@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { ReactionType, PostKind } from "@prisma/client";
+import { PrayerResponseType, PrayerEntryKind } from "@prisma/client";
 import { cookies } from "next/headers";
 import crypto from "crypto";
 
@@ -54,7 +54,7 @@ export async function POST(
     const { postId, type, payload } = await req.json();
 
     // Validate reaction type
-    if (!type || !Object.values(ReactionType).includes(type)) {
+    if (!type || !Object.values(PrayerResponseType).includes(type)) {
       return NextResponse.json(
         { error: "Invalid reaction type" },
         { status: 400 }
@@ -75,7 +75,7 @@ export async function POST(
       }
     } else {
       // Allow guests only for "amen" reactions
-      if (type !== ReactionType.amen) {
+      if (type !== PrayerResponseType.amen) {
         return NextResponse.json(
           { error: "Authentication required for this reaction type" },
           { status: 401 }
@@ -85,10 +85,10 @@ export async function POST(
     }
 
     // Check if post exists and belongs to the thread
-    const post = await prisma.post.findUnique({
+    const post = await prisma.prayerEntry.findUnique({
       where: { id: postId },
       include: {
-        thread: true
+        request: true
       }
     });
 
@@ -99,7 +99,7 @@ export async function POST(
       );
     }
 
-    if (post.threadId !== threadId) {
+    if (post.requestId !== threadId) {
       return NextResponse.json(
         { error: "Post does not belong to this thread" },
         { status: 400 }
@@ -107,7 +107,7 @@ export async function POST(
     }
 
     // Prevent self-reactions for amen on own prayer request
-    if (type === ReactionType.amen && post.kind === PostKind.request && post.authorId === user.id) {
+    if (type === PrayerResponseType.amen && post.kind === PrayerEntryKind.request && post.authorId === user.id) {
       return NextResponse.json(
         { error: "You cannot pray for your own prayer request" },
         { status: 400 }
@@ -115,9 +115,9 @@ export async function POST(
     }
 
     // Check if user already has this reaction
-    const existingReaction = await prisma.reaction.findFirst({
+    const existingReaction = await prisma.prayerResponse.findFirst({
       where: {
-        postId,
+        entryId: postId,
         userId: user.id,
         type
       }
@@ -131,12 +131,12 @@ export async function POST(
     }
 
     // Create the reaction
-    const reaction = await prisma.reaction.create({
+    const reaction = await prisma.prayerResponse.create({
       data: {
-        postId,
+        entryId: postId,
         userId: user.id,
         type,
-        payload: payload || null
+        payload: payload || ""
       },
       include: {
         user: {
@@ -152,12 +152,12 @@ export async function POST(
     });
 
     // If this is an "amen" reaction, also create a prayer action
-    if (type === ReactionType.amen) {
+    if (type === PrayerResponseType.amen) {
       await prisma.prayerAction.create({
         data: {
           userId: user.id,
-          postId,
-          threadId
+          entryId: postId,
+          requestId: threadId
         }
       });
 
@@ -185,9 +185,9 @@ export async function POST(
     }
 
     // Get updated reaction count
-    const reactionCount = await prisma.reaction.count({
+    const reactionCount = await prisma.prayerResponse.count({
       where: { 
-        postId,
+        entryId: postId,
         type
       }
     });
@@ -216,7 +216,7 @@ export async function DELETE(
     const { userId } = await auth();
     const { searchParams } = new URL(req.url);
     const postId = searchParams.get('postId');
-    const type = searchParams.get('type') as ReactionType;
+    const type = searchParams.get('type') as PrayerResponseType;
 
     if (!postId || !type) {
       return NextResponse.json(
@@ -242,7 +242,7 @@ export async function DELETE(
     }
 
     // Check if post exists and belongs to the thread
-    const post = await prisma.post.findUnique({
+    const post = await prisma.prayerEntry.findUnique({
       where: { id: postId }
     });
 
@@ -253,7 +253,7 @@ export async function DELETE(
       );
     }
 
-    if (post.threadId !== threadId) {
+    if (post.requestId !== threadId) {
       return NextResponse.json(
         { error: "Post does not belong to this thread" },
         { status: 400 }
@@ -261,9 +261,9 @@ export async function DELETE(
     }
 
     // Delete the reaction
-    const deleted = await prisma.reaction.deleteMany({
+    const deleted = await prisma.prayerResponse.deleteMany({
       where: {
-        postId,
+        entryId: postId,
         userId: user.id,
         type
       }
@@ -277,19 +277,19 @@ export async function DELETE(
     }
 
     // If this was an "amen" reaction, also delete the prayer action
-    if (type === ReactionType.amen) {
+    if (type === PrayerResponseType.amen) {
       await prisma.prayerAction.deleteMany({
         where: {
           userId: user.id,
-          postId
+          entryId: postId
         }
       });
     }
 
     // Get updated reaction count
-    const reactionCount = await prisma.reaction.count({
+    const reactionCount = await prisma.prayerResponse.count({
       where: { 
-        postId,
+        entryId: postId,
         type
       }
     });
@@ -316,18 +316,18 @@ export async function GET(
     const { id: threadId } = await params;
     const { searchParams } = new URL(req.url);
     const postId = searchParams.get('postId');
-    const type = searchParams.get('type') as ReactionType | null;
+    const type = searchParams.get('type') as PrayerResponseType | null;
 
     let reactions;
     
     if (postId) {
       // Get reactions for a specific post
-      const whereClause: any = { postId };
+      const whereClause: any = { entryId: postId };
       if (type) {
         whereClause.type = type;
       }
 
-      reactions = await prisma.reaction.findMany({
+      reactions = await prisma.prayerResponse.findMany({
         where: whereClause,
         include: {
           user: {
@@ -346,19 +346,19 @@ export async function GET(
       });
     } else {
       // Get all reactions for the thread
-      const posts = await prisma.post.findMany({
-        where: { threadId },
+      const posts = await prisma.prayerEntry.findMany({
+        where: { requestId: threadId },
         select: { id: true }
       });
 
       const postIds = posts.map(p => p.id);
       
-      const whereClause: any = { postId: { in: postIds } };
+      const whereClause: any = { entryId: { in: postIds } };
       if (type) {
         whereClause.type = type;
       }
 
-      reactions = await prisma.reaction.findMany({
+      reactions = await prisma.prayerResponse.findMany({
         where: whereClause,
         include: {
           user: {
@@ -372,7 +372,7 @@ export async function GET(
               isSponsor: true
             }
           },
-          post: {
+          entry: {
             select: {
               id: true,
               kind: true,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 
 const createPostSchema = z.object({
   kind: z.enum(["request", "update", "testimony", "encouragement", "verse", "system"]),
@@ -51,11 +52,23 @@ export async function GET(
       );
     }
 
-    // Verify thread exists and user has access
-    const thread = await prisma.thread.findUnique({
+    // Resolve id or shortId
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: { OR: [{ id }, { shortId: id }], deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    // Verify request exists and user has access
+    const thread = await prisma.prayerRequest.findUnique({
       where: { 
-        id,
-        deletedAt: null,
+        id: resolved.id,
       },
       include: {
         group: {
@@ -86,9 +99,9 @@ export async function GET(
       );
     }
 
-    const posts = await prisma.post.findMany({
+    const posts = await prisma.prayerEntry.findMany({
       where: {
-        threadId: id,
+        requestId: resolved.id,
       },
       include: {
         author: {
@@ -99,8 +112,8 @@ export async function GET(
             profileImageUrl: true,
           },
         },
-        media: true,
-        reactions: {
+        attachments: true,
+        responses: {
           include: {
             user: {
               select: {
@@ -113,7 +126,7 @@ export async function GET(
         },
         _count: {
           select: {
-            prayerActions: true,
+            actions: true,
           },
         },
       },
@@ -167,11 +180,22 @@ export async function POST(
       );
     }
 
-    // Verify thread exists and user has access
-    const thread = await prisma.thread.findUnique({
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: { OR: [{ id }, { shortId: id }], deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    // Verify request exists and user has access
+    const thread = await prisma.prayerRequest.findUnique({
       where: { 
-        id,
-        deletedAt: null,
+        id: resolved.id,
       },
       include: {
         group: {
@@ -217,13 +241,14 @@ export async function POST(
       );
     }
 
-    // Create post with media in transaction
+    // Create entry with attachments in transaction
     const post = await prisma.$transaction(async (tx) => {
-      const newPost = await tx.post.create({
+      const newPost = await tx.prayerEntry.create({
         data: {
-          threadId: id,
+          shortId: nanoid(12),
+          requestId: resolved.id,
           authorId: user.id,
-          kind: validatedData.kind,
+          kind: validatedData.kind as any,
           content: validatedData.content,
         },
         include: {
@@ -235,20 +260,19 @@ export async function POST(
               profileImageUrl: true,
             },
           },
-          media: true,
-          reactions: true,
+          attachments: true,
+          responses: true,
           _count: {
             select: {
-              prayerActions: true,
+              actions: true,
             },
           },
         },
       });
 
-      // Handle linking existing Media records (new approach for videos)
+      // Handle linking existing Attachment records (new approach for videos)
       if (validatedData.mediaIds && validatedData.mediaIds.length > 0) {
-        // First, verify these media records exist and get their current state
-        const mediaRecords = await tx.media.findMany({
+        const attachments = await tx.attachment.findMany({
           where: {
             id: {
               in: validatedData.mediaIds,
@@ -256,43 +280,42 @@ export async function POST(
           },
         });
 
-        console.log(`Found ${mediaRecords.length} media records to link to post ${newPost.id}`);
+        console.log(`Found ${attachments.length} attachments to link to entry ${newPost.id}`);
         
-        if (mediaRecords.length > 0) {
-          // Update only the records we found, regardless of their current postId
-          await tx.media.updateMany({
+        if (attachments.length > 0) {
+          await tx.attachment.updateMany({
             where: {
               id: {
-                in: mediaRecords.map(m => m.id),
+                in: attachments.map(m => m.id),
               },
             },
             data: {
-              postId: newPost.id,
+              entryId: newPost.id,
             },
           });
-          console.log(`✅ Linked ${mediaRecords.length} media records to post ${newPost.id}`);
+          console.log(`✅ Linked ${attachments.length} attachments to entry ${newPost.id}`);
         }
       }
 
-      // Handle creating new Media records (backward compatibility for images)
+      // Handle creating new Attachment records (backward compatibility for images)
       if (validatedData.mediaUrls && validatedData.mediaUrls.length > 0) {
-        await tx.media.createMany({
+        await tx.attachment.createMany({
           data: validatedData.mediaUrls.map(media => ({
-            postId: newPost.id,
-            type: media.type,
+            entryId: newPost.id,
+            type: media.type as any,
             url: media.url,
             width: media.width,
             height: media.height,
             durationS: media.durationS,
             muxAssetId: media.muxAssetId,
             muxPlaybackId: media.muxPlaybackId,
-            uploadStatus: media.uploadStatus || 'ready',
+            uploadStatus: (media.uploadStatus as any) || 'ready',
           })),
         });
       }
 
-      // Fetch the complete post with linked media
-      const completePost = await tx.post.findUnique({
+      // Fetch the complete entry with linked attachments
+      const completePost = await tx.prayerEntry.findUnique({
         where: { id: newPost.id },
         include: {
           author: {
@@ -303,11 +326,11 @@ export async function POST(
               profileImageUrl: true,
             },
           },
-          media: true,
-          reactions: true,
+          attachments: true,
+          responses: true,
           _count: {
             select: {
-              prayerActions: true,
+              actions: true,
             },
           },
         },
@@ -318,11 +341,11 @@ export async function POST(
       }
 
       // Update thread's updatedAt timestamp
-      await tx.thread.update({
-        where: { id },
+      await tx.prayerRequest.update({
+        where: { id: resolved.id },
         data: {
-          updatedAt: new Date(),
-          // If this is a testimony, mark thread as answered
+          lastActivityAt: new Date(),
+          // If this is a testimony, mark request as answered
           ...(validatedData.kind === "testimony" && { status: "answered" }),
         },
       });
@@ -389,14 +412,14 @@ export async function PATCH(
     }
 
     // Check if post exists and user is the author
-    const post = await prisma.post.findUnique({
+    const post = await prisma.prayerEntry.findUnique({
       where: { id: postId },
       include: {
-        thread: true,
+        request: true,
       },
     });
 
-    if (!post || post.threadId !== id) {
+    if (!post || post.requestId !== id) {
       return NextResponse.json(
         { error: "Post not found" },
         { status: 404 }
@@ -411,7 +434,7 @@ export async function PATCH(
     }
 
     // Update the post
-    const updatedPost = await prisma.post.update({
+    const updatedPost = await prisma.prayerEntry.update({
       where: { id: postId },
       data: { 
         content,
@@ -426,16 +449,17 @@ export async function PATCH(
             profileImageUrl: true,
           },
         },
-        media: true,
-        reactions: true,
+        attachments: true,
+        responses: true,
         _count: {
           select: {
-            prayerActions: true,
+            actions: true,
           },
         },
       },
     });
 
+    // Map to legacy shape
     return NextResponse.json(updatedPost);
   } catch (error) {
     console.error("Error updating post:", error);
@@ -483,11 +507,11 @@ export async function DELETE(
     }
 
     // Check if post exists and user has permission to delete
-    const post = await prisma.post.findUnique({
+    const post = await prisma.prayerEntry.findUnique({
       where: { id: postId },
     });
 
-    if (!post || post.threadId !== id) {
+    if (!post || post.requestId !== id) {
       return NextResponse.json(
         { error: "Post not found" },
         { status: 404 }
@@ -509,8 +533,8 @@ export async function DELETE(
       );
     }
 
-    // Delete the post (cascades to media and reactions)
-    await prisma.post.delete({
+    // Delete the post (cascades to attachments and responses)
+    await prisma.prayerEntry.delete({
       where: { id: postId },
     });
 

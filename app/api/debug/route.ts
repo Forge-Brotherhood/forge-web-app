@@ -75,17 +75,27 @@ export async function POST(request: NextRequest) {
 
         if (!group || group._count.members >= 6) {
           // Create new core group
-          group = await prisma.group.create({
+          const newGroup = await prisma.group.create({
             data: {
               name: `Core Group ${faker.company.buzzNoun()}`,
               groupType: "core",
+              shortId: faker.string.alphanumeric(8),
             },
+          });
+
+          // Fetch with proper includes to match the type
+          group = await prisma.group.findUnique({
+            where: { id: newGroup.id },
             include: {
               _count: {
-                select: { members: true },
+                select: { members: { where: { status: "active" } } },
               },
             },
           });
+        }
+
+        if (!group) {
+          throw new Error("Failed to create or find group");
         }
 
         // Add user to group
@@ -164,6 +174,7 @@ export async function POST(request: NextRequest) {
             data: {
               name: `Prayer Circle ${faker.company.buzzAdjective()}`,
               groupType: "circle",
+              shortId: faker.string.alphanumeric(8),
             },
           });
         }
@@ -225,7 +236,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const thread = await prisma.thread.create({
+        const thread = await prisma.prayerRequest.create({
           data: {
             title: data?.title || faker.lorem.sentence(),
             groupId: membership.groupId,
@@ -233,20 +244,22 @@ export async function POST(request: NextRequest) {
             sharedToCommunity: data?.sharedToCommunity || false,
             isAnonymous: data?.isAnonymous || false,
             status: "open",
-            posts: {
+            shortId: faker.string.alphanumeric(8),
+            entries: {
               create: {
                 kind: "request",
                 content: data?.content || faker.lorem.paragraph(),
                 authorId: user.id,
+                shortId: faker.string.alphanumeric(8),
               },
             },
           },
           include: {
-            posts: true,
+            entries: true,
             _count: {
               select: {
-                posts: true,
-                prayers: true,
+                entries: true,
+                actions: true,
               },
             },
           },
@@ -293,11 +306,11 @@ export async function POST(request: NextRequest) {
 
       case "clearAllData": {
         // Clear all user's threads and posts
-        await prisma.post.deleteMany({
+        await prisma.prayerEntry.deleteMany({
           where: { authorId: user.id },
         });
         
-        await prisma.thread.deleteMany({
+        await prisma.prayerRequest.deleteMany({
           where: { authorId: user.id },
         });
 
@@ -332,7 +345,7 @@ export async function POST(request: NextRequest) {
         const threads = [];
 
         for (let i = 0; i < numThreads; i++) {
-          const thread = await prisma.thread.create({
+          const thread = await prisma.prayerRequest.create({
             data: {
               title: faker.lorem.sentence(),
               groupId: group.groupId,
@@ -340,11 +353,13 @@ export async function POST(request: NextRequest) {
               sharedToCommunity: faker.datatype.boolean(),
               isAnonymous: faker.datatype.boolean(),
               status: faker.helpers.arrayElement(["open", "answered", "archived"]),
-              posts: {
+              shortId: faker.string.alphanumeric(8),
+              entries: {
                 create: {
                   kind: "request",
                   content: faker.lorem.paragraphs(2),
                   authorId: user.id,
+                  shortId: faker.string.alphanumeric(8),
                 },
               },
             },
@@ -385,14 +400,14 @@ export async function POST(request: NextRequest) {
                     _count: {
                       select: {
                         members: true,
-                        threads: true,
+                        prayerRequests: true,
                       },
                     },
                   },
                 },
               },
             },
-            threads: {
+            prayerRequestsAuthored: {
               take: 5,
               orderBy: { createdAt: "desc" },
             },
@@ -402,10 +417,10 @@ export async function POST(request: NextRequest) {
             },
             _count: {
               select: {
-                threads: true,
-                posts: true,
+                prayerRequestsAuthored: true,
+                prayerEntriesAuthored: true,
                 prayerActions: true,
-                reactions: true,
+                prayerResponses: true,
               },
             },
           },

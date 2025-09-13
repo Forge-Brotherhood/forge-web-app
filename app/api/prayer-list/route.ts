@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const prayerListItemSchema = z.object({
-  threadId: z.string().uuid(),
+  threadId: z.string(), // accept UUID or shortId
   postId: z.string().uuid().optional(),
 });
 
@@ -30,15 +30,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const prayerListItems = await prisma.prayerListItem.findMany({
+    const prayerListItems = await prisma.savedPrayer.findMany({
       where: {
         userId: user.id,
-        thread: {
-          deletedAt: null,
-        },
+        request: { deletedAt: null },
       },
       include: {
-        thread: {
+        request: {
           include: {
             author: {
               select: {
@@ -55,13 +53,13 @@ export async function GET(request: NextRequest) {
                 groupType: true,
               },
             },
-            posts: {
+            entries: {
               where: {
                 kind: "request",
               },
               take: 1,
               include: {
-                media: true,
+                attachments: true,
                 author: {
                   select: {
                     id: true,
@@ -74,14 +72,14 @@ export async function GET(request: NextRequest) {
             },
             _count: {
               select: {
-                prayers: true,
-                posts: true,
-                prayerListItems: true,
+                actions: true,
+                entries: true,
+                savedBy: true,
               },
             },
           },
         },
-        post: {
+        entry: {
           select: {
             id: true,
             kind: true,
@@ -98,7 +96,7 @@ export async function GET(request: NextRequest) {
     // and sanitize anonymous threads
     const validItems = prayerListItems.filter(item => {
       // If the item references a specific post, ensure it still exists
-      if (item.postId && !item.post) {
+      if (item.entryId && !item.entry) {
         return false;
       }
       return true;
@@ -107,11 +105,12 @@ export async function GET(request: NextRequest) {
     const sanitizedItems = validItems.map(item => ({
       ...item,
       thread: {
-        ...item.thread,
-        author: item.thread.isAnonymous ? null : item.thread.author,
-        posts: item.thread.posts.map(post => ({
+        ...item.request,
+        author: item.request.isAnonymous ? null : item.request.author,
+        posts: item.request.entries.map(post => ({
           ...post,
-          author: item.thread.isAnonymous ? null : post.author,
+          author: item.request.isAnonymous ? null : post.author,
+          media: (post as any).attachments,
         })),
       },
     }));
@@ -155,12 +154,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify thread exists and user has access
-    const thread = await prisma.thread.findUnique({
-      where: { 
-        id: validatedData.threadId,
+    // Resolve thread by id or shortId and verify access
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: {
+        OR: [{ id: validatedData.threadId }, { shortId: validatedData.threadId }],
         deletedAt: null,
       },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
+    const thread = await prisma.prayerRequest.findUnique({
+      where: { id: resolved.id },
       include: {
         group: {
           include: {
@@ -192,10 +203,10 @@ export async function POST(request: NextRequest) {
 
     // If postId provided, verify it belongs to the thread
     if (validatedData.postId) {
-      const post = await prisma.post.findFirst({
+      const post = await prisma.prayerEntry.findFirst({
         where: {
           id: validatedData.postId,
-          threadId: validatedData.threadId,
+          requestId: thread.id,
         },
       });
 
@@ -208,18 +219,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if already in prayer list
-    const existing = await prisma.prayerListItem.findFirst({
+    const existing = await prisma.savedPrayer.findFirst({
       where: {
         userId: user.id,
-        threadId: validatedData.threadId,
-        postId: validatedData.postId || null,
+        requestId: thread.id,
+        entryId: validatedData.postId || null,
       },
       include: {
-        thread: {
+        request: {
           include: {
             _count: {
               select: {
-                prayerListItems: true,
+                savedBy: true,
               },
             },
           },
@@ -238,18 +249,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Create prayer list item
-    const prayerListItem = await prisma.prayerListItem.create({
+    const prayerListItem = await prisma.savedPrayer.create({
       data: {
         userId: user.id,
-        threadId: validatedData.threadId,
-        postId: validatedData.postId,
+        requestId: thread.id,
+        entryId: validatedData.postId,
       },
       include: {
-        thread: {
+        request: {
           include: {
             _count: {
               select: {
-                prayerListItems: true,
+                savedBy: true,
               },
             },
           },
@@ -303,19 +314,35 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    // Resolve thread by id or shortId
+    const resolved = await prisma.prayerRequest.findFirst({
+      where: {
+        OR: [{ id: validatedData.threadId }, { shortId: validatedData.threadId }],
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!resolved) {
+      return NextResponse.json(
+        { error: "Thread not found" },
+        { status: 404 }
+      );
+    }
+
     // Find the prayer list item
-    const prayerListItem = await prisma.prayerListItem.findFirst({
+    const prayerListItem = await prisma.savedPrayer.findFirst({
       where: {
         userId: user.id,
-        threadId: validatedData.threadId,
-        postId: validatedData.postId || null,
+        requestId: resolved.id,
+        entryId: validatedData.postId || null,
       },
     });
 
     // Get updated count (whether we delete or not)
-    const updatedCount = await prisma.prayerListItem.count({
+    const updatedCount = await prisma.savedPrayer.count({
       where: {
-        threadId: validatedData.threadId,
+        requestId: resolved.id,
       },
     });
 
@@ -330,14 +357,14 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Delete the prayer list item
-    await prisma.prayerListItem.delete({
+    await prisma.savedPrayer.delete({
       where: { id: prayerListItem.id },
     });
 
     // Get final count after deletion
-    const finalCount = await prisma.prayerListItem.count({
+    const finalCount = await prisma.savedPrayer.count({
       where: {
-        threadId: validatedData.threadId,
+        requestId: resolved.id,
       },
     });
 

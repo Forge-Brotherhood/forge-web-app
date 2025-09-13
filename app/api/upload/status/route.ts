@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     const mediaIdArray = mediaIds.split(',');
 
     // Get media records status
-    const mediaRecords = await prisma.media.findMany({
+    const mediaRecords = await prisma.attachment.findMany({
       where: {
         id: {
           in: mediaIdArray,

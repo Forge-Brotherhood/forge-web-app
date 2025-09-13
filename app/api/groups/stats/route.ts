@@ -62,8 +62,8 @@ export async function GET(request: NextRequest) {
           },
         });
 
-        // Get thread count for context (lightweight)
-        const threadCount = await prisma.thread.count({
+        // Get request count for context (lightweight)
+        const requestCount = await prisma.prayerRequest.count({
           where: {
             groupId: group.id,
             deletedAt: null,
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
         // For now, return placeholder stats
         const stats = {
           memberCount,
-          threadCount,
+          threadCount: requestCount,
           weeklyPrayers: 0,
           activeToday: 0,
           averageStreak: 0,

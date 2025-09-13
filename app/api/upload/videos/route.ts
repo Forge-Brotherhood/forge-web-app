@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     console.log("MUX upload created:", upload);
 
     // Create Media record immediately to ensure webhooks can find it
-    const mediaRecord = await prisma.media.create({
+    const mediaRecord = await prisma.attachment.create({
       data: {
         type: 'video',
         url: upload.id, // Store upload ID as URL initially

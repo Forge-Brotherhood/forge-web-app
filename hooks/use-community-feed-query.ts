@@ -1,9 +1,10 @@
 "use client";
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useFeedQuery, type FeedItem, type UseFeedResult } from "./use-feed-query";
 
-export interface CommunityFeedThread {
+export interface CommunityThread {
   id: string;
+  shortId?: string;
   title: string | null;
   sharedToCommunity: boolean;
   isAnonymous: boolean;
@@ -21,7 +22,7 @@ export interface CommunityFeedThread {
     name: string | null;
     groupType: "core" | "circle";
   };
-  posts: Array<{
+  entries: Array<{
     id: string;
     kind: "request" | "update" | "testimony" | "encouragement" | "verse" | "system";
     content: string | null;
@@ -32,7 +33,7 @@ export interface CommunityFeedThread {
       firstName: string | null;
       profileImageUrl: string | null;
     } | null;
-    media: Array<{
+    attachments: Array<{
       id: string;
       type: "image" | "video" | "audio";
       url: string;
@@ -40,7 +41,7 @@ export interface CommunityFeedThread {
       height: number | null;
       durationS: number | null;
     }>;
-    reactions: Array<{
+    responses: Array<{
       id: string;
       type: "amen" | "emoji" | "verse_ref";
       payload: string | null;
@@ -52,18 +53,15 @@ export interface CommunityFeedThread {
       };
     }>;
   }>;
-  isInPrayerList?: boolean;
-  hasPrayed?: boolean;
-  prayerListCount?: number;
   _count: {
-    posts: number;
-    prayers: number;
-    prayerListItems?: number;
+    entries: number;
+    actions: number;
+    savedBy?: number;
   };
 }
 
 interface CommunityFeedResponse {
-  threads: CommunityFeedThread[];
+  threads: CommunityThread[];
   totalCount: number;
   hasMore: boolean;
 }
@@ -103,48 +101,47 @@ const fetchCommunityFeed = async ({
 export function useCommunityFeed(
   filter: "all" | "testimonies" | "requests" = "all",
   limit: number = 20
-) {
-  const {
-    data,
-    error,
-    isLoading,
-    isError,
-    isFetching,
-    isRefetching,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-    refetch,
-  } = useInfiniteQuery({
-    queryKey: communityKeys.feed(filter),
-    queryFn: ({ pageParam = 0 }) =>
-      fetchCommunityFeed({
-        filter,
-        limit,
-        offset: pageParam,
-      }),
-    getNextPageParam: (lastPage, allPages) => {
-      if (!lastPage.hasMore) return undefined;
-      const totalItems = allPages.reduce((sum, page) => sum + page.threads.length, 0);
-      return totalItems;
+): UseFeedResult {
+  return useFeedQuery<CommunityThread>({
+    key: communityKeys.feed(filter) as unknown as unknown[],
+    limit,
+    fetchPage: async ({ limit, offset }) => {
+      const json = await fetchCommunityFeed({ filter, limit, offset });
+      return { items: json.threads ?? [], hasMore: Boolean(json.hasMore) };
     },
-    initialPageParam: 0,
-    // Return cached data immediately while fetching fresh data in background
-    placeholderData: (previousData) => previousData,
+    mapItem: (thread): FeedItem => {
+      const id = thread.shortId || thread.id;
+      const main = thread.entries?.find(e => e.kind === "request" || e.kind === "testimony") || thread.entries?.[0];
+      const primaryAuthor = thread.isAnonymous ? null : (thread.author || main?.author);
+      const userId = primaryAuthor?.id || "";
+      const userName = thread.isAnonymous
+        ? "Anonymous"
+        : ((primaryAuthor?.displayName || primaryAuthor?.firstName || "Unknown") as string);
+      const userAvatar = thread.isAnonymous ? undefined : (primaryAuthor?.profileImageUrl || undefined);
+
+      return {
+        id,
+        postId: main?.id,
+        userId,
+        userName,
+        userAvatar,
+        isAnonymous: thread.isAnonymous,
+        title: thread.title,
+        content: main?.content || "",
+        createdAt: new Date(main?.createdAt || thread.createdAt),
+        prayerCount: thread._count?.actions || 0,
+        prayerListCount: thread._count?.savedBy || 0,
+        encouragementCount: Math.max(0, (thread._count?.entries || 1) - 1),
+        isFollowing: false,
+        hasPrayed: false,
+        isInPrayerList: Boolean((thread as any).savedBy?.length || (thread as any).isInPrayerList),
+        hasEncouraged: false,
+        updateStatus: thread.status === "answered" || main?.kind === "testimony" ? "answered" : null,
+        groupName: (thread as any).group?.name || null,
+        groupId: (thread as any).group?.id || null,
+        sharedToCommunity: thread.sharedToCommunity,
+      };
+    },
   });
-
-  // Flatten all pages of threads
-  const threads = data?.pages.flatMap((page) => page.threads) ?? [];
-
-  return {
-    threads,
-    isLoading: isLoading && !data, // Only show loading if we have no cached data
-    isFetching: isFetching || isRefetching, // Show fetching state for background updates
-    error: isError ? (error as Error)?.message ?? 'Unknown error' : null,
-    refetch,
-    hasMore: hasNextPage,
-    loadMore: fetchNextPage,
-    isLoadingMore: isFetchingNextPage,
-  };
 }
 

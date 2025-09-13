@@ -19,11 +19,11 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             // Keep data in cache for 30 minutes (crucial for instant back navigation)
             gcTime: 30 * 60 * 1000,
             // Only refetch on mount if data is stale (enables instant loading)
-            refetchOnMount: "stale",
+            refetchOnMount: true,
             // Prefer showing stale data while refetching
             notifyOnChangeProps: ["data", "error"],
             // Use placeholderData instead of deprecated keepPreviousData
-            placeholderData: (previousData) => previousData,
+            placeholderData: (previousData: any) => previousData,
           },
           mutations: {
             // Retry mutations once on failure

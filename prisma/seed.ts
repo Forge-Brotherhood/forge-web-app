@@ -1,9 +1,13 @@
-import { PrismaClient, ThreadStatus, PostKind, GroupType, ReactionType } from '@prisma/client';
+import { PrismaClient, PrayerRequestStatus, PrayerEntryKind, GroupType, PrayerResponseType, BanState } from '@prisma/client';
 import { faker } from '@faker-js/faker';
+import { customAlphabet } from 'nanoid';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const prisma = new PrismaClient();
+
+// NanoID generator for shortIds (10 chars, alphanumeric)
+const generateShortId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 10);
 
 // Load seed data from external JSON file to reduce bundle size
 function loadSeedData() {
@@ -25,12 +29,13 @@ async function seed() {
 
   // Clear existing data
   console.log('🧹 Clearing existing data...');
-  await prisma.sponsorship.deleteMany();
+  await prisma.support.deleteMany();
+  await prisma.savedPrayer.deleteMany();
   await prisma.prayerAction.deleteMany();
-  await prisma.reaction.deleteMany();
-  await prisma.media.deleteMany();
-  await prisma.post.deleteMany();
-  await prisma.thread.deleteMany();
+  await prisma.prayerResponse.deleteMany();
+  await prisma.attachment.deleteMany();
+  await prisma.prayerEntry.deleteMany();
+  await prisma.prayerRequest.deleteMany();
   await prisma.groupMember.deleteMany();
   await prisma.group.deleteMany();
   await prisma.user.deleteMany();
@@ -50,6 +55,8 @@ async function seed() {
       displayName: `${firstName} ${lastName}`,
       handle: faker.internet.username({ firstName, lastName }).toLowerCase().slice(0, 20),
       profileImageUrl: Math.random() > 0.3 ? faker.image.avatar() : null,
+      role: 'user',
+      banState: BanState.active,
       prayerStreak: faker.number.int({ min: 0, max: 30 }),
       lastPrayerAt: Math.random() > 0.3 ? faker.date.recent({ days: 7 }) : null,
       isSponsor: Math.random() > 0.8,
@@ -70,6 +77,7 @@ async function seed() {
   for (let i = 0; i < 8; i++) {
     const group = await prisma.group.create({
       data: {
+        shortId: generateShortId(),
         name: faker.helpers.arrayElement(groupNames),
         description: 'A brotherhood committed to prayer, accountability, and spiritual growth.',
         groupType: GroupType.core,
@@ -97,6 +105,7 @@ async function seed() {
   for (let i = 0; i < 5; i++) {
     const group = await prisma.group.create({
       data: {
+        shortId: generateShortId(),
         name: `${faker.helpers.arrayElement(groupNames)} Circle`,
         description: 'A larger community for prayer and fellowship.',
         groupType: GroupType.circle,
@@ -122,9 +131,9 @@ async function seed() {
 
   console.log('✅ Groups and memberships created');
 
-  // Create threads with posts
-  console.log('🙏 Creating prayer threads with posts...');
-  const threads = [];
+  // Create prayer requests with entries
+  console.log('🙏 Creating prayer requests with entries...');
+  const prayerRequests = [];
   
   for (let i = 0; i < 200; i++) {
     const group = faker.helpers.arrayElement(groups);
@@ -146,99 +155,138 @@ async function seed() {
     
     const createdAt = faker.date.recent({ days: 60 });
     
-    // Create thread
-    const thread = await prisma.thread.create({
+    // Create prayer request
+    const prayerRequest = await prisma.prayerRequest.create({
       data: {
+        shortId: generateShortId(),
         groupId: group.id,
         authorId: author.id,
         title: title as string | null,
         sharedToCommunity,
         isAnonymous,
-        status: isAnswered ? ThreadStatus.answered : ThreadStatus.open,
+        status: isAnswered ? PrayerRequestStatus.answered : PrayerRequestStatus.open,
+        lastActivityAt: createdAt,
+        postCount: 1,
+        amenCount: 0,
         createdAt,
       },
     });
     
-    threads.push(thread);
+    prayerRequests.push(prayerRequest);
     
-    // Create initial request post
-    await prisma.post.create({
+    // Create initial request entry
+    await prisma.prayerEntry.create({
       data: {
-        threadId: thread.id,
+        shortId: generateShortId(),
+        requestId: prayerRequest.id,
         authorId: author.id,
-        kind: PostKind.request,
+        kind: PrayerEntryKind.request,
         content: content as string | null,
+        amenCount: 0,
         createdAt,
       },
     });
     
-    // Add some encouragement posts (30% chance per thread, 1-3 posts)
+    // Add some encouragement entries (30% chance per request, 1-3 entries)
     if (Math.random() < 0.3) {
       const encouragementCount = faker.number.int({ min: 1, max: 3 });
       const otherMembers = groupMembers.filter(m => m.userId !== author.id);
       
       for (let j = 0; j < encouragementCount && otherMembers.length > 0; j++) {
         const encourager = faker.helpers.arrayElement(otherMembers);
-        await prisma.post.create({
+        const entryDate = faker.date.between({ 
+          from: createdAt, 
+          to: new Date() 
+        });
+        await prisma.prayerEntry.create({
           data: {
-            threadId: thread.id,
+            shortId: generateShortId(),
+            requestId: prayerRequest.id,
             authorId: encourager.userId,
-            kind: PostKind.encouragement,
+            kind: PrayerEntryKind.encouragement,
             content: faker.helpers.arrayElement(encouragementTemplates),
-            createdAt: faker.date.between({ 
-              from: createdAt, 
-              to: new Date() 
-            }),
+            amenCount: 0,
+            createdAt: entryDate,
+          },
+        });
+        // Update post count and last activity
+        await prisma.prayerRequest.update({
+          where: { id: prayerRequest.id },
+          data: { 
+            postCount: { increment: 1 },
+            lastActivityAt: entryDate
           },
         });
       }
     }
     
-    // Add update posts (15% chance, only from original author)
+    // Add update entries (15% chance, only from original author)
     if (Math.random() < 0.15) {
-      await prisma.post.create({
+      const updateDate = faker.date.between({ 
+        from: createdAt, 
+        to: new Date() 
+      });
+      await prisma.prayerEntry.create({
         data: {
-          threadId: thread.id,
+          shortId: generateShortId(),
+          requestId: prayerRequest.id,
           authorId: author.id,
-          kind: PostKind.update,
+          kind: PrayerEntryKind.update,
           content: faker.helpers.arrayElement(updateTemplates),
-          createdAt: faker.date.between({ 
-            from: createdAt, 
-            to: new Date() 
-          }),
+          amenCount: 0,
+          createdAt: updateDate,
+        },
+      });
+      // Update post count and last activity
+      await prisma.prayerRequest.update({
+        where: { id: prayerRequest.id },
+        data: { 
+          postCount: { increment: 1 },
+          lastActivityAt: updateDate
         },
       });
     }
     
-    // Add testimony post if thread is answered
+    // Add testimony entry if request is answered
     if (isAnswered) {
-      await prisma.post.create({
+      const testimonyDate = faker.date.between({ 
+        from: createdAt, 
+        to: new Date() 
+      });
+      await prisma.prayerEntry.create({
         data: {
-          threadId: thread.id,
+          shortId: generateShortId(),
+          requestId: prayerRequest.id,
           authorId: author.id,
-          kind: PostKind.testimony,
+          kind: PrayerEntryKind.testimony,
           content: faker.helpers.arrayElement(testimonyTemplates),
-          createdAt: faker.date.between({ 
-            from: createdAt, 
-            to: new Date() 
-          }),
+          amenCount: 0,
+          createdAt: testimonyDate,
+        },
+      });
+      // Update post count and last activity
+      await prisma.prayerRequest.update({
+        where: { id: prayerRequest.id },
+        data: { 
+          postCount: { increment: 1 },
+          lastActivityAt: testimonyDate
         },
       });
     }
   }
 
-  console.log('✅ Threads and posts created');
+  console.log('✅ Prayer requests and entries created');
 
-  // Create prayer actions and reactions
-  console.log('❤️ Creating prayer actions and reactions...');
-  const posts = await prisma.post.findMany({
-    where: { kind: PostKind.request },
-    include: { thread: { include: { group: { include: { members: true } } } } },
+  // Create prayer actions and responses
+  console.log('❤️ Creating prayer actions and responses...');
+  const entries = await prisma.prayerEntry.findMany({
+    where: { kind: PrayerEntryKind.request },
+    include: { request: { include: { group: { include: { members: true } } } } },
   });
   
-  for (const post of posts) {
-    const groupMembers = post.thread.group?.members || [];
-    const otherMembers = groupMembers.filter(m => m.userId !== post.authorId);
+  for (const entry of entries) {
+    const groupMembers = entry.request.group?.members || [];
+    const otherMembers = groupMembers.filter(m => m.userId !== entry.authorId);
     
     // 40-70% of other group members pray for each request
     const prayerRate = faker.number.float({ min: 0.4, max: 0.7 });
@@ -247,7 +295,7 @@ async function seed() {
     
     for (const prayer of prayers) {
       const prayedAt = faker.date.between({ 
-        from: post.createdAt, 
+        from: entry.createdAt, 
         to: new Date() 
       });
       
@@ -255,27 +303,28 @@ async function seed() {
       await prisma.prayerAction.create({
         data: {
           userId: prayer.userId,
-          threadId: post.threadId,
-          postId: post.id,
+          requestId: entry.requestId,
+          entryId: entry.id,
           createdAt: prayedAt,
         },
       });
       
-      // Create "amen" reaction
-      await prisma.reaction.create({
+      // Create "amen" response
+      await prisma.prayerResponse.create({
         data: {
-          postId: post.id,
+          entryId: entry.id,
           userId: prayer.userId,
-          type: ReactionType.amen,
+          type: PrayerResponseType.amen,
+          payload: '',
           createdAt: prayedAt,
         },
       });
     }
     
     // Add some community prayers if shared to community (10-20% of other users)
-    if (post.thread.sharedToCommunity) {
+    if (entry.request.sharedToCommunity) {
       const allOtherUsers = users.filter(u => 
-        u.id !== post.authorId && 
+        u.id !== entry.authorId && 
         !groupMembers.some(m => m.userId === u.id)
       );
       
@@ -285,24 +334,25 @@ async function seed() {
       
       for (const prayer of communityPrayers) {
         const prayedAt = faker.date.between({ 
-          from: post.createdAt, 
+          from: entry.createdAt, 
           to: new Date() 
         });
         
         await prisma.prayerAction.create({
           data: {
             userId: prayer.id,
-            threadId: post.threadId,
-            postId: post.id,
+            requestId: entry.requestId,
+            entryId: entry.id,
             createdAt: prayedAt,
           },
         });
         
-        await prisma.reaction.create({
+        await prisma.prayerResponse.create({
           data: {
-            postId: post.id,
+            entryId: entry.id,
             userId: prayer.id,
-            type: ReactionType.amen,
+            type: PrayerResponseType.amen,
+            payload: '',
             createdAt: prayedAt,
           },
         });
@@ -310,14 +360,28 @@ async function seed() {
     }
   }
 
-  console.log('✅ Prayer actions and reactions created');
+  console.log('✅ Prayer actions and responses created');
+  
+  // Update amen counts on requests
+  for (const request of prayerRequests) {
+    const amenCount = await prisma.prayerResponse.count({
+      where: {
+        entry: { requestId: request.id },
+        type: PrayerResponseType.amen
+      }
+    });
+    await prisma.prayerRequest.update({
+      where: { id: request.id },
+      data: { amenCount }
+    });
+  }
 
-  // Create some sponsorships
-  console.log('💰 Creating sponsorships...');
+  // Create some support records
+  console.log('💰 Creating support records...');
   const sponsors = users.filter(u => u.isSponsor);
   
   for (const sponsor of sponsors) {
-    await prisma.sponsorship.create({
+    await prisma.support.create({
       data: {
         userId: sponsor.id,
         amount: faker.number.float({ min: 10, max: 100, fractionDigits: 2 }),
@@ -326,7 +390,7 @@ async function seed() {
     });
   }
 
-  console.log('✅ Sponsorships created');
+  console.log('✅ Support records created');
 
   // Get statistics
   const stats = {
@@ -335,28 +399,28 @@ async function seed() {
     coreGroups: await prisma.group.count({ where: { groupType: GroupType.core } }),
     circleGroups: await prisma.group.count({ where: { groupType: GroupType.circle } }),
     groupMembers: await prisma.groupMember.count(),
-    threads: await prisma.thread.count(),
-    communityThreads: await prisma.thread.count({ where: { sharedToCommunity: true } }),
-    answeredThreads: await prisma.thread.count({ where: { status: ThreadStatus.answered } }),
-    posts: await prisma.post.count(),
-    requestPosts: await prisma.post.count({ where: { kind: PostKind.request } }),
-    encouragementPosts: await prisma.post.count({ where: { kind: PostKind.encouragement } }),
-    updatePosts: await prisma.post.count({ where: { kind: PostKind.update } }),
-    testimonyPosts: await prisma.post.count({ where: { kind: PostKind.testimony } }),
+    prayerRequests: await prisma.prayerRequest.count(),
+    communityRequests: await prisma.prayerRequest.count({ where: { sharedToCommunity: true } }),
+    answeredRequests: await prisma.prayerRequest.count({ where: { status: PrayerRequestStatus.answered } }),
+    prayerEntries: await prisma.prayerEntry.count(),
+    requestEntries: await prisma.prayerEntry.count({ where: { kind: PrayerEntryKind.request } }),
+    encouragementEntries: await prisma.prayerEntry.count({ where: { kind: PrayerEntryKind.encouragement } }),
+    updateEntries: await prisma.prayerEntry.count({ where: { kind: PrayerEntryKind.update } }),
+    testimonyEntries: await prisma.prayerEntry.count({ where: { kind: PrayerEntryKind.testimony } }),
     prayerActions: await prisma.prayerAction.count(),
-    reactions: await prisma.reaction.count(),
-    sponsorships: await prisma.sponsorship.count(),
+    prayerResponses: await prisma.prayerResponse.count(),
+    supports: await prisma.support.count(),
   };
 
   console.log('\n📊 Seeding complete! Database statistics:');
   console.log(`   👥 Users: ${stats.users}`);
   console.log(`   🤝 Groups: ${stats.groups} (${stats.coreGroups} core, ${stats.circleGroups} circle)`);
   console.log(`   👫 Group Members: ${stats.groupMembers}`);
-  console.log(`   🙏 Threads: ${stats.threads} (${stats.communityThreads} shared to community, ${stats.answeredThreads} answered)`);
-  console.log(`   📝 Posts: ${stats.posts} (${stats.requestPosts} requests, ${stats.encouragementPosts} encouragements, ${stats.updatePosts} updates, ${stats.testimonyPosts} testimonies)`);
+  console.log(`   🙏 Prayer Requests: ${stats.prayerRequests} (${stats.communityRequests} shared to community, ${stats.answeredRequests} answered)`);
+  console.log(`   📝 Prayer Entries: ${stats.prayerEntries} (${stats.requestEntries} requests, ${stats.encouragementEntries} encouragements, ${stats.updateEntries} updates, ${stats.testimonyEntries} testimonies)`);
   console.log(`   ❤️  Prayer Actions: ${stats.prayerActions}`);
-  console.log(`   👍 Reactions: ${stats.reactions}`);
-  console.log(`   💰 Sponsorships: ${stats.sponsorships}`);
+  console.log(`   👍 Prayer Responses: ${stats.prayerResponses}`);
+  console.log(`   💰 Support Records: ${stats.supports}`);
 }
 
 seed()

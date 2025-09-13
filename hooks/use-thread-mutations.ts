@@ -32,7 +32,7 @@ interface AddPostResponse {
     firstName: string | null;
     profileImageUrl: string | null;
   } | null;
-  media: Array<{
+  attachments: Array<{
     id: string;
     type: "image" | "video" | "audio";
     url: string;
@@ -40,7 +40,7 @@ interface AddPostResponse {
     height: number | null;
     durationS: number | null;
   }>;
-  reactions: Array<{
+  responses: Array<{
     id: string;
     type: string;
     payload: string | null;
@@ -52,7 +52,7 @@ interface AddPostResponse {
     };
   }>;
   _count: {
-    prayerActions: number;
+    actions: number;
   };
 }
 
@@ -107,32 +107,32 @@ export function useAddPostMutation() {
         threadKeys.detail(data.threadId)
       );
 
-      // Optimistically update thread with new post
+      // Optimistically update thread with new entry
       queryClient.setQueryData(
         threadKeys.detail(data.threadId),
         (old: any) => {
           if (!old?.thread) return old;
 
-          const optimisticPost = {
+          const optimisticEntry = {
             id: `temp-${Date.now()}`,
             kind: data.kind,
             content: data.content,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             author: old.currentUser,
-            media: data.media || [],
-            reactions: [],
-            _count: { prayerActions: 0 },
+            attachments: data.media || [],
+            responses: [],
+            _count: { actions: 0 },
           };
 
           return {
             ...old,
             thread: {
               ...old.thread,
-              posts: [...old.thread.posts, optimisticPost],
+              entries: [...(old.thread.entries || []), optimisticEntry],
               _count: {
                 ...old.thread._count,
-                posts: old.thread._count.posts + 1,
+                entries: (old.thread._count.entries || 0) + 1,
               },
             },
           };
@@ -151,22 +151,22 @@ export function useAddPostMutation() {
       }
     },
     onSuccess: (result, data) => {
-      // Update with real post data
+      // Update with real entry data
       queryClient.setQueryData(
         threadKeys.detail(data.threadId),
         (old: any) => {
           if (!old?.thread) return old;
 
-          // Replace temp post with real post
-          const updatedPosts = old.thread.posts.map((post: any) =>
-            post.id.startsWith("temp-") ? result : post
+          // Replace temp entry with real entry
+          const updatedEntries = (old.thread.entries || []).map((e: any) =>
+            e.id.startsWith("temp-") ? result : e
           );
 
           return {
             ...old,
             thread: {
               ...old.thread,
-              posts: updatedPosts,
+              entries: updatedEntries,
             },
           };
         }
@@ -292,13 +292,13 @@ export function useReactionMutation() {
         threadKeys.detail(data.threadId)
       );
 
-      // Optimistically add reaction
+      // Optimistically add response
       queryClient.setQueryData(
         threadKeys.detail(data.threadId),
         (old: any) => {
           if (!old?.thread) return old;
 
-          const optimisticReaction = {
+          const optimisticResponse = {
             id: `temp-reaction-${Date.now()}`,
             type: data.type,
             payload: data.payload || null,
@@ -310,20 +310,17 @@ export function useReactionMutation() {
             },
           };
 
-          const updatedPosts = old.thread.posts.map((post: any) =>
-            post.id === data.postId
-              ? {
-                  ...post,
-                  reactions: [...post.reactions, optimisticReaction],
-                }
-              : post
+          const updatedEntries = (old.thread.entries || []).map((entry: any) =>
+            entry.id === data.postId
+              ? { ...entry, responses: [...(entry.responses || []), optimisticResponse] }
+              : entry
           );
 
           return {
             ...old,
             thread: {
               ...old.thread,
-              posts: updatedPosts,
+              entries: updatedEntries,
             },
           };
         }
@@ -377,22 +374,22 @@ export function useDeletePostMutation() {
         threadKeys.detail(threadId)
       );
 
-      // Optimistically remove post from cache
+      // Optimistically remove entry from cache
       queryClient.setQueryData(
         threadKeys.detail(threadId),
         (old: any) => {
           if (!old?.thread) return old;
 
-          const filteredPosts = old.thread.posts.filter((post: any) => post.id !== postId);
+          const filteredEntries = (old.thread.entries || []).filter((e: any) => e.id !== postId);
 
           return {
             ...old,
             thread: {
               ...old.thread,
-              posts: filteredPosts,
+              entries: filteredEntries,
               _count: {
                 ...old.thread._count,
-                posts: old.thread._count.posts - 1,
+                entries: (old.thread._count.entries || 1) - 1,
               },
             },
           };
@@ -504,77 +501,36 @@ export function usePrayerListToggleMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ threadId, postId }: { threadId: string; postId: string }) => {
-      console.log("Prayer list mutation started - threadId:", threadId, "postId:", postId);
-      
-      // Validate inputs
-      if (!threadId || !postId) {
-        throw new Error(`Invalid parameters: threadId=${threadId}, postId=${postId}`);
+    mutationFn: async ({ threadId, postId }: { threadId: string; postId?: string }) => {
+      if (!threadId) {
+        throw new Error(`Invalid parameters: threadId=${threadId}`);
       }
-      
-      // Determine current state from thread detail cache
-      const threadDetailData = queryClient.getQueryData(threadKeys.detail(threadId)) as any;
-      let isInPrayerList = false;
-      
-      if (threadDetailData?.initialPrayerStatus) {
-        isInPrayerList = threadDetailData.initialPrayerStatus.isInPrayerList || false;
-      }
-      
-      console.log("Thread detail data:", {
-        hasThreadData: !!threadDetailData,
-        initialPrayerStatus: threadDetailData?.initialPrayerStatus,
-        isInPrayerList
-      });
 
-      const method = isInPrayerList ? "DELETE" : "POST";
-      const requestBody = { threadId, postId };
-      
-      console.log("Making API call:", {
-        method,
-        isInPrayerList,
-        requestBody,
-        url: `/api/prayer-list`
-      });
-      
-      const response = await fetch(`/api/prayer-list`, {
-        method,
+      const response = await fetch(`/api/prayer-list/toggle`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(postId ? { threadId, entryId: postId } : { threadId }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-        console.error("Prayer list API error:", {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData
-        });
-        throw new Error(`Failed to update prayer list: ${response.status} ${response.statusText} - ${errorData.error || "Unknown error"}`);
+        throw new Error(`Failed to toggle prayer list: ${response.status} ${response.statusText} - ${errorData.error || "Unknown error"}`);
       }
 
-      const result = await response.json();
-      return { 
-        action: method,
-        wasAlreadyInState: result.wasAlreadyInState,
-        updatedCount: result.updatedCount,
-        message: result.message,
-        item: result.item
-      };
+      return response.json() as Promise<{ success: boolean; isSaved: boolean; action: "added" | "removed"; savedCount: number }>;
     },
-    onSuccess: (result, { threadId }) => {
-      // Log if there was a state correction
-      if (result.wasAlreadyInState) {
-        console.log("Prayer list state was corrected:", result.message);
-      }
-      
-      // Invalidate all queries to fetch fresh data from server
+    onSuccess: (_result, { threadId }) => {
+      // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: communityKeys.all });
       queryClient.invalidateQueries({ queryKey: groupKeys.all });
       queryClient.invalidateQueries({ queryKey: threadKeys.detail(threadId) });
       queryClient.invalidateQueries({ queryKey: prayerListKeys.all });
+      // Ensure My Prayers feed refreshes
+      queryClient.invalidateQueries({ queryKey: prayerListKeys.list() });
+      queryClient.invalidateQueries({ queryKey: ["feed", "prayers"] });
     },
     onError: (err) => {
-      console.error('Prayer list toggle error:', err);
+      console.error("Prayer list toggle error:", err);
     },
   });
 }

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useFeedQuery, type FeedItem, type UseFeedResult } from "./use-feed-query";
 
 export interface PrayerListAuthor {
   id: string;
@@ -13,17 +14,18 @@ export interface PrayerListGroup {
   groupType: string;
 }
 
-export interface PrayerListPost {
+export interface PrayerListEntry {
   id: string;
   kind: string;
   content: string;
   createdAt: string;
   author: PrayerListAuthor | null;
-  media: any[];
+  attachments: any[];
 }
 
 export interface PrayerListThread {
   id: string;
+  shortId?: string;
   title?: string;
   content: string;
   createdAt: string;
@@ -32,22 +34,22 @@ export interface PrayerListThread {
   sharedToCommunity: boolean;
   author: PrayerListAuthor | null;
   group: PrayerListGroup | null;
-  posts: PrayerListPost[];
+  entries: PrayerListEntry[];
   _count: {
-    prayers: number;
-    posts: number;
-    prayerListItems: number;
+    actions: number;
+    entries: number;
+    savedBy: number;
   };
 }
 
 export interface PrayerListItem {
   id: string;
   userId: string;
-  threadId: string;
-  postId: string | null;
+  threadId: string; // requestId
+  postId: string | null; // entryId
   createdAt: string;
-  thread: PrayerListThread;
-  post: {
+  thread: PrayerListThread; // request
+  post: { // entry
     id: string;
     kind: string;
     content: string;
@@ -127,6 +129,52 @@ export function useRemoveFromPrayerList() {
     onSettled: () => {
       // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: prayerListKeys.list() });
+      queryClient.invalidateQueries({ queryKey: ["feed", "prayers"] });
+    },
+  });
+}
+
+// New: feed adapter for My Prayers using base feed hook
+export function usePrayerFeed(limit: number = 20): UseFeedResult {
+  return useFeedQuery<PrayerListItem>({
+    key: ["feed", "prayers"],
+    limit,
+    fetchPage: async ({ limit, offset }) => {
+      // Current API returns all; emulate pagination client-side
+      const res = await fetch(`/api/prayer-list`);
+      if (!res.ok) throw new Error("Failed to fetch prayer list");
+      const json: PrayerListResponse = await res.json();
+      const start = offset;
+      const end = offset + limit;
+      const slice = json.items.slice(start, end);
+      return { items: slice as any, hasMore: end < json.items.length };
+    },
+    mapItem: (item): FeedItem => {
+      const thread = item.thread;
+      const firstEntry = thread.entries?.[0];
+      const author = thread.isAnonymous ? null : thread.author;
+      return {
+        id: (thread.shortId || thread.id) as string,
+        postId: item.post?.id || firstEntry?.id,
+        userId: author?.id || "",
+        userName: author?.displayName || author?.firstName || "Anonymous",
+        userAvatar: author?.profileImageUrl || undefined,
+        isAnonymous: thread.isAnonymous,
+        title: thread.title,
+        content: firstEntry?.content || "",
+        createdAt: new Date(thread.createdAt),
+        prayerCount: thread._count.actions || 0,
+        prayerListCount: thread._count.savedBy || 0,
+        encouragementCount: Math.max(0, (thread._count.entries || 1) - 1),
+        isFollowing: false,
+        hasPrayed: false,
+        isInPrayerList: true,
+        hasEncouraged: false,
+        updateStatus: null,
+        groupName: thread.group?.name || null,
+        groupId: thread.group?.id || null,
+        sharedToCommunity: thread.sharedToCommunity,
+      };
     },
   });
 }

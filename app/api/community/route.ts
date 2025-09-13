@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     // Get threads shared to community
     const [threads, totalCount] = await Promise.all([
-      prisma.thread.findMany({
+      prisma.prayerRequest.findMany({
         where: whereClause,
         include: {
           author: {
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
               groupType: true,
             },
           },
-          posts: {
+          entries: {
             where: {
               kind: filter === "testimonies" ? "testimony" : "request",
             },
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
             },
             take: 1,
             include: {
-              media: true,
+              attachments: true,
               author: {
                 select: {
                   id: true,
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
                   profileImageUrl: true,
                 },
               },
-              reactions: {
+              responses: {
                 take: 10,
                 include: {
                   user: {
@@ -84,18 +84,18 @@ export async function GET(request: NextRequest) {
             },
           },
           // Include prayer list items for current user
-          prayerListItems: currentUser ? {
+          savedBy: currentUser ? {
             where: {
               userId: currentUser.id,
             },
             select: {
               id: true,
-              postId: true,
+              entryId: true,
             },
             take: 1, // We only need to know if it exists
           } : undefined,
           // Include prayer actions for current user
-          prayers: currentUser ? {
+          actions: currentUser ? {
             where: {
               userId: currentUser.id,
             },
@@ -106,37 +106,27 @@ export async function GET(request: NextRequest) {
           } : undefined,
           _count: {
             select: {
-              posts: true,
-              prayers: true,
-              prayerListItems: true,
+              entries: true,
+              actions: true,
+              savedBy: true,
             },
           },
         },
         orderBy: [
           // Prioritize testimonies (answered prayers) at the top
           ...(filter === "all" ? [{ status: "asc" as const }] : []),
-          { updatedAt: "desc" as const },
+          { lastActivityAt: "desc" as const },
         ],
         take: limit,
         skip: offset,
       }),
-      prisma.thread.count({ where: whereClause }),
+      prisma.prayerRequest.count({ where: whereClause }),
     ]);
 
     // Sanitize anonymous threads and add prayer list status
     const sanitizedThreads = threads.map(thread => ({
       ...thread,
       author: thread.isAnonymous ? null : thread.author,
-      posts: thread.posts.map(post => ({
-        ...post,
-        author: thread.isAnonymous ? null : post.author,
-      })),
-      isInPrayerList: thread.prayerListItems ? thread.prayerListItems.length > 0 : false,
-      hasPrayed: thread.prayers ? thread.prayers.length > 0 : false,
-      prayerListCount: thread._count.prayerListItems,
-      // Remove raw data from response
-      prayerListItems: undefined,
-      prayers: undefined,
     }));
 
     return NextResponse.json({

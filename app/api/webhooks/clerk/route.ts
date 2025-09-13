@@ -94,36 +94,10 @@ export async function POST(req: Request) {
         },
       });
     } catch (error: any) {
-      // Handle unique constraint errors
+      // Handle unique constraint errors - fail on collisions
       if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
-        console.error(`Email ${email} already exists for another user. Skipping update for Clerk ID ${u.id}`);
-        // For email conflicts, we can either:
-        // 1. Skip the update (current approach)
-        // 2. Update everything except email
-        // 3. Delete the conflicting user (dangerous)
-        
-        // Option 2: Update without changing email
-        await prisma.user.upsert({
-          where: { clerkId: u.id },
-          update: {
-            firstName: u.first_name ?? null,
-            lastName: u.last_name ?? null,
-            displayName: u.first_name ?? u.username ?? null,
-            handle: u.username ?? null,
-            profileImageUrl: u.image_url ?? null,
-          },
-          create: {
-            clerkId: u.id,
-            email: `${u.id}@clerk.placeholder`, // Temporary email placeholder
-            firstName: u.first_name ?? null,
-            lastName: u.last_name ?? null,
-            displayName: u.first_name ?? u.username ?? null,
-            handle: u.username ?? null,
-            profileImageUrl: u.image_url ?? null,
-            role: "user",
-            banState: BanState.active,
-          },
-        });
+        console.error(`Email ${email} already exists for another user. Failing for Clerk ID ${u.id}`);
+        return new Response(`Email conflict: ${email} already exists`, { status: 409 });
       } else {
         throw error; // Re-throw other errors
       }

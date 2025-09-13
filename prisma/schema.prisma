@@ -1,5 +1,5 @@
 // -----------------------------
-// Prisma Schema – Forge (Unified Threads)
+// Prisma Schema — Forge
 // -----------------------------
 
 generator client {
@@ -18,28 +18,28 @@ enum GroupType {
   core
 }
 
-enum ThreadStatus {
+enum PrayerRequestStatus {
   open
   answered
   archived
 }
 
-enum PostKind {
-  request       // initial ask that seeds the thread
-  update        // progress update
-  testimony     // fulfilled / praise report
-  encouragement // short notes, prayers, “standing with you”
-  verse         // scripture card post
-  system        // system cards/prompts
+enum PrayerEntryKind {
+  request        // initial ask that seeds the request
+  update         // progress update
+  testimony      // fulfilled / praise report
+  encouragement  // short notes, prayers, “standing with you”
+  verse          // scripture card entry
+  system         // system cards/prompts
 }
 
-enum MediaType {
+enum AttachmentType {
   image
   video
   audio
 }
 
-enum ReactionType {
+enum PrayerResponseType {
   amen
   emoji
   verse_ref // lightweight “I dropped a verse ref here”
@@ -60,199 +60,225 @@ enum UploadStatus {
 // ---------- Core ----------
 
 model User {
-  id              String    @id @default(uuid())
-  clerkId         String    @unique
-  email           String    @unique
+  id              String   @id @default(uuid())
+  clerkId         String   @unique
+  email           String   @unique @db.Citext // enable extension: CREATE EXTENSION IF NOT EXISTS citext;
   firstName       String?
   lastName        String?
   displayName     String?
-  handle          String?
-  role            String    @default("user")
-  banState        BanState  @default(active)
+  handle          String?  @db.Citext        // add @unique if you want global handle uniqueness
+  role            String   @default("user")
+  banState        BanState @default(active)
   profileImageUrl String?
   voiceIntroUrl   String?
-  prayerStreak    Int       @default(0)
+  prayerStreak    Int      @default(0)
   lastPrayerAt    DateTime?
-  isSponsor       Boolean   @default(false)
+  isSponsor       Boolean  @default(false)
 
-  memberships     GroupMember[]
-  threads         Thread[]       @relation("ThreadAuthor")
-  posts           Post[]         @relation("PostAuthor")
-  reactions       Reaction[]
-  prayerActions   PrayerAction[]
-  prayerListItems PrayerListItem[]
-  sponsorships    Sponsorship[]
+  // Relations
+  memberships              GroupMember[]
+  prayerRequestsAuthored   PrayerRequest[] @relation("PrayerRequestAuthor")
+  prayerEntriesAuthored    PrayerEntry[]   @relation("PrayerEntryAuthor")
+  prayerResponses          PrayerResponse[]
+  prayerActions            PrayerAction[]
+  savedPrayers             SavedPrayer[]
+  supports                 Support[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  @@index([handle])
 }
 
 model Group {
-  id          String     @id @default(uuid())
+  id          String    @id @default(uuid())
+  shortId     String    @unique // NanoID (10–12 chars), generate in app
   name        String?
   description String?
-  groupType   GroupType  @default(circle)
+  groupType   GroupType @default(circle)
 
-  members     GroupMember[]
-  threads     Thread[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
-
-  @@index([groupType])
-}
-
-model GroupMember {
-  groupId  String
-  userId   String
-  status   String    @default("active") // active|pending|left
-  role     String    @default("member") // member|leader
-  joinedAt DateTime  @default(now())
-
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([groupId, userId])
-  @@index([userId])
-}
-
-// ---------- Conversation Layer ----------
-
-model Thread {
-  id                String        @id @default(uuid())
-  groupId           String?       // optional for community-only posts
-  authorId          String        // creator of the thread (often the requester)
-  title             String?       // optional; most content lives in posts
-  sharedToCommunity Boolean       @default(false)
-  isAnonymous       Boolean       @default(false)
-  status            ThreadStatus  @default(open)
-
-  group   Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  author  User    @relation("ThreadAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  posts   Post[]
-  prayers PrayerAction[] // "acts of praying" on this thread
-  prayerListItems PrayerListItem[] // items saved to prayer lists
+  // Relations
+  members       GroupMember[]
+  prayerRequests PrayerRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
-  @@index([groupId, status, createdAt])
-  @@index([sharedToCommunity, status, createdAt])
-  @@index([authorId, createdAt])
+  @@index([groupType])
+  @@index([shortId])
 }
 
-model Post {
-  id        String   @id @default(uuid())
-  threadId  String
-  authorId  String?  // system posts may have null author
-  kind      PostKind @default(request)
+model GroupMember {
+  groupId  String
+  userId   String
+  status   String   @default("active") // active|pending|left
+  role     String   @default("member") // member|leader
+  joinedAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([groupId, userId])
+  @@index([userId])
+}
+
+// ---------- Prayer Lifecycle ----------
+
+model PrayerRequest {
+  id                String               @id @default(uuid())
+  shortId           String               @unique // NanoID (10–12 chars), generate in app
+  groupId           String?
+  authorId          String
+  title             String?
+  sharedToCommunity Boolean              @default(false)
+  isAnonymous       Boolean              @default(false)
+  status            PrayerRequestStatus  @default(open)
+
+  // Denorm for performance / moderation
+  lastActivityAt    DateTime             @default(now())
+  postCount         Int                  @default(0)
+  amenCount         Int                  @default(0)
+  isHidden          Boolean              @default(false)
+  reportedCount     Int                  @default(0)
+  // moderationState String?             // optional future enum/string
+
+  group  Group? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  author User   @relation("PrayerRequestAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  entries PrayerEntry[]
+  actions PrayerAction[]
+  savedBy SavedPrayer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([groupId, status, lastActivityAt])
+  @@index([sharedToCommunity, status, lastActivityAt])
+  @@index([authorId, createdAt])
+  @@index([shortId])
+}
+
+model PrayerEntry {
+  id        String           @id @default(uuid())
+  shortId   String           @unique // NanoID (10–12 chars), generate in app
+  requestId String
+  authorId  String?          // null for system entries
+  kind      PrayerEntryKind  @default(request)
   content   String?
 
-  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  author User?  @relation("PostAuthor", fields: [authorId], references: [id])
-  media  Media[]
-  reactions Reaction[]
+  // Optional denorms for UI badges / moderation
+  amenCount     Int     @default(0)
+  isHidden      Boolean @default(false)
+  reportedCount Int     @default(0)
 
-  // 🔧 Added opposite relation for PrayerAction
-  prayerActions PrayerAction[]
-  prayerListItems PrayerListItem[] // items saved to prayer lists
+  request PrayerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  author  User?         @relation("PrayerEntryAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  attachments   Attachment[]
+  responses     PrayerResponse[]
+  actions       PrayerAction[]   // actions that targeted this entry
+  savedBy       SavedPrayer[]    // saved items targeting this entry
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([threadId, kind, createdAt])
+  @@index([requestId, kind, createdAt])
   @@index([authorId, createdAt])
+  @@index([shortId])
 }
 
-model Media {
-  id           String       @id @default(uuid())
-  postId       String?      // Nullable to allow orphaned records during upload
-  type         MediaType
-  url          String
-  width        Int?
-  height       Int?
-  durationS    Int?         // for audio/video
-  muxAssetId   String?      // MUX asset identifier
-  muxPlaybackId String?     // MUX playback identifier
-  uploadStatus UploadStatus @default(ready) // upload/processing status
+model Attachment {
+  id            String          @id @default(uuid())
+  entryId       String?
+  type          AttachmentType
+  url           String
+  width         Int?
+  height        Int?
+  durationS     Int?
+  muxAssetId    String? @unique // webhook dedupe if applicable
+  muxPlaybackId String? @unique // webhook dedupe if applicable
+  uploadStatus  UploadStatus @default(ready)
 
-  post Post? @relation(fields: [postId], references: [id], onDelete: Cascade)
+  entry PrayerEntry? @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
-  @@index([postId])
-  @@index([muxAssetId])
-  @@index([url]) // Add index for webhook lookups by upload ID
+  @@index([entryId])
+  @@index([url])
 }
 
-model Reaction {
-  id        String       @id @default(uuid())
-  postId    String
-  userId    String
-  type      ReactionType
-  payload   String?
+model PrayerResponse {
+  id      String             @id @default(uuid())
+  entryId String
+  userId  String
+  type    PrayerResponseType
+  payload String             @default("") // avoid NULL-unique surprises
 
-  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entry PrayerEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user  User        @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 
-  @@index([postId])
+  @@index([entryId])
   @@index([userId, createdAt])
-  @@unique([postId, userId, type, payload])
+  @@unique([entryId, userId, type, payload])
 }
 
-// ---------- Ritual / Analytics ----------
+// ---------- Actions & Lists ----------
 
 model PrayerAction {
-  id       String   @id @default(uuid())
-  userId   String
-  threadId String
-  postId   String?
-
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  post   Post?  @relation(fields: [postId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  @@index([userId, createdAt])
-  @@index([threadId, createdAt])
-  @@index([postId])
-}
-
-// ---------- Prayer List ----------
-
-model PrayerListItem {
   id        String   @id @default(uuid())
   userId    String
-  threadId  String
-  postId    String?  // Optional specific post
-  
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  post   Post?  @relation(fields: [postId], references: [id], onDelete: SetNull)
-  
+  requestId String
+  entryId   String?
+
+  /// Optional: if you want once-per-day-per-request semantics, set at write time
+  actionDay DateTime? @db.Date
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  request PrayerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  entry   PrayerEntry?  @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
-  
-  @@unique([userId, threadId, postId])
+
   @@index([userId, createdAt])
-  @@index([threadId])
-  @@index([userId, threadId])
+  @@index([requestId, createdAt])
+  @@index([entryId])
+  // Uncomment if enforcing once-per-day-per-request:
+  // @@unique([userId, requestId, actionDay])
+}
+
+model SavedPrayer {
+  id        String   @id @default(uuid())
+  userId    String
+  requestId String
+  entryId   String?  // nullable for whole-request saves
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  request PrayerRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  entry   PrayerEntry?  @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, requestId, entryId])
+  @@index([userId, createdAt])
+  @@index([requestId])
+  @@index([userId, requestId])
+  // NOTE: For "one whole-request save per user", add a partial unique index in a SQL migration:
+  // CREATE UNIQUE INDEX "SavedPrayer_user_request_nullentry_unique"
+  // ON "SavedPrayer" ("userId", "requestId") WHERE "entryId" IS NULL;
 }
 
 // ---------- Stewardship ----------
 
-model Sponsorship {
-  id        String   @id @default(uuid())
-  userId    String
-  amount    Decimal
-  active    Boolean  @default(true)
+model Support {
+  id      String  @id @default(uuid())
+  userId  String
+  amount  Decimal @db.Decimal(12,2)
+  active  Boolean @default(true)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

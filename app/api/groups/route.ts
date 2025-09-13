@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-        threads: {
+        prayerRequests: {
           where: {
             deletedAt: null,
             status: "open",
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
         },
         _count: {
           select: {
-            threads: {
+            prayerRequests: {
               where: {
                 deletedAt: null,
               },
@@ -156,6 +156,7 @@ export async function POST(request: NextRequest) {
           name: validatedData.name,
           description: validatedData.description,
           groupType: validatedData.groupType,
+          shortId: Math.random().toString(36).substring(2, 10),
         },
       });
 
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
         },
         _count: {
           select: {
-            threads: {
+            prayerRequests: {
               where: {
                 deletedAt: null,
               },
