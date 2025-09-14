@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { X, ChevronLeft, ChevronRight, Volume2, VolumeX } from "lucide-react";
+import { X, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { usePrayerExperience, type Stage } from "@/hooks/use-prayer-experience";
@@ -500,17 +500,6 @@ export function PrayerExperienceNew({ isOpen, onClose }: PrayerExperienceProps) 
               )}
             </div>
 
-            {/* Tap zone indicators (subtle) */}
-            {currentStage?.type !== "reflection" && currentStage?.type !== "breathing" && (
-              <>
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 p-4 text-white/20">
-                  <ChevronLeft className="w-8 h-8" />
-                </div>
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 p-4 text-white/20">
-                  <ChevronRight className="w-8 h-8" />
-                </div>
-              </>
-            )}
           </div>
         </div>
       </div>
