@@ -78,8 +78,10 @@ export function usePrayerListQuery() {
       }
       return response.json();
     },
-    staleTime: 1000 * 60 * 2, // 2 minutes
+    staleTime: 1000 * 30, // 30 seconds - more frequent updates
     gcTime: 1000 * 60 * 5, // 5 minutes
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+    refetchOnMount: true, // Always refetch when component mounts
   });
 }
 

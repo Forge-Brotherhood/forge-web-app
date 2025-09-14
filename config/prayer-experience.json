@@ -1,0 +1,57 @@
+{
+  "stages": [
+    {
+      "id": "reflection",
+      "type": "reflection",
+      "duration": 10000,
+      "autoProgress": false,
+      "content": {
+        "title": "Trust & Surrender",
+        "scripture": "\"Be still, and know that I am God.\" — Psalm 46:10",
+        "scripture2": "\"Cast all your anxiety on him because he cares for you.\" — 1 Peter 5:7",
+        "reflection": "Pause. Breathe. Release control and remember who holds your life."
+      }
+    },
+    {
+      "id": "wrap-up",
+      "type": "wrap-up",
+      "autoProgress": false,
+      "content": {
+        "title": "Thank you for praying",
+        "subtitle": "Quick responses coming soon",
+        "description": "Share encouragement with those you prayed for"
+      }
+    }
+  ],
+  "reflectionThemes": [
+    {
+      "title": "Trust & Surrender",
+      "scripture": "\"Be still, and know that I am God.\" — Psalm 46:10",
+      "scripture2": "\"Cast all your anxiety on him because he cares for you.\" — 1 Peter 5:7",
+      "reflection": "Pause. Breathe. Release control and remember who holds your life."
+    },
+    {
+      "title": "God's Nearness",
+      "scripture": "\"The Lord is near to all who call on him, to all who call on him in truth.\" — Psalm 145:18",
+      "scripture2": "\"Draw near to God, and he will draw near to you.\" — James 4:8",
+      "reflection": "God isn't distant—you are stepping into His presence right now."
+    },
+    {
+      "title": "Thanksgiving & Praise",
+      "scripture": "\"Enter his gates with thanksgiving, and his courts with praise; give thanks to him and praise his name.\" — Psalm 100:4",
+      "scripture2": "\"Rejoice always, pray continually, give thanks in all circumstances.\" — 1 Thessalonians 5:16–18",
+      "reflection": "Start with gratitude—what has He done for you today?"
+    },
+    {
+      "title": "Purity of Heart",
+      "scripture": "\"Create in me a clean heart, O God, and renew a right spirit within me.\" — Psalm 51:10",
+      "scripture2": "\"Search me, God, and know my heart; test me and know my anxious thoughts.\" — Psalm 139:23",
+      "reflection": "Before speaking to God, invite Him to cleanse and realign your heart."
+    }
+  ],
+  "settings": {
+    "muxPlaybackId": "IeHA5F8IyhETEEzp8kTOFCPsQF3ZQAV02PpA6jcSDOgY",
+    "settleDuration": 1500,
+    "transitionDuration": 300
+  }
+}

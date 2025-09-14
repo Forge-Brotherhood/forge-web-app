@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { UnifiedFeed } from "@/components/unified-feed";
 import { usePrayerFeed } from "@/hooks/use-prayer-list-query";
+import { PrayNowButton } from "@/components/pray-now-button";
+import { PrayerExperienceNew } from "@/components/prayer-experience-new";
 
 type FilterType = "all" | "community" | "groups";
 
 export default function BookmarkedPrayers() {
   const feed = usePrayerFeed(20);
+  const [isPrayerExperienceOpen, setIsPrayerExperienceOpen] = useState(false);
 
   const stats = useMemo(() => {
     const total = feed.items.length;
@@ -80,9 +83,22 @@ export default function BookmarkedPrayers() {
           </Card>
         </div>
 
+        {/* Pray Now Button */}
+        <PrayNowButton
+          onClick={() => setIsPrayerExperienceOpen(true)}
+          disabled={stats.total === 0}
+          prayerCount={stats.total}
+        />
+
         {/* Feed */}
         <UnifiedFeed feed={feed} />
       </div>
+
+      {/* Prayer Experience Fullscreen */}
+      <PrayerExperienceNew
+        isOpen={isPrayerExperienceOpen}
+        onClose={() => setIsPrayerExperienceOpen(false)}
+      />
     </div>
   );
 }
