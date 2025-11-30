@@ -126,29 +126,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user already has a core group (limit one per user)
-    if (validatedData.groupType === "core") {
-      const existingCoreGroup = await prisma.group.findFirst({
-        where: {
-          groupType: "core",
-          deletedAt: null,
-          members: {
-            some: {
-              userId: user.id,
-              status: "active",
-            },
-          },
-        },
-      });
-
-      if (existingCoreGroup) {
-        return NextResponse.json(
-          { error: "You can only be in one core group" },
-          { status: 400 }
-        );
-      }
-    }
-
     // Create group with creator as leader
     const group = await prisma.$transaction(async (tx) => {
       const newGroup = await tx.group.create({

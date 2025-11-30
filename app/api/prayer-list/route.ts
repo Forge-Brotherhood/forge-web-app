@@ -103,15 +103,33 @@ export async function GET(request: NextRequest) {
     });
 
     const sanitizedItems = validItems.map(item => ({
-      ...item,
+      id: item.id,
+      userId: item.userId,
+      requestId: item.requestId,
+      entryId: item.entryId,
+      createdAt: item.createdAt,
       thread: {
-        ...item.request,
+        id: item.request.id,
+        shortId: item.request.shortId,
+        title: item.request.title,
+        status: item.request.status,
+        lastActivityAt: item.request.lastActivityAt,
+        createdAt: item.request.createdAt,
         author: item.request.isAnonymous ? null : item.request.author,
+        group: item.request.group,
         posts: item.request.entries.map(post => ({
-          ...post,
+          id: post.id,
+          shortId: post.shortId,
+          requestId: post.requestId,
+          authorId: post.authorId,
+          kind: post.kind,
+          content: post.content,
+          createdAt: post.createdAt,
+          updatedAt: post.updatedAt,
           author: item.request.isAnonymous ? null : post.author,
-          media: (post as any).attachments,
+          attachments: post.attachments,
         })),
+        _count: item.request._count,
       },
     }));
 

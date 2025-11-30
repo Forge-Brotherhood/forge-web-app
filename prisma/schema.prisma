@@ -83,6 +83,7 @@ model User {
   prayerActions            PrayerAction[]
   savedPrayers             SavedPrayer[]
   supports                 Support[]
+  createdInvites           GroupInvite[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -99,8 +100,9 @@ model Group {
   groupType   GroupType @default(circle)
 
   // Relations
-  members       GroupMember[]
+  members        GroupMember[]
   prayerRequests PrayerRequest[]
+  invites        GroupInvite[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -122,6 +124,21 @@ model GroupMember {
 
   @@id([groupId, userId])
   @@index([userId])
+}
+
+model GroupInvite {
+  id        String   @id @default(uuid())
+  token     String   @unique  // NanoID (16 chars) - the share token
+  groupId   String
+  createdBy String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  creator User  @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([groupId])
 }
 
 // ---------- Prayer Lifecycle ----------

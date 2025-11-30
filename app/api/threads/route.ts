@@ -40,8 +40,9 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const groupId = searchParams.get("groupId"); // Specific group ID filter
     const source = searchParams.get("source") || "core"; // core | circle | community
-    const status = searchParams.get("status") || "open";
+    const status = searchParams.get("status"); // Optional status filter
     const limit = parseInt(searchParams.get("limit") || "20");
     const offset = parseInt(searchParams.get("offset") || "0");
 
@@ -49,6 +50,9 @@ export async function GET(request: NextRequest) {
       where: { clerkId: userId },
       include: {
         memberships: {
+          where: {
+            status: "active",
+          },
           include: {
             group: true,
           },
@@ -64,15 +68,46 @@ export async function GET(request: NextRequest) {
     }
 
     let whereClause: any = {
-      status: status as any,
       deletedAt: null,
     };
 
-    if (source === "core") {
+    // Only add status filter if explicitly provided
+    if (status) {
+      whereClause.status = status as any;
+    }
+
+    // If groupId is provided, filter by that specific group
+    if (groupId) {
+      // Resolve id or shortId to the actual group
+      const resolvedGroup = await prisma.group.findFirst({
+        where: {
+          OR: [{ id: groupId }, { shortId: groupId }],
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+
+      if (!resolvedGroup) {
+        return NextResponse.json(
+          { error: "Group not found" },
+          { status: 404 }
+        );
+      }
+
+      // Verify user is a member of this group
+      const isMember = user.memberships.some(m => m.groupId === resolvedGroup.id);
+      if (!isMember) {
+        return NextResponse.json(
+          { error: "Not a member of this group" },
+          { status: 403 }
+        );
+      }
+      whereClause.groupId = resolvedGroup.id;
+    } else if (source === "core") {
       // Get threads from user's core group
       const coreGroup = user.memberships.find(m => m.group.groupType === "core");
       if (!coreGroup) {
-        return NextResponse.json({ threads: [], totalCount: 0 });
+        return NextResponse.json({ threads: [], totalCount: 0, hasMore: false });
       }
       whereClause.groupId = coreGroup.groupId;
     } else if (source === "circle") {

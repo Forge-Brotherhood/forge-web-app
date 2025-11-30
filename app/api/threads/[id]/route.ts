@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const updateThreadSchema = z.object({
+  title: z.string().max(200).optional().nullable(),
   status: z.enum(["open", "answered", "archived"]).optional(),
   sharedToCommunity: z.boolean().optional(),
 });
@@ -165,11 +166,11 @@ export async function GET(
     const prayerCount = thread._count.actions;
 
     // Check if thread is in user's prayer list
+    // Look for saved prayers with either null entryId (thread-level) or specific entry
     const prayerListItem = await prisma.savedPrayer.findFirst({
       where: {
         userId: user.id,
         requestId: thread.id,
-        entryId: mainEntry?.id || null,
       },
     });
     const isInPrayerList = !!prayerListItem;
@@ -271,7 +272,11 @@ export async function PATCH(
 
     const updatedThread = await prisma.prayerRequest.update({
       where: { id: resolved.id },
-      data: validatedData,
+      data: {
+        ...(validatedData.title !== undefined && { title: validatedData.title }),
+        ...(validatedData.status !== undefined && { status: validatedData.status }),
+        ...(validatedData.sharedToCommunity !== undefined && { sharedToCommunity: validatedData.sharedToCommunity }),
+      },
       include: {
         author: {
           select: {
