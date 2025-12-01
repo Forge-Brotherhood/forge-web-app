@@ -41,7 +41,6 @@ export default function JoinPage({ params }: JoinPageProps) {
     : "/forge-logo.svg";
 
   // Derived state
-  const isAuthenticated = inviteDetails?.authenticated ?? false;
   const isValid = inviteDetails?.valid ?? false;
   const isExpired = inviteDetails?.expired ?? false;
   const isAlreadyMember = inviteDetails?.alreadyMember ?? false;
