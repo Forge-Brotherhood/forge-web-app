@@ -425,11 +425,12 @@ export default function GroupDetailPage({ params }: GroupDetailPageProps) {
       <button
         onClick={() => setIsCreatePrayerOpen(true)}
         className={cn(
-          "fixed bottom-6 right-6 w-14 h-14 rounded-full",
+          "fixed right-6 w-14 h-14 rounded-full",
           "bg-primary text-primary-foreground shadow-lg",
           "hover:bg-primary/90 transition-colors",
           "flex items-center justify-center",
-          "z-50"
+          "z-50",
+          "bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6"
         )}
         aria-label="Create prayer request"
       >
