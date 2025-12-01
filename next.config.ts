@@ -7,13 +7,28 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  
+
   // Experimental features for better performance
   experimental: {
     // Better tree shaking and optimization
     optimizePackageImports: ['@mux/mux-player-react', 'lucide-react', '@radix-ui/*'],
     // Enable CSS optimization
     optimizeCss: true,
+  },
+
+  // Headers for Universal Links (iOS app association)
+  async headers() {
+    return [
+      {
+        source: '/.well-known/apple-app-site-association',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/json',
+          },
+        ],
+      },
+    ];
   },
 };
 

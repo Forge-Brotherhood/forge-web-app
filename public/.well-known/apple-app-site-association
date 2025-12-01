@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "CVLQ8347LJ.forge.Forge",
+        "paths": ["/join/*"]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["CVLQ8347LJ.forge.Forge"]
+  }
+}
