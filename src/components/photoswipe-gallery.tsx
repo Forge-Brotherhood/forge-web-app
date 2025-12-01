@@ -103,6 +103,7 @@ export function PhotoSwipeGallery({ media, onItemClick, className }: PhotoSwipeG
                 height={image.height || 800}
               >
                 {({ ref, open }) => (
+                  /* eslint-disable-next-line @next/next/no-img-element */
                   <img
                     ref={ref}
                     onClick={(e) => {
@@ -198,10 +199,11 @@ export function MediaGridGallery({ media, maxItems = 4, className = "" }: MediaG
               >
                 {({ ref, open }) => (
                   <div className="relative group" ref={ref}>
-                    <div 
+                    <div
                       className="w-full h-32 overflow-hidden rounded-lg cursor-pointer"
                       onClick={open}
                     >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={image.url}
                         alt={`Image ${index + 1}`}

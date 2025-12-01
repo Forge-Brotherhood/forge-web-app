@@ -196,6 +196,7 @@ export function ImageUpload({ onImagesChange, maxImages = 4, disabled = false }:
           {images.map((image, index) => (
             <Card key={image.publicId} className="relative overflow-hidden">
               <div className="aspect-square relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={image.url}
                   alt={`Upload ${index + 1}`}
@@ -231,7 +232,8 @@ export function ImageUpload({ onImagesChange, maxImages = 4, disabled = false }:
           disabled={disabled || isUploading}
           className="w-full"
         >
-          <Image className="w-4 h-4 mr-2" />
+          {/* eslint-disable-next-line jsx-a11y/alt-text */}
+          <Image className="w-4 h-4 mr-2" aria-hidden="true" />
           {images.length > 0 ? 'Add More Images' : 'Add Images'}
         </Button>
       )}

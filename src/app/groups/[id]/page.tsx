@@ -681,6 +681,7 @@ export default function GroupDetailPage({ params }: GroupDetailPageProps) {
                     <div className="relative">
                       <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden">
                         {member.user?.profileImageUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
                           <img
                             src={member.user.profileImageUrl}
                             alt={displayName}

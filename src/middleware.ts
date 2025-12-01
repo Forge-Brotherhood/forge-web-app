@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
   '/api/invites/(.*)',  // Allow unauthenticated invite API lookups
   '/join/(.*)',         // Allow unauthenticated invite page access
+  '/.well-known/(.*)',  // Apple App Site Association and other well-known files
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

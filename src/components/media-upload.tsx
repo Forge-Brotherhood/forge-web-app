@@ -458,6 +458,7 @@ export function MediaUpload({
         <div className="aspect-square relative">
           {/* Background preview image/video thumbnail */}
           {displayUrl && (
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={displayUrl}
               alt={`Upload ${index + 1}`}

@@ -128,7 +128,7 @@ export function PrayerExperienceNew({ isOpen, onClose }: PrayerExperienceProps) 
         fadeTimeoutRef.current = null;
       }
     }
-  }, [currentStage]);
+  }, [currentStage, isMuted]);
 
   // Peaceful transition between stages
   const transitionToNextStage = () => {

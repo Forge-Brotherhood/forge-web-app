@@ -28,6 +28,20 @@ export function useScrollPreservation<T extends { id: string }>(
   const hasRestoredRef = useRef(false);
   const scrollKeyRef = useRef(`scroll-${pathname}`);
 
+  // Find the first item currently visible in viewport
+  const findFirstVisibleItem = useCallback((itemsToSearch: T[]): string | null => {
+    for (const item of itemsToSearch) {
+      const element = document.querySelector(`[data-thread-id="${item.id}"]`);
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        if (rect.top >= 0 && rect.top <= window.innerHeight) {
+          return item.id;
+        }
+      }
+    }
+    return null;
+  }, []);
+
   // Save scroll state before navigation
   const saveScrollState = useCallback(() => {
     if (isRestoringRef.current || items.length === 0) {
@@ -36,7 +50,7 @@ export function useScrollPreservation<T extends { id: string }>(
 
     const currentPosition = window.scrollY;
     const currentHeight = document.documentElement.scrollHeight;
-    
+
     // Don't overwrite a good state with a bad one
     const existingState = scrollStates.get(scrollKeyRef.current);
     if (existingState && existingState.position > 0 && currentPosition === 0 && currentHeight < 1000) {
@@ -52,7 +66,7 @@ export function useScrollPreservation<T extends { id: string }>(
 
 
     scrollStates.set(scrollKeyRef.current, state);
-    
+
     // Also persist to sessionStorage
     try {
       sessionStorage.setItem(scrollKeyRef.current, JSON.stringify(state));
@@ -64,21 +78,7 @@ export function useScrollPreservation<T extends { id: string }>(
     } catch (e) {
       console.error("Failed to save scroll state:", e);
     }
-  }, [items]);
-
-  // Find the first item currently visible in viewport
-  const findFirstVisibleItem = (items: T[]): string | null => {
-    for (const item of items) {
-      const element = document.querySelector(`[data-thread-id="${item.id}"]`);
-      if (element) {
-        const rect = element.getBoundingClientRect();
-        if (rect.top >= 0 && rect.top <= window.innerHeight) {
-          return item.id;
-        }
-      }
-    }
-    return null;
-  };
+  }, [items, findFirstVisibleItem]);
 
   // Restore scroll position with intelligent retry logic
   const restoreScrollState = useCallback(() => {
