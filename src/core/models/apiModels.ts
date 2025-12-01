@@ -29,7 +29,9 @@ export interface APIGroupMembership {
 export interface APIGroupBasic {
   id: string;
   name?: string;
+  description?: string;
   groupType: string;
+  members?: APIGroupMemberResponse[];
 }
 
 // MARK: - Groups API

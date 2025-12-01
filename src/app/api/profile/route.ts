@@ -53,6 +53,7 @@ export async function GET() {
             select: {
               id: true,
               name: true,
+              description: true,
               groupType: true,
               members: {
                 where: { status: "active" },
@@ -166,6 +167,7 @@ export async function PATCH(req: Request) {
               select: {
                 id: true,
                 name: true,
+                description: true,
                 groupType: true,
                 members: {
                   where: { status: "active" },

@@ -243,7 +243,7 @@ export default function JoinPage({ params }: JoinPageProps) {
                   Already a Member
                 </h2>
                 <p className="text-muted-foreground">
-                  You're already a member of {groupName}.
+                  You&apos;re already a member of {groupName}.
                 </p>
               </div>
             </div>

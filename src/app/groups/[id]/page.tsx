@@ -304,7 +304,7 @@ export default function GroupDetailPage({ params }: GroupDetailPageProps) {
               Group Not Found
             </h2>
             <p className="text-muted-foreground max-w-sm">
-              This group doesn't exist or you don't have access to it.
+              This group doesn&apos;t exist or you don&apos;t have access to it.
             </p>
             <Button
               variant="outline"
@@ -749,7 +749,7 @@ export default function GroupDetailPage({ params }: GroupDetailPageProps) {
               <div className="space-y-0.5">
                 <Label htmlFor="anonymous-toggle">Post anonymously</Label>
                 <p className="text-xs text-muted-foreground">
-                  Your name won't be shown to others
+                  Your name won&apos;t be shown to others
                 </p>
               </div>
               <Switch
