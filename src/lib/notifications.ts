@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { sendPushNotification, cleanupInvalidTokens } from '@/lib/fcm';
+import { sendPushNotification, cleanupInvalidTokens, PushPayload } from '@/lib/fcm';
 
 export type NotificationType =
   | 'new_prayer_request'
@@ -190,7 +190,7 @@ async function sendWelcomeNotification(
 function buildNotificationPayload(
   type: NotificationType,
   context: NotificationContext
-) {
+): PushPayload {
   const { groupName, threadTitle, authorName, authorProfileImageUrl } = context;
   const truncatedTitle = threadTitle
     ? threadTitle.length > 50
@@ -210,6 +210,7 @@ function buildNotificationPayload(
           type: 'thread',
           threadId: context.threadId || '',
           groupId: context.groupId,
+          entryId: context.entryId || '',
         },
         imageUrl,
       };
