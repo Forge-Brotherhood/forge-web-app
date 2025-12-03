@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { sendEncouragementNotificationAsync } from "@/lib/notifications";
 
 const createEncouragementSchema = z.object({
   body: z.string().min(1).max(300),
@@ -72,9 +73,17 @@ export async function POST(
       );
     }
 
-    // Check if thread exists
+    // Check if thread exists (include group for notifications)
     const thread = await prisma.prayerRequest.findUnique({
       where: { id },
+      include: {
+        group: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     if (!thread) {
@@ -120,21 +129,18 @@ export async function POST(
       },
     });
 
-    // TODO: Create notification for thread author (notification model not implemented yet)
-    // if (thread.authorId !== user.id) {
-    //   await prisma.notification.create({
-    //     data: {
-    //       userId: thread.authorId,
-    //       kind: "new_encouragement",
-    //       payload: {
-    //         threadId: thread.id,
-    //         threadTitle: thread.title,
-    //         encouragementId: encouragement.id,
-    //         authorName: user.displayName || "Someone",
-    //       },
-    //     },
-    //   });
-    // }
+    // Send push notification to thread author only (fire-and-forget)
+    if (thread.groupId && thread.group) {
+      sendEncouragementNotificationAsync(thread.authorId, {
+        groupId: thread.groupId,
+        groupName: thread.group.name || "Your Group",
+        threadId: thread.id,
+        threadTitle: thread.title || undefined,
+        authorName: user.displayName || user.firstName || undefined,
+        authorProfileImageUrl: user.profileImageUrl || undefined,
+        entryId: encouragement.id, // Scroll to this specific encouragement
+      });
+    }
 
     return NextResponse.json(encouragement, { status: 201 });
   } catch (error) {

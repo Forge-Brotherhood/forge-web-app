@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { sendGroupNotificationAsync } from "@/lib/notifications";
 
 const createThreadSchema = z.object({
   groupId: z.string().uuid().nullable().optional(),
@@ -425,6 +426,26 @@ export async function POST(request: NextRequest) {
         _count: { prayerActions: (e as any)._count?.actions ?? 0 },
       })),
     } : null;
+
+    // Send push notification to group members (fire-and-forget)
+    if (fullThread?.groupId && fullThread.group) {
+      const authorName = fullThread.isAnonymous
+        ? undefined
+        : fullThread.author?.displayName || fullThread.author?.firstName || undefined;
+      const authorProfileImageUrl = fullThread.isAnonymous
+        ? undefined
+        : fullThread.author?.profileImageUrl || undefined;
+
+      sendGroupNotificationAsync("new_prayer_request", {
+        groupId: fullThread.groupId,
+        groupName: fullThread.group.name || "Your Group",
+        threadId: fullThread.id,
+        threadTitle: fullThread.title || validatedData.content.substring(0, 50),
+        authorName,
+        authorProfileImageUrl,
+        excludeUserId: user.id, // Don't notify the author
+      });
+    }
 
     return NextResponse.json(sanitizedThread, { status: 201 });
   } catch (error) {

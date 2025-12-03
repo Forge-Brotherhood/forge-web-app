@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { sendWelcomeNotificationAsync } from "@/lib/notifications";
 
 const joinGroupSchema = z.object({
   code: z.string().min(1).max(20),
@@ -114,6 +115,14 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // Send welcome notification to the new member (fire-and-forget)
+    if (fullGroup) {
+      sendWelcomeNotificationAsync(user.id, {
+        groupId: fullGroup.id,
+        groupName: fullGroup.name || "Your Group",
+      });
+    }
 
     return NextResponse.json(fullGroup, { status: 200 });
   } catch (error) {

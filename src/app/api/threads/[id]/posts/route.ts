@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { sendGroupNotificationAsync } from "@/lib/notifications";
 
 const createPostSchema = z.object({
   kind: z.enum(["request", "update", "testimony", "encouragement", "verse", "system"]),
@@ -358,6 +359,35 @@ export async function POST(
       ...post,
       author: thread.isAnonymous && post.authorId === thread.authorId ? null : post.author,
     };
+
+    // Send push notification to group members for updates/testimonies (fire-and-forget)
+    if (
+      thread.groupId &&
+      thread.group &&
+      (validatedData.kind === "update" || validatedData.kind === "testimony")
+    ) {
+      const isAnonymousAuthor = thread.isAnonymous && post.authorId === thread.authorId;
+      const authorName = isAnonymousAuthor
+        ? undefined
+        : post.author?.displayName || post.author?.firstName || undefined;
+      const authorProfileImageUrl = isAnonymousAuthor
+        ? undefined
+        : post.author?.profileImageUrl || undefined;
+
+      sendGroupNotificationAsync(
+        validatedData.kind === "testimony" ? "testimony" : "prayer_update",
+        {
+          groupId: thread.groupId,
+          groupName: thread.group.name || "Your Group",
+          threadId: thread.id,
+          threadTitle: thread.title || validatedData.content.substring(0, 50),
+          authorName,
+          authorProfileImageUrl,
+          excludeUserId: user.id, // Don't notify the author
+          entryId: post.id, // Scroll to this specific post
+        }
+      );
+    }
 
     return NextResponse.json(sanitizedPost, { status: 201 });
   } catch (error) {

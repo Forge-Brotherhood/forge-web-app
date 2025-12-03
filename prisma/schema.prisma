@@ -84,6 +84,8 @@ model User {
   savedPrayers             SavedPrayer[]
   supports                 Support[]
   createdInvites           GroupInvite[]
+  pushTokens               PushToken[]
+  groupNotificationPrefs   GroupNotificationPreference[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -100,9 +102,10 @@ model Group {
   groupType   GroupType @default(circle)
 
   // Relations
-  members        GroupMember[]
-  prayerRequests PrayerRequest[]
-  invites        GroupInvite[]
+  members              GroupMember[]
+  prayerRequests       PrayerRequest[]
+  invites              GroupInvite[]
+  notificationPrefs    GroupNotificationPreference[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -301,4 +304,39 @@ model Support {
   updatedAt DateTime @updatedAt
 
   @@index([userId, active])
+}
+
+// ---------- Push Notifications ----------
+
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  platform  String   // "ios" | "android" | "web"
+  isActive  Boolean  @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([token])
+}
+
+model GroupNotificationPreference {
+  id          String  @id @default(uuid())
+  userId      String
+  groupId     String
+  pushEnabled Boolean @default(true)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, groupId])
+  @@index([userId])
+  @@index([groupId])
 }

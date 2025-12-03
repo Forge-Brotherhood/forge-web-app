@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { sendWelcomeNotificationAsync } from "@/lib/notifications";
 
 // POST /api/invites/[token]/accept - Accept an invite and join the group
 export async function POST(
@@ -159,6 +160,14 @@ export async function POST(
         },
       },
     });
+
+    // Send welcome notification to the new member (fire-and-forget)
+    if (updatedGroup) {
+      sendWelcomeNotificationAsync(user.id, {
+        groupId: updatedGroup.id,
+        groupName: updatedGroup.name || "Your Group",
+      });
+    }
 
     return NextResponse.json({
       success: true,
