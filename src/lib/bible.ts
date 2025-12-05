@@ -19,6 +19,7 @@ import {
   type ApiBibleVerse,
 } from '@/core/models/bibleModels';
 import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@prisma/client';
 import { BIBLE_CACHE_CONFIG } from '@/lib/bibleCache';
 
 const API_BIBLE_BASE_URL = 'https://rest.api.bible/v1';
@@ -225,7 +226,7 @@ class BibleService {
 
     if (cached.length > 0) {
       console.log(`[BibleCache] HIT: ${cached.length} books for ${translationKey}`);
-      return cached.map((c) => c.data as BibleBook);
+      return cached.map((c) => c.data as unknown as BibleBook);
     }
 
     console.log(`[BibleCache] MISS: books for ${translationKey}, fetching from API.Bible`);
@@ -243,11 +244,11 @@ class BibleService {
           where: {
             translation_bookId: { translation: translationKey, bookId: book.id },
           },
-          update: { data: book, expiresAt },
+          update: { data: book as unknown as Prisma.InputJsonValue, expiresAt },
           create: {
             translation: translationKey,
             bookId: book.id,
-            data: book,
+            data: book as unknown as Prisma.InputJsonValue,
             expiresAt,
           },
         })
@@ -280,7 +281,7 @@ class BibleService {
 
     if (cached.length > 0) {
       console.log(`[BibleCache] HIT: ${cached.length} chapters for ${bookId} (${translationKey})`);
-      return cached.map((c) => c.data as BibleChapter);
+      return cached.map((c) => c.data as unknown as BibleChapter);
     }
 
     console.log(`[BibleCache] MISS: chapters for ${bookId} (${translationKey}), fetching from API.Bible`);
@@ -303,13 +304,13 @@ class BibleService {
           where: {
             translation_chapterId: { translation: translationKey, chapterId: chapter.id },
           },
-          update: { data: chapter, expiresAt },
+          update: { data: chapter as unknown as Prisma.InputJsonValue, expiresAt },
           create: {
             translation: translationKey,
             bookId,
             chapterId: chapter.id,
             number: chapter.number,
-            data: chapter,
+            data: chapter as unknown as Prisma.InputJsonValue,
             expiresAt,
           },
         })
@@ -339,7 +340,7 @@ class BibleService {
 
     if (cached && cached.expiresAt > new Date()) {
       console.log(`[BibleCache] HIT: content for ${chapterId} (${translationKey})`);
-      return cached.data as BibleChapterContent;
+      return cached.data as unknown as BibleChapterContent;
     }
 
     console.log(`[BibleCache] MISS: content for ${chapterId} (${translationKey}), fetching from API.Bible`);
@@ -369,7 +370,7 @@ class BibleService {
         content: chapterContent.content,
         contentText: chapterContent.contentText,
         copyright: chapterContent.copyright,
-        data: chapterContent,
+        data: chapterContent as unknown as Prisma.InputJsonValue,
         expiresAt,
       },
       create: {
@@ -378,7 +379,7 @@ class BibleService {
         content: chapterContent.content,
         contentText: chapterContent.contentText,
         copyright: chapterContent.copyright,
-        data: chapterContent,
+        data: chapterContent as unknown as Prisma.InputJsonValue,
         expiresAt,
       },
     });
@@ -408,7 +409,7 @@ class BibleService {
 
     if (cached && cached.expiresAt > new Date()) {
       console.log(`[BibleCache] HIT: passage "${normalizedReference}" (${translationKey})`);
-      return cached.data as BiblePassage;
+      return cached.data as unknown as BiblePassage;
     }
 
     console.log(`[BibleCache] MISS: passage "${normalizedReference}" (${translationKey}), fetching from API.Bible`);
@@ -438,11 +439,11 @@ class BibleService {
       where: {
         translation_reference: { translation: translationKey, reference: normalizedReference },
       },
-      update: { data: passage, expiresAt },
+      update: { data: passage as unknown as Prisma.InputJsonValue, expiresAt },
       create: {
         translation: translationKey,
         reference: normalizedReference,
-        data: passage,
+        data: passage as unknown as Prisma.InputJsonValue,
         expiresAt,
       },
     });
