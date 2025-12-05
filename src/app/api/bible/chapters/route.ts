@@ -1,0 +1,50 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { bibleService, BibleServiceError } from "@/lib/bible";
+import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+
+// GET /api/bible/chapters - Get chapters for a book
+export async function GET(request: NextRequest) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const bookId = searchParams.get("bookId");
+    const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
+
+    if (!bookId) {
+      return NextResponse.json(
+        { error: "bookId is required" },
+        { status: 400 }
+      );
+    }
+
+    const chapters = await bibleService.getChapters(bookId, translation);
+
+    return NextResponse.json({
+      chapters,
+      bookId,
+      translation: translation.toUpperCase(),
+    });
+  } catch (error) {
+    console.error("Error fetching Bible chapters:", error);
+
+    if (error instanceof BibleServiceError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.statusCode }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Failed to fetch Bible chapters" },
+      { status: 500 }
+    );
+  }
+}

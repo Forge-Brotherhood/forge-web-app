@@ -33,6 +33,14 @@ import type {
   AddReactionResponse,
 } from '../models/apiModels';
 import type { CommunityFeedResponse, CommunityFeedParams } from '../models/communityModels';
+import type {
+  BibleBooksResponse,
+  BibleChaptersResponse,
+  BibleChapterContentResponse,
+  BiblePassageResponse,
+  VerseOfTheDayResponse,
+  BibleSearchResponse,
+} from '../models/bibleModels';
 
 // MARK: - Types
 
@@ -435,6 +443,84 @@ class ForgeAPIClient {
     return this.request<AcceptInviteResponse>(`/api/invites/${token}/accept`, {
       method: 'POST',
     });
+  }
+
+  // ============================================
+  // MARK: - Bible
+  // ============================================
+
+  /**
+   * Get list of Bible books
+   */
+  async getBibleBooks(translation: string = 'ESV'): Promise<BibleBooksResponse> {
+    return this.request<BibleBooksResponse>(
+      `/api/bible/books?translation=${encodeURIComponent(translation)}`
+    );
+  }
+
+  /**
+   * Get chapters for a Bible book
+   */
+  async getBibleChapters(
+    bookId: string,
+    translation: string = 'ESV'
+  ): Promise<BibleChaptersResponse> {
+    const params = new URLSearchParams({
+      bookId,
+      translation,
+    });
+    return this.request<BibleChaptersResponse>(`/api/bible/chapters?${params}`);
+  }
+
+  /**
+   * Get chapter content
+   */
+  async getBibleChapter(
+    chapterId: string,
+    translation: string = 'ESV'
+  ): Promise<BibleChapterContentResponse> {
+    return this.request<BibleChapterContentResponse>(
+      `/api/bible/chapter/${encodeURIComponent(chapterId)}?translation=${encodeURIComponent(translation)}`
+    );
+  }
+
+  /**
+   * Get passage by reference (e.g., "John 3:16")
+   */
+  async getBiblePassage(
+    reference: string,
+    translation: string = 'ESV'
+  ): Promise<BiblePassageResponse> {
+    const params = new URLSearchParams({
+      reference,
+      translation,
+    });
+    return this.request<BiblePassageResponse>(`/api/bible/passage?${params}`);
+  }
+
+  /**
+   * Get verse of the day
+   */
+  async getVerseOfTheDay(translation: string = 'ESV'): Promise<VerseOfTheDayResponse> {
+    return this.request<VerseOfTheDayResponse>(
+      `/api/bible/verse-of-the-day?translation=${encodeURIComponent(translation)}`
+    );
+  }
+
+  /**
+   * Search Bible verses
+   */
+  async searchBibleVerses(
+    query: string,
+    translation: string = 'ESV',
+    limit: number = 20
+  ): Promise<BibleSearchResponse> {
+    const params = new URLSearchParams({
+      q: query,
+      translation,
+      limit: limit.toString(),
+    });
+    return this.request<BibleSearchResponse>(`/api/bible/search?${params}`);
   }
 }
 

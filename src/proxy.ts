@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
@@ -10,16 +10,20 @@ const isPublicRoute = createRouteMatcher([
   '/.well-known/(.*)',  // Apple App Site Association and other well-known files
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
+const handler = clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     const { userId } = await auth();
-    
+
     if (!userId) {
       const signInUrl = new URL('/sign-in', req.url);
       return NextResponse.redirect(signInUrl);
     }
   }
 });
+
+export function proxy(request: NextRequest) {
+  return handler(request);
+}
 
 export const config = {
   matcher: [
