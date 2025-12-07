@@ -87,6 +87,7 @@ model User {
   pushTokens               PushToken[]
   groupNotificationPrefs   GroupNotificationPreference[]
   bibleHighlights          BibleHighlight[]
+  verseNotes               VerseNote[]
   readerSettings           ReaderSettings?
 
   createdAt  DateTime @default(now())
@@ -441,6 +442,25 @@ model BibleHighlight {
   @@index([userId, verseId])
 }
 
+// ---------- Bible Notes ----------
+
+model VerseNote {
+  id        String   @id @default(uuid())
+  userId    String
+  verseId   String   // Format: "GEN_1_1" (bookId_chapter_verse)
+  content   String   // Note text (max 2000 chars enforced at API level)
+  isPrivate Boolean  @default(false)  // If true, only author can see
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([verseId])
+  @@index([userId])
+  @@index([isPrivate])
+}
+
 // ---------- Reader Settings ----------
 
 model ReaderSettings {
@@ -454,6 +474,7 @@ model ReaderSettings {
   lastHighlightColor    String   @default("yellow")
   highlightColorOrder   String[] @default(["yellow", "green", "blue", "pink", "orange"])
   selectedTranslation   String   @default("BSB")
+  hiddenNoteGroups      String[] @default([])  // Group IDs whose notes should be hidden
 
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 

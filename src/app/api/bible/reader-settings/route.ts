@@ -20,6 +20,7 @@ const updateSettingsSchema = z.object({
   lastHighlightColor: z.enum(VALID_COLORS).optional(),
   highlightColorOrder: z.array(z.enum(VALID_COLORS)).length(5).optional(),
   selectedTranslation: z.enum(VALID_TRANSLATIONS).optional(),
+  hiddenNoteGroups: z.array(z.string().uuid()).optional(),
 });
 
 // Default settings
@@ -32,6 +33,7 @@ const DEFAULT_SETTINGS = {
   lastHighlightColor: "yellow",
   highlightColorOrder: ["yellow", "green", "blue", "pink", "orange"],
   selectedTranslation: "BSB",
+  hiddenNoteGroups: [] as string[],
 };
 
 // GET /api/bible/reader-settings
@@ -80,6 +82,7 @@ export async function GET() {
         lastHighlightColor: settings.lastHighlightColor,
         highlightColorOrder: settings.highlightColorOrder,
         selectedTranslation: settings.selectedTranslation,
+        hiddenNoteGroups: settings.hiddenNoteGroups,
       },
     });
   } catch (error) {
@@ -139,6 +142,7 @@ export async function PATCH(request: NextRequest) {
         lastHighlightColor: settings.lastHighlightColor,
         highlightColorOrder: settings.highlightColorOrder,
         selectedTranslation: settings.selectedTranslation,
+        hiddenNoteGroups: settings.hiddenNoteGroups,
       },
     });
   } catch (error) {
