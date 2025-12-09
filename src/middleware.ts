@@ -8,6 +8,10 @@ const isPublicRoute = createRouteMatcher([
   '/api/invites/(.*)',  // Allow unauthenticated invite API lookups
   '/join/(.*)',         // Allow unauthenticated invite page access
   '/.well-known/(.*)',  // Apple App Site Association and other well-known files
+  // Public Bible content routes (cacheable by Vercel edge)
+  '/api/bible/books',
+  '/api/bible/chapters',
+  '/api/bible/chapter/(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
