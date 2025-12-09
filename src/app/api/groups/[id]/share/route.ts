@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -15,8 +15,8 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -25,17 +25,6 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const validatedData = createShareLinkSchema.parse(body);
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
 
     // Resolve id or shortId
     const group = await prisma.group.findFirst({
@@ -46,7 +35,7 @@ export async function POST(
       include: {
         members: {
           where: {
-            userId: user.id,
+            userId: authResult.userId,
             status: "active",
           },
         },
@@ -79,7 +68,7 @@ export async function POST(
       data: {
         token,
         groupId: group.id,
-        createdBy: user.id,
+        createdBy: authResult.userId,
         expiresAt,
       },
     });

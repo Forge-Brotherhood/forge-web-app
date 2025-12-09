@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
 import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/chapters - Get chapters for a book
 export async function GET(request: NextRequest) {
@@ -27,11 +28,18 @@ export async function GET(request: NextRequest) {
 
     const chapters = await bibleService.getChapters(bookId, translation);
 
-    return NextResponse.json({
-      chapters,
-      bookId,
-      translation: translation.toUpperCase(),
-    });
+    return NextResponse.json(
+      {
+        chapters,
+        bookId,
+        translation: translation.toUpperCase(),
+      },
+      {
+        headers: {
+          "Cache-Control": `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+        },
+      }
+    );
   } catch (error) {
     console.error("Error fetching Bible chapters:", error);
 

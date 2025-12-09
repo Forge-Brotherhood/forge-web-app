@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -15,22 +15,11 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -79,7 +68,7 @@ export async function GET(
     }
 
     // Check if user is a member
-    const isMember = group.members.some((m) => m.userId === user.id);
+    const isMember = group.members.some((m) => m.userId === authResult.userId);
     if (!isMember) {
       return NextResponse.json(
         { error: "Access denied" },
@@ -104,8 +93,8 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -114,17 +103,6 @@ export async function PATCH(
 
     const body = await request.json();
     const validatedData = updateGroupSchema.parse(body);
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
 
     // Resolve id or shortId
     const group = await prisma.group.findFirst({
@@ -135,7 +113,7 @@ export async function PATCH(
       include: {
         members: {
           where: {
-            userId: user.id,
+            userId: authResult.userId,
             status: "active",
           },
         },
@@ -215,22 +193,11 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -263,7 +230,7 @@ export async function DELETE(
 
     // Check if user is the creator (first leader by joinedAt)
     const creator = group.members[0];
-    if (!creator || creator.userId !== user.id) {
+    if (!creator || creator.userId !== authResult.userId) {
       return NextResponse.json(
         { error: "Only the group creator can delete the group" },
         { status: 403 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -15,17 +15,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const { id } = await params;
@@ -40,7 +32,7 @@ export async function PATCH(
     }
 
     // Only the author can update
-    if (existingNote.userId !== user.id) {
+    if (existingNote.userId !== authResult.userId) {
       return NextResponse.json(
         { error: "Not authorized to update this note" },
         { status: 403 }
@@ -111,17 +103,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const { id } = await params;
@@ -136,7 +120,7 @@ export async function DELETE(
     }
 
     // Only the author can delete
-    if (existingNote.userId !== user.id) {
+    if (existingNote.userId !== authResult.userId) {
       return NextResponse.json(
         { error: "Not authorized to delete this note" },
         { status: 403 }

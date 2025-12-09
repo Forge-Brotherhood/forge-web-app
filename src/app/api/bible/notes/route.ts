@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -21,24 +21,16 @@ const createNoteSchema = z.object({
 // - Shared notes from users who share at least one group with the requesting user
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: {
-        memberships: {
-          where: { status: "active" },
-          select: { groupId: true },
-        },
-      },
+    // Get user's active group memberships
+    const memberships = await prisma.groupMember.findMany({
+      where: { userId: authResult.userId, status: "active" },
+      select: { groupId: true },
     });
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
 
     // Parse query params
     const { searchParams } = new URL(request.url);
@@ -54,7 +46,7 @@ export async function GET(request: NextRequest) {
     const verseIdPrefix = `${validatedParams.bookId}_${chapterNumber}_`;
 
     // Get all group IDs the user is a member of
-    const userGroupIds = user.memberships.map((m) => m.groupId);
+    const userGroupIds = memberships.map((m) => m.groupId);
 
     // Get user IDs of people in the same groups (fellow group members)
     let fellowMemberIds: string[] = [];
@@ -76,7 +68,7 @@ export async function GET(request: NextRequest) {
       where: {
         verseId: { startsWith: verseIdPrefix },
         OR: [
-          { userId: user.id }, // Always show user's own notes
+          { userId: authResult.userId }, // Always show user's own notes
           {
             userId: { in: fellowMemberIds },
             isPrivate: false,
@@ -109,7 +101,7 @@ export async function GET(request: NextRequest) {
           firstName: n.user.firstName,
           profileImageUrl: n.user.profileImageUrl,
         },
-        isOwn: n.userId === user.id,
+        isOwn: n.userId === authResult.userId,
         createdAt: n.createdAt.toISOString(),
         updatedAt: n.updatedAt.toISOString(),
       })),
@@ -133,17 +125,9 @@ export async function GET(request: NextRequest) {
 // Create a note on a verse
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const body = await request.json();
@@ -152,7 +136,7 @@ export async function POST(request: NextRequest) {
     // Create the note
     const note = await prisma.verseNote.create({
       data: {
-        userId: user.id,
+        userId: authResult.userId,
         verseId: validatedData.verseId,
         content: validatedData.content,
         isPrivate: validatedData.isPrivate,

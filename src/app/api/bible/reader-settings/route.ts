@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -40,28 +40,17 @@ const DEFAULT_SETTINGS = {
 // Returns user's reader settings (or defaults if none exist)
 export async function GET() {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
-
     // Get settings or return defaults
     const settings = await prisma.readerSettings.findUnique({
-      where: { userId: user.id },
+      where: { userId: authResult.userId },
     });
 
     if (!settings) {
@@ -98,22 +87,11 @@ export async function GET() {
 // Update user's reader settings (creates if doesn't exist)
 export async function PATCH(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -122,10 +100,10 @@ export async function PATCH(request: NextRequest) {
 
     // Upsert settings (create if doesn't exist, update if exists)
     const settings = await prisma.readerSettings.upsert({
-      where: { userId: user.id },
+      where: { userId: authResult.userId },
       update: validatedData,
       create: {
-        userId: user.id,
+        userId: authResult.userId,
         ...DEFAULT_SETTINGS,
         ...validatedData,
       },

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -12,8 +12,8 @@ const createGroupSchema = z.object({
 // GET /api/groups - Get user's groups
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -23,23 +23,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const groupType = searchParams.get("type") as "core" | "circle" | null;
 
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
-
     const groups = await prisma.group.findMany({
       where: {
         deletedAt: null,
         members: {
           some: {
-            userId: user.id,
+            userId: authResult.userId,
             status: "active",
           },
         },
@@ -104,8 +93,8 @@ export async function GET(request: NextRequest) {
 // POST /api/groups - Create a new group
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -114,17 +103,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = createGroupSchema.parse(body);
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
 
     // Create group with creator as leader
     const group = await prisma.$transaction(async (tx) => {
@@ -141,7 +119,7 @@ export async function POST(request: NextRequest) {
       await tx.groupMember.create({
         data: {
           groupId: newGroup.id,
-          userId: user.id,
+          userId: authResult.userId,
           role: "leader",
           status: "active",
         },

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/invites/[token] - Get invite details
@@ -12,23 +12,8 @@ export async function GET(
 ) {
   try {
     const { token } = await params;
-    const { userId } = await auth();
-    const isAuthenticated = !!userId;
-
-    // Look up user if authenticated
-    let user = null;
-    if (isAuthenticated) {
-      user = await prisma.user.findUnique({
-        where: { clerkId: userId },
-      });
-
-      if (!user) {
-        return NextResponse.json(
-          { error: "User not found" },
-          { status: 404 }
-        );
-      }
-    }
+    const authResult = await getAuth();
+    const isAuthenticated = !!authResult;
 
     const invite = await prisma.groupInvite.findUnique({
       where: { token },
@@ -99,7 +84,7 @@ export async function GET(
 
     // For authenticated users, return full info
     const isAlreadyMember = invite.group.members.some(
-      (m) => m.userId === user!.id
+      (m) => m.userId === authResult!.userId
     );
 
     return NextResponse.json({

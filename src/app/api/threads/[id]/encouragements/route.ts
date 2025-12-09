@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -49,8 +49,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -63,7 +63,7 @@ export async function POST(
 
     // Get the user from database
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {

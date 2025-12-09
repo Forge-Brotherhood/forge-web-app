@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -10,8 +10,8 @@ const leaveGroupSchema = z.object({
 // POST /api/groups/leave - Leave a group
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -20,17 +20,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = leaveGroupSchema.parse(body);
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
 
     // Resolve id or shortId
     const group = await prisma.group.findFirst({
@@ -58,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user is a member
-    const membership = group.members.find((m) => m.userId === user.id);
+    const membership = group.members.find((m) => m.userId === authResult.userId);
     if (!membership) {
       return NextResponse.json(
         { error: "You are not a member of this group" },
@@ -68,9 +57,9 @@ export async function POST(request: NextRequest) {
 
     // Check if user is the only leader
     const leaders = group.members.filter((m) => m.role === "leader");
-    if (leaders.length === 1 && leaders[0].userId === user.id) {
+    if (leaders.length === 1 && leaders[0].userId === authResult.userId) {
       // Check if there are other members
-      const otherMembers = group.members.filter((m) => m.userId !== user.id);
+      const otherMembers = group.members.filter((m) => m.userId !== authResult.userId);
       if (otherMembers.length > 0) {
         return NextResponse.json(
           { error: "You must assign another leader before leaving, or delete the group" },
@@ -84,7 +73,7 @@ export async function POST(request: NextRequest) {
       where: {
         groupId_userId: {
           groupId: group.id,
-          userId: user.id,
+          userId: authResult.userId,
         },
       },
       data: {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -32,8 +32,8 @@ const createThreadSchema = z.object({
 // GET /api/threads - List threads (core group, circle, or community)
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get("offset") || "0");
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       include: {
         memberships: {
           where: {
@@ -233,8 +233,8 @@ export async function GET(request: NextRequest) {
 // POST /api/threads - Create a new thread with initial post
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -242,17 +242,17 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     console.log('Received request body:', body);
-    
+
     // Legacy support: transform 'body' field to 'content'
     if (body.body && !body.content) {
       body.content = body.body;
     }
-    
+
     // Get user with memberships
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       include: {
         memberships: {
           where: { status: "active" },

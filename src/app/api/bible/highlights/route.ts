@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -22,22 +22,11 @@ const deleteHighlightsSchema = z.object({
 // Returns highlights for a specific chapter
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -57,7 +46,7 @@ export async function GET(request: NextRequest) {
     // Get all highlights for this chapter
     const highlights = await prisma.bibleHighlight.findMany({
       where: {
-        userId: user.id,
+        userId: authResult.userId,
         verseId: {
           startsWith: verseIdPrefix,
         },
@@ -96,22 +85,11 @@ export async function GET(request: NextRequest) {
 // Create highlights for selected verses
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -124,7 +102,7 @@ export async function POST(request: NextRequest) {
         return prisma.bibleHighlight.upsert({
           where: {
             userId_verseId: {
-              userId: user.id,
+              userId: authResult.userId,
               verseId: verseId,
             },
           },
@@ -132,7 +110,7 @@ export async function POST(request: NextRequest) {
             color: validatedData.color,
           },
           create: {
-            userId: user.id,
+            userId: authResult.userId,
             verseId: verseId,
             color: validatedData.color,
           },
@@ -169,22 +147,11 @@ export async function POST(request: NextRequest) {
 // Remove highlights for specified verses
 export async function DELETE(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -194,7 +161,7 @@ export async function DELETE(request: NextRequest) {
     // Delete highlights for the specified verses
     const result = await prisma.bibleHighlight.deleteMany({
       where: {
-        userId: user.id,
+        userId: authResult.userId,
         verseId: {
           in: validatedData.verseIds,
         },

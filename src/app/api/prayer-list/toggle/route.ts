@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -12,8 +12,8 @@ const toggleSchema = z.object({
 // Toggles SavedPrayer for the current user and returns the new state
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const { threadId, entryId } = toggleSchema.parse(body);
 
     // Resolve app user
-    const user = await prisma.user.findUnique({ where: { clerkId: userId } });
+    const user = await prisma.user.findUnique({ where: { id: authResult.userId } });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }

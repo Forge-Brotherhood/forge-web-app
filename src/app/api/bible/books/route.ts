@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
 import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/books - Get list of Bible books
 export async function GET(request: NextRequest) {
@@ -19,10 +20,17 @@ export async function GET(request: NextRequest) {
 
     const books = await bibleService.getBooks(translation);
 
-    return NextResponse.json({
-      books,
-      translation: translation.toUpperCase(),
-    });
+    return NextResponse.json(
+      {
+        books,
+        translation: translation.toUpperCase(),
+      },
+      {
+        headers: {
+          "Cache-Control": `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+        },
+      }
+    );
   } catch (error) {
     console.error("Error fetching Bible books:", error);
 

@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { headers } from "next/headers";
 import { Webhook } from "svix";
+import { clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { BanState } from "@prisma/client";
 
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
     }
 
     try {
-      await prisma.user.upsert({
+      const dbUser = await prisma.user.upsert({
         where: { clerkId: u.id },
         update: {
           email,
@@ -91,6 +92,14 @@ export async function POST(req: Request) {
           profileImageUrl: u.image_url ?? null,
           role: "user",
           banState: BanState.active,
+        },
+      });
+
+      // Store DB user ID in Clerk metadata for fast auth lookups
+      const client = await clerkClient();
+      await client.users.updateUserMetadata(u.id, {
+        publicMetadata: {
+          dbUserId: dbUser.id,
         },
       });
     } catch (error: any) {

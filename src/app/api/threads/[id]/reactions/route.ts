@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PrayerResponseType, PrayerEntryKind } from "@prisma/client";
 import { cookies } from "next/headers";
@@ -50,7 +50,7 @@ export async function POST(
 ) {
   try {
     const { id: threadId } = await params;
-    const { userId } = await auth();
+    const authResult = await getAuth();
     const { postId, type, payload } = await req.json();
 
     // Validate reaction type
@@ -63,9 +63,9 @@ export async function POST(
 
     // Get user (authenticated or guest)
     let user;
-    if (userId) {
+    if (authResult) {
       user = await prisma.user.findUnique({
-        where: { clerkId: userId }
+        where: { id: authResult.userId }
       });
       if (!user) {
         return NextResponse.json(
@@ -162,11 +162,11 @@ export async function POST(
       });
 
       // Update user's prayer streak if authenticated
-      if (userId) {
+      if (authResult) {
         const lastPrayerAt = user.lastPrayerAt;
         const now = new Date();
         const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        
+
         let newStreak = user.prayerStreak || 0;
         if (!lastPrayerAt || lastPrayerAt < oneDayAgo) {
           // Reset or increment streak
@@ -213,7 +213,7 @@ export async function DELETE(
 ) {
   try {
     const { id: threadId } = await params;
-    const { userId } = await auth();
+    const authResult = await getAuth();
     const { searchParams } = new URL(req.url);
     const postId = searchParams.get('postId');
     const type = searchParams.get('type') as PrayerResponseType;
@@ -227,9 +227,9 @@ export async function DELETE(
 
     // Get user (authenticated or guest)
     let user;
-    if (userId) {
+    if (authResult) {
       user = await prisma.user.findUnique({
-        where: { clerkId: userId }
+        where: { id: authResult.userId }
       });
       if (!user) {
         return NextResponse.json(

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
 import { bibleService, BibleServiceError } from "@/lib/bible";
 import { getTodaysVerse } from "@/lib/votdList";
 import { DEFAULT_TRANSLATION, type VerseOfTheDay } from "@/core/models/bibleModels";
-import { Prisma } from "@prisma/client";
+import { getKVClient, CacheKeys, isCacheFresh, CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/verse-of-the-day - Get verse of the day with caching
 export async function GET(request: NextRequest) {
@@ -21,20 +20,19 @@ export async function GET(request: NextRequest) {
     const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-    // Check cache first
-    const cached = await prisma.cachedVerseOfTheDay.findUnique({
-      where: {
-        date_translation: {
-          date: today,
-          translation: translation.toUpperCase(),
-        },
-      },
-    });
+    const kv = getKVClient();
+    const cacheKey = CacheKeys.verseOfTheDay(translation, today);
 
-    if (cached && new Date(cached.expiresAt) > new Date()) {
+    // Check cache first
+    const cached = await kv.get<VerseOfTheDay>(cacheKey);
+    if (cached && isCacheFresh(cached.lastRefreshedAt)) {
       return NextResponse.json({
-        verseOfTheDay: cached.data as unknown as VerseOfTheDay,
+        verseOfTheDay: cached.data,
         cached: true,
+      }, {
+        headers: {
+          "Cache-Control": `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+        },
       });
     }
 
@@ -50,32 +48,16 @@ export async function GET(request: NextRequest) {
       devotionalTheme: todaysEntry.theme,
     };
 
-    // Cache for 24 hours
-    const expiresAt = new Date();
-    expiresAt.setHours(23, 59, 59, 999); // End of current day
-
-    await prisma.cachedVerseOfTheDay.upsert({
-      where: {
-        date_translation: {
-          date: today,
-          translation: translation.toUpperCase(),
-        },
-      },
-      update: {
-        data: verseOfTheDay as unknown as Prisma.InputJsonValue,
-        expiresAt,
-      },
-      create: {
-        date: today,
-        translation: translation.toUpperCase(),
-        data: verseOfTheDay as unknown as Prisma.InputJsonValue,
-        expiresAt,
-      },
-    });
+    // Cache for 30 days (same as other Bible content)
+    await kv.set(cacheKey, verseOfTheDay, CACHE_TTL_SECONDS);
 
     return NextResponse.json({
       verseOfTheDay,
       cached: false,
+    }, {
+      headers: {
+        "Cache-Control": `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+      },
     });
   } catch (error) {
     console.error("Error fetching verse of the day:", error);

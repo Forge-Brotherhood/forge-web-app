@@ -1,7 +1,8 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { v2 as cloudinary } from "cloudinary";
+import { getAuth } from "@/lib/auth";
 
 // Configure Cloudinary
 cloudinary.config({
@@ -12,9 +13,9 @@ cloudinary.config({
 
 export async function POST(req: Request) {
   try {
-    const { userId } = await auth();
-    
-    if (!userId) {
+    const authResult = await getAuth();
+
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
 
     const formData = await req.formData();
     const file = formData.get("avatar") as File;
-    
+
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
@@ -53,10 +54,10 @@ export async function POST(req: Request) {
 
     // Get existing user to check for old avatar (create if doesn't exist)
     let existingUser = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       select: { profileImageUrl: true }
     });
-    
+
     // If user doesn't exist in database, create them
     if (!existingUser) {
       const user = await currentUser();
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
       }
       await prisma.user.create({
         data: {
-          clerkId: userId,
+          clerkId: authResult.clerkId,
           email,
           firstName: user?.firstName ?? null,
           lastName: user?.lastName ?? null,
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
         {
           resource_type: "image",
           folder: "forge/avatars",
-          public_id: `${userId}_${Date.now()}`,
+          public_id: `${authResult.clerkId}_${Date.now()}`,
           overwrite: true,
           transformation: [
             { width: 400, height: 400, crop: "fill", gravity: "face" }
@@ -130,7 +131,7 @@ export async function POST(req: Request) {
           } else if (result) {
             // Update avatar URL in database
             await prisma.user.update({
-              where: { clerkId: userId },
+              where: { id: authResult.userId },
               data: { profileImageUrl: result.secure_url },
             });
 
@@ -167,15 +168,15 @@ export async function POST(req: Request) {
 
 export async function DELETE() {
   try {
-    const { userId } = await auth();
-    
-    if (!userId) {
+    const authResult = await getAuth();
+
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get existing user to find the avatar to delete
     const existingUser = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       select: { profileImageUrl: true }
     });
 
@@ -198,7 +199,7 @@ export async function DELETE() {
 
     // Clear avatar URL from database
     await prisma.user.update({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       data: { profileImageUrl: null },
     });
 

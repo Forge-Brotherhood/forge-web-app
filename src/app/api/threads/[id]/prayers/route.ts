@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -14,8 +14,8 @@ export async function GET(
 ) {
   try {
     const { id: threadId } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -23,7 +23,7 @@ export async function GET(
     }
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {
@@ -131,8 +131,8 @@ export async function POST(
 ) {
   try {
     const { id: threadId } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -143,7 +143,7 @@ export async function POST(
     const validatedData = createPrayerSchema.parse(body);
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {
@@ -307,8 +307,8 @@ export async function DELETE(
 ) {
   try {
     const { id: threadId } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -319,7 +319,7 @@ export async function DELETE(
     const validatedData = createPrayerSchema.parse(body);
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {

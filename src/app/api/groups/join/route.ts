@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { sendWelcomeNotificationAsync } from "@/lib/notifications";
@@ -11,8 +11,8 @@ const joinGroupSchema = z.object({
 // POST /api/groups/join - Join a group by invite code (shortId)
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -21,17 +21,6 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = joinGroupSchema.parse(body);
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
-    }
 
     // Find group by shortId (invite code)
     const group = await prisma.group.findFirst({
@@ -52,7 +41,7 @@ export async function POST(request: NextRequest) {
     const existingMembership = await prisma.groupMember.findFirst({
       where: {
         groupId: group.id,
-        userId: user.id,
+        userId: authResult.userId,
       },
     });
 
@@ -68,7 +57,7 @@ export async function POST(request: NextRequest) {
         where: {
           groupId_userId: {
             groupId: group.id,
-            userId: user.id,
+            userId: authResult.userId,
           },
         },
         data: { status: "active" },
@@ -78,7 +67,7 @@ export async function POST(request: NextRequest) {
       await prisma.groupMember.create({
         data: {
           groupId: group.id,
-          userId: user.id,
+          userId: authResult.userId,
           role: "member",
           status: "active",
         },
@@ -118,7 +107,7 @@ export async function POST(request: NextRequest) {
 
     // Send welcome notification to the new member (fire-and-forget)
     if (fullGroup) {
-      sendWelcomeNotificationAsync(user.id, {
+      sendWelcomeNotificationAsync(authResult.userId, {
         groupId: fullGroup.id,
         groupName: fullGroup.name || "Your Group",
       });

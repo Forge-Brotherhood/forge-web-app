@@ -1,7 +1,8 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { getAuth } from "@/lib/auth";
 
 const updateProfileSchema = z.object({
   displayName: z.string().min(1).max(80).optional(),
@@ -15,15 +16,15 @@ const updateProfileSchema = z.object({
 
 export async function GET() {
   try {
-    const { userId } = await auth();
-    
-    if (!userId) {
+    const authResult = await getAuth();
+
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // First check if user exists with minimal data
     let user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       select: {
         id: true,
         displayName: true,
@@ -40,7 +41,7 @@ export async function GET() {
     if (user) {
       memberships = await prisma.groupMember.findMany({
         where: {
-          userId: user.id,
+          userId: authResult.userId,
           status: "active",
           group: {
             deletedAt: null, // Exclude soft-deleted groups
@@ -82,7 +83,7 @@ export async function GET() {
       const clerkUser = await currentUser();
       user = await prisma.user.create({
         data: {
-          clerkId: userId,
+          clerkId: authResult.clerkId,
           email: clerkUser?.emailAddresses?.[0]?.emailAddress ?? "",
           displayName: clerkUser?.firstName ?? clerkUser?.username ?? null,
           profileImageUrl: null,
@@ -116,9 +117,9 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    const { userId } = await auth();
-    
-    if (!userId) {
+    const authResult = await getAuth();
+
+    if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -130,7 +131,7 @@ export async function PATCH(req: Request) {
       const existingUser = await prisma.user.findFirst({
         where: {
           handle: validatedData.handle,
-          NOT: { clerkId: userId },
+          NOT: { id: authResult.userId },
         },
       });
 
@@ -143,7 +144,7 @@ export async function PATCH(req: Request) {
     }
 
     const updatedUser = await prisma.user.update({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
       data: validatedData,
       select: {
         id: true,

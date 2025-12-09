@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
 import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/passage - Get passage by reference
 export async function GET(request: NextRequest) {
@@ -27,9 +28,16 @@ export async function GET(request: NextRequest) {
 
     const passage = await bibleService.getPassage(reference, translation);
 
-    return NextResponse.json({
-      passage,
-    });
+    return NextResponse.json(
+      {
+        passage,
+      },
+      {
+        headers: {
+          "Cache-Control": `public, s-maxage=${CACHE_TTL_SECONDS}, stale-while-revalidate=86400`,
+        },
+      }
+    );
   } catch (error) {
     console.error("Error fetching Bible passage:", error);
 

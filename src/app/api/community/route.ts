@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/community - Get community feed
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const authResult = await getAuth();
     const { searchParams } = new URL(request.url);
     const filter = searchParams.get("filter") || "all"; // all | testimonies | requests
     const limit = parseInt(searchParams.get("limit") || "20");
@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
 
     // Get current user if authenticated
     let currentUser = null;
-    if (userId) {
+    if (authResult) {
       currentUser = await prisma.user.findUnique({
-        where: { clerkId: userId },
+        where: { id: authResult.userId },
       });
     }
 

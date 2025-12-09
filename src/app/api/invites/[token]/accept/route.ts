@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendWelcomeNotificationAsync } from "@/lib/notifications";
 
@@ -10,22 +10,11 @@ export async function POST(
 ) {
   try {
     const { token } = await params;
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
       );
     }
 
@@ -79,7 +68,7 @@ export async function POST(
 
     // Check if user is already an active member
     const existingActiveMembership = invite.group.members.find(
-      (m) => m.userId === user.id
+      (m) => m.userId === authResult.userId
     );
 
     if (existingActiveMembership) {
@@ -96,7 +85,7 @@ export async function POST(
       where: {
         groupId_userId: {
           groupId: invite.group.id,
-          userId: user.id,
+          userId: authResult.userId,
         },
       },
     });
@@ -107,7 +96,7 @@ export async function POST(
         where: {
           groupId_userId: {
             groupId: invite.group.id,
-            userId: user.id,
+            userId: authResult.userId,
           },
         },
         data: {
@@ -120,7 +109,7 @@ export async function POST(
       await prisma.groupMember.create({
         data: {
           groupId: invite.group.id,
-          userId: user.id,
+          userId: authResult.userId,
           role: "member",
           status: "active",
         },
@@ -163,7 +152,7 @@ export async function POST(
 
     // Send welcome notification to the new member (fire-and-forget)
     if (updatedGroup) {
-      sendWelcomeNotificationAsync(user.id, {
+      sendWelcomeNotificationAsync(authResult.userId, {
         groupId: updatedGroup.id,
         groupName: updatedGroup.name || "Your Group",
       });

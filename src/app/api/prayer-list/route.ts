@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
@@ -11,8 +11,8 @@ const prayerListItemSchema = z.object({
 // GET /api/prayer-list - Get user's prayer list
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     }
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {
@@ -150,8 +150,8 @@ export async function GET(request: NextRequest) {
 // POST /api/prayer-list - Add item to prayer list
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
     const validatedData = prayerListItemSchema.parse(body);
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {
@@ -310,8 +310,8 @@ export async function POST(request: NextRequest) {
 // DELETE /api/prayer-list - Remove item from prayer list
 export async function DELETE(request: NextRequest) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
+    const authResult = await getAuth();
+    if (!authResult) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -322,7 +322,7 @@ export async function DELETE(request: NextRequest) {
     const validatedData = prayerListItemSchema.parse(body);
 
     const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
+      where: { id: authResult.userId },
     });
 
     if (!user) {
