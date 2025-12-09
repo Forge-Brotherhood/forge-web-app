@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
 import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
 import { CACHE_TTL_SECONDS } from "@/lib/kv";
@@ -9,15 +8,9 @@ interface RouteParams {
 }
 
 // GET /api/bible/chapter/[id] - Get chapter content
+// Public endpoint - Bible content is identical for all users
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
 
     const { id: chapterId } = await params;
     const { searchParams } = new URL(request.url);
