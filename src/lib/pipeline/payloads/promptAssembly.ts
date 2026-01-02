@@ -18,7 +18,6 @@ export interface PromptAssemblyPayload {
       contentLength: number;
     }>;
     messagesCount: number;
-    tools: string[];
     temperature: number;
     maxTokens: number;
   };
@@ -31,7 +30,6 @@ export interface PromptAssemblyPayload {
     estimateMethod: TokenEstimateMethod;
   };
   promptVersion: string;
-  toolSchemaVersion: string;
   rawRef?: string; // Vault pointer: "vault://runId/PROMPT_ASSEMBLY"
 }
 
@@ -39,11 +37,7 @@ export interface PromptAssemblyPayload {
 export interface FullPromptData {
   systemPrompt: string;
   messages: Array<{
-    role: "system" | "user" | "assistant" | "tool";
+    role: "system" | "user" | "assistant";
     content: string;
-    name?: string;
-    tool_calls?: unknown[];
-    tool_call_id?: string;
   }>;
-  toolSchemas: unknown[];
 }

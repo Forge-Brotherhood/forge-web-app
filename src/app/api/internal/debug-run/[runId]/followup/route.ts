@@ -123,11 +123,16 @@ export async function POST(
     // 4. Build conversation history from parent
     const parentHistory =
       (parentRun.conversationHistory as ConversationMessage[] | null) ?? [];
-    const newConversationHistory: ConversationMessage[] = [
-      ...parentHistory,
-      { role: "user", content: parentRun.message },
-      { role: "assistant", content: parentRun.lastAssistantMessage },
-    ];
+    const newConversationHistory: ConversationMessage[] = [...parentHistory];
+    if (parentRun.message?.trim()) {
+      newConversationHistory.push({ role: "user", content: parentRun.message });
+    }
+    if (parentRun.lastAssistantMessage?.trim()) {
+      newConversationHistory.push({
+        role: "assistant",
+        content: parentRun.lastAssistantMessage,
+      });
+    }
 
     // 5. Generate new IDs (use new traceId for separate trace)
     const traceId = `dbg_${nanoid(16)}`;
@@ -240,6 +245,13 @@ export async function POST(
           status: finalStatus,
           stoppedAtStage: stoppedAtStage || null,
           lastAssistantMessage,
+          conversationHistory: [
+            ...newConversationHistory,
+            { role: "user", content: input.newMessage },
+            ...(lastAssistantMessage
+              ? [{ role: "assistant", content: lastAssistantMessage }]
+              : []),
+          ] as unknown as Prisma.InputJsonValue,
         },
       });
 
@@ -279,6 +291,10 @@ export async function POST(
         data: {
           status: "error",
           errorMessage,
+          conversationHistory: [
+            ...newConversationHistory,
+            { role: "user", content: input.newMessage },
+          ] as unknown as Prisma.InputJsonValue,
         },
       });
 

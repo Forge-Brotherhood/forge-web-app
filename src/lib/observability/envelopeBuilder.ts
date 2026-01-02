@@ -276,18 +276,14 @@ export class AIDebugEnvelopeBuilder {
    * Set replay data for deterministic replay
    */
   setReplayData(
-    messages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>,
-    toolSchemas: unknown[],
+    messages: Array<{ role: string; content: string }>,
     modelParams: { model: string; temperature: number; maxTokens: number }
   ): this {
     this.envelope.replayData = {
       fullMessages: messages.map((m) => ({
-        role: m.role as "system" | "user" | "assistant" | "tool",
+        role: m.role as "system" | "user" | "assistant",
         content: m.content,
-        tool_calls: m.tool_calls,
-        tool_call_id: m.tool_call_id,
       })),
-      toolSchemas,
       modelParams,
     };
     return this;
@@ -357,7 +353,6 @@ export class AIDebugEnvelopeBuilder {
       },
       replayData: this.envelope.replayData ?? {
         fullMessages: [],
-        toolSchemas: [],
         modelParams: { model: "unknown", temperature: 0, maxTokens: 0 },
       },
     };

@@ -197,13 +197,9 @@ export interface ResponseInfo {
 export interface ReplayData {
   /** Full messages array sent to model (includes system prompt as first message) */
   fullMessages: Array<{
-    role: "system" | "user" | "assistant" | "tool";
+    role: "system" | "user" | "assistant";
     content: string;
-    tool_calls?: unknown[];
-    tool_call_id?: string;
   }>;
-  /** Tool schemas used */
-  toolSchemas: unknown[];
   /** Model parameters for replay */
   modelParams: {
     model: string;

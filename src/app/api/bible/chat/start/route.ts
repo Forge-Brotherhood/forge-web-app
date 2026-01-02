@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
 
       // Set replay data for observability
       await envelope.setPromptArtifacts(systemPrompt, greetingMessages, []);
-      envelope.setReplayData(greetingMessages, [], {
+      envelope.setReplayData(greetingMessages, {
         model: "gpt-4-turbo",
         temperature: 0.8,
         maxTokens: 200,

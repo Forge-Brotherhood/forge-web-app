@@ -87,6 +87,21 @@ interface DebugRunResponse {
   errorMessage?: string;
 }
 
+type ConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+const appendConversationTurn = (
+  history: ConversationMessage[],
+  turn: ConversationMessage
+) => {
+  const last = history[history.length - 1];
+  if (last?.role === turn.role && last?.content === turn.content) return history;
+  history.push(turn);
+  return history;
+};
+
 // =============================================================================
 // POST Handler
 // =============================================================================
@@ -217,12 +232,30 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const updatedConversationHistory: ConversationMessage[] = Array.isArray(
+        input.conversationHistory
+      )
+        ? [...input.conversationHistory]
+        : [];
+      appendConversationTurn(updatedConversationHistory, {
+        role: "user",
+        content: input.message,
+      });
+      if (lastAssistantMessage) {
+        appendConversationTurn(updatedConversationHistory, {
+          role: "assistant",
+          content: lastAssistantMessage,
+        });
+      }
+
       await prisma.debugRun.update({
         where: { runId },
         data: {
           status: finalStatus,
           stoppedAtStage: stoppedAtStage || null,
           lastAssistantMessage,
+          conversationHistory:
+            updatedConversationHistory as unknown as Prisma.InputJsonValue,
         },
       });
     } catch (pipelineError) {
@@ -232,11 +265,23 @@ export async function POST(request: NextRequest) {
           ? pipelineError.message
           : String(pipelineError);
 
+      const updatedConversationHistory: ConversationMessage[] = Array.isArray(
+        input.conversationHistory
+      )
+        ? [...input.conversationHistory]
+        : [];
+      appendConversationTurn(updatedConversationHistory, {
+        role: "user",
+        content: input.message,
+      });
+
       await prisma.debugRun.update({
         where: { runId },
         data: {
           status: "error",
           errorMessage,
+          conversationHistory:
+            updatedConversationHistory as unknown as Prisma.InputJsonValue,
         },
       });
 

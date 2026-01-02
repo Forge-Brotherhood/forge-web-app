@@ -7,29 +7,43 @@ const globalForPrisma = globalThis as unknown as {
   pgPool: Pool | undefined;
 };
 
-const prismaConnectionString =
-  process.env.DATABASE_URL ??
-  // `next build` and `prisma generate` can run in environments without DATABASE_URL.
-  // Prisma won't connect until a query is executed, but it does validate the URL at construction time.
-  "postgresql://user:password@localhost:5432/postgres?schema=public";
+const databaseUrl = process.env.DATABASE_URL;
+
+const getMissingDatabaseUrlError = () =>
+  new Error(
+    [
+      "DATABASE_URL is not set.",
+      "Set DATABASE_URL (and optionally DIRECT_URL / SHADOW_DATABASE_URL) before using Prisma.",
+      'If you are using the local docker-compose Postgres, DATABASE_URL should look like:',
+      'postgresql://<POSTGRES_USER>:<POSTGRES_PASSWORD>@localhost:5432/<POSTGRES_DB>?schema=public',
+    ].join(" ")
+  );
+
+const createPrismaClient = (connectionString: string) => {
+  const pool =
+    globalForPrisma.pgPool ??
+    new Pool({
+      connectionString,
+      // Keep this low in serverless; the Neon pooler handles concurrency.
+      max: 5,
+    });
+
+  globalForPrisma.pgPool = pool;
+
+  const adapter = new PrismaPg(pool);
+  return new PrismaClient({ adapter });
+};
 
 // Reuse the PrismaClient across hot reloads AND across warm serverless invocations.
 // This helps avoid exhausting database connections in production.
 export const prisma =
   globalForPrisma.prisma ??
-  (() => {
-    const pool =
-      globalForPrisma.pgPool ??
-      new Pool({
-        connectionString: prismaConnectionString,
-        // Keep this low in serverless; the Neon pooler handles concurrency.
-        max: 5,
-      });
+  (databaseUrl
+    ? createPrismaClient(databaseUrl)
+    : (new Proxy({} as PrismaClient, {
+        get() {
+          throw getMissingDatabaseUrlError();
+        },
+      }) as PrismaClient));
 
-    globalForPrisma.pgPool = pool;
-
-    const adapter = new PrismaPg(pool);
-    return new PrismaClient({ adapter });
-  })();
-
-globalForPrisma.prisma = prisma;
+if (databaseUrl) globalForPrisma.prisma = prisma;

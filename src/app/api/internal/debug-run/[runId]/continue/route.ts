@@ -12,6 +12,7 @@ import { PipelineStage } from "@/lib/pipeline/types";
 import { getNextStage, runPipeline } from "@/lib/pipeline/orchestrator";
 import { createRunContext } from "@/lib/pipeline/context";
 import { getAiContextForUser } from "@/lib/ai/userContext";
+import { Prisma } from "@prisma/client";
 
 // =============================================================================
 // Internal API Key Validation
@@ -214,6 +215,16 @@ export async function POST(
           status: finalStatus,
           stoppedAtStage: finalStoppedAtStage,
           lastAssistantMessage,
+          conversationHistory: [
+            ...(((debugRun.conversationHistory as unknown as Array<{
+              role: "user" | "assistant";
+              content: string;
+            }>) ?? []) as Array<{ role: "user" | "assistant"; content: string }>),
+            { role: "user", content: debugRun.message },
+            ...(lastAssistantMessage
+              ? [{ role: "assistant", content: lastAssistantMessage }]
+              : []),
+          ] as unknown as Prisma.InputJsonValue,
         },
       });
     } catch (pipelineError) {

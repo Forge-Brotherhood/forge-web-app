@@ -20,7 +20,6 @@ import type { RankAndBudgetPayload } from "../payloads/rankAndBudget";
 
 const TOKEN_ESTIMATE_METHOD: TokenEstimateMethod = "heuristic";
 const PROMPT_VERSION = "v2.1";
-const TOOL_SCHEMA_VERSION = "disabled";
 
 // =============================================================================
 // Token Estimation
@@ -37,16 +36,6 @@ function estimateTokens(text: string): number {
 function getModelForEntrypoint(entrypoint: string): string {
   // Use GPT-5.1 for all Bible study interactions
   return "gpt-5.1";
-}
-
-// =============================================================================
-// Tool Schemas
-// =============================================================================
-
-function getToolSchemas(entrypoint: string): unknown[] {
-  // Tools are intentionally disabled for now.
-  // Keeping the function makes re-enabling easy and keeps payload shape stable.
-  return [];
 }
 
 // =============================================================================
@@ -215,11 +204,14 @@ function formatArtifactForPrompt(
     return `${label}${scriptureStr}`;
   }
 
+  const trimmedContent = content.trim();
+  if (trimmedContent.length === 0) return `${label}${scriptureStr}`;
+
   // Truncate content
   const truncatedContent =
-    content.length > MAX_CONTENT_LENGTH
-      ? content.substring(0, MAX_CONTENT_LENGTH) + "..."
-      : content;
+    trimmedContent.length > MAX_CONTENT_LENGTH
+      ? trimmedContent.substring(0, MAX_CONTENT_LENGTH) + "..."
+      : trimmedContent;
 
   return `${label}${scriptureStr} "${truncatedContent}"`;
 }
@@ -302,9 +294,9 @@ function formatBibleReadingSessionForPrompt(
 
   // Candidate preview is already redacted; include it as a fallback if we couldn't derive much.
   const fallback =
-    (!referenceText && !metaStr.trim()) || candidate.preview === ""
-      ? ""
-      : `\n${candidate.preview}`;
+    (!referenceText && !metaStr.trim()) && candidate.preview !== ""
+      ? `\n${candidate.preview}`
+      : "";
 
   return `${label}${refStr}${metaStr}${fallback}`;
 }
@@ -524,7 +516,7 @@ function assembleSystemPrompt(
       pushArtifactSection("SESSION SUMMARIES (recent conversation context):", sessionSummaries);
     }
     if(highlights.length > 0) {
-      pushArtifactSection("HIGHLIGHTS (verses you highlighted):", highlights);
+      pushArtifactSection("HIGHLIGHTS (verses you highlighted):", highlights, { includeContent: false });
     }
     if(notes.length > 0) {
       pushArtifactSection("VERSE NOTES (your notes on verses):", notes, { includeContent: false });
@@ -635,9 +627,6 @@ export async function executePromptAssemblyStage(
   // Build messages array
   const messages = buildMessages(ctx, systemPrompt);
 
-  // Get tool schemas
-  const toolSchemas = getToolSchemas(ctx.entrypoint);
-
   // Calculate token breakdown
   const systemTokens = estimateTokens(systemPrompt);
   const historyTokens = estimateTokens(
@@ -661,7 +650,6 @@ export async function executePromptAssemblyStage(
       model,
       messagesPreview,
       messagesCount: messages.length,
-      tools: [],
       temperature: 0.7,
       maxTokens: 500,
     },
@@ -674,14 +662,12 @@ export async function executePromptAssemblyStage(
       estimateMethod: TOKEN_ESTIMATE_METHOD,
     },
     promptVersion: PROMPT_VERSION,
-    toolSchemaVersion: TOOL_SCHEMA_VERSION,
   };
 
   // Store full prompt data in vault (for debug mode)
   const rawContent: FullPromptData = {
     systemPrompt,
     messages,
-    toolSchemas,
   };
 
   return {

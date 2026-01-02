@@ -1,7 +1,7 @@
 /**
  * MODEL_CALL Stage Payload
  *
- * Output from the model execution stage including tool transcript.
+ * Output from the model execution stage.
  */
 
 export const MODEL_CALL_SCHEMA_VERSION = "1.0.0";
@@ -15,7 +15,6 @@ export interface ModelCallPayload {
   inputTokens: number;
   outputTokens: number;
   finishReason: string;
-  toolTranscript: ToolTranscriptEntry[];
   responsePreview: string; // Always redacted
   responseLength: number;
   /**
@@ -23,16 +22,4 @@ export interface ModelCallPayload {
    * Some OpenAI responses can return `content: null` with a separate `refusal` string.
    */
   responseSource: "content" | "refusal" | "empty";
-}
-
-/**
- * Tool transcript entry for tracking tool execution.
- */
-export interface ToolTranscriptEntry {
-  name: string;
-  args: Record<string, unknown>;
-  latencyMs: number;
-  outputRedacted: string; // Always truncated/redacted
-  success: boolean;
-  errorType?: string;
 }

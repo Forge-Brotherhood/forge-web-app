@@ -28,7 +28,6 @@ export {
 export {
   MODEL_CALL_SCHEMA_VERSION,
   type ModelCallPayload,
-  type ToolTranscriptEntry,
 } from "./modelCall";
 
 export {

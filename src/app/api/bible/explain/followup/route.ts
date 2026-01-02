@@ -186,7 +186,6 @@ export async function POST(request: NextRequest) {
 
     const modelPayload = modelCallArtifact.payload as {
       responsePreview: string;
-      toolTranscript: Array<{ name: string; args: Record<string, unknown>; success: boolean }>;
       latencyMs: number;
       inputTokens: number;
       outputTokens: number;
@@ -216,7 +215,7 @@ export async function POST(request: NextRequest) {
         modelPayload.inputTokens,
         modelPayload.outputTokens,
         modelPayload.finishReason,
-        modelPayload.toolTranscript.length
+        0
       )
     );
 
@@ -229,52 +228,11 @@ export async function POST(request: NextRequest) {
       inputTokens: modelPayload.inputTokens,
       outputTokens: modelPayload.outputTokens,
       finishReason: modelPayload.finishReason,
-      toolCallsMade: modelPayload.toolTranscript.map((t) => t.name),
+      toolCallsMade: [],
     });
 
-    // Process actions from tool calls
+    // Tool calls are disabled (no actions to process).
     let validatedActions: ValidatedAction[] = [];
-    let droppedActionsCount = 0;
-
-    if (modelPayload.toolTranscript.length > 0) {
-      // Extract actions from tool transcript.
-      // Tool transcript entries are the executed tool calls with parsed args.
-      // For suggest_actions, args should be { actions: RawAction[] } (ACTION_TOOLS schema).
-      const rawActions = modelPayload.toolTranscript.flatMap((t) => {
-        if (t.name !== "suggest_actions") return [];
-        const maybeActions = (t.args as { actions?: unknown })?.actions;
-        if (!Array.isArray(maybeActions)) return [];
-        return maybeActions.filter((a): a is { type: string; params: Record<string, unknown>; confidence?: number } =>
-          !!a && typeof a === "object" && !Array.isArray(a)
-        );
-      });
-
-      const result = await processActions(rawActions, { userId: user.id });
-      validatedActions = result.actions;
-      droppedActionsCount = result.dropped.length;
-
-      // Log actions extracted event
-      await aiLogger.event(
-        createActionsExtractedEvent(
-          traceCtx.traceId,
-          traceCtx.requestId,
-          rawActions.length,
-          validatedActions.length,
-          droppedActionsCount,
-          validatedActions.map((a) => a.type),
-          Date.now() - requestStartTime
-        )
-      );
-
-      // Set post-processing info in envelope
-      envelope.setPostProcessing({
-        actionsExtracted: validatedActions.map((a) => ({
-          type: a.type,
-          params: a.params,
-          validated: true,
-        })),
-      });
-    }
 
     const rawAnswer = modelPayload.responsePreview ?? "";
     const trimmedAnswer = rawAnswer.trim();
