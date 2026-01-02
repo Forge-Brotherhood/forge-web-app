@@ -14,7 +14,6 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const groupType = searchParams.get("type") as "core" | "circle" | null;
 
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
@@ -27,6 +26,15 @@ export async function GET(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    // Back-compat mapping (older clients used core/circle)
+    const groupTypeParam = searchParams.get("type");
+    const groupType =
+      groupTypeParam === "core"
+        ? "in_person"
+        : groupTypeParam === "circle"
+          ? "virtual"
+          : null;
 
     const groups = await prisma.group.findMany({
       where: {

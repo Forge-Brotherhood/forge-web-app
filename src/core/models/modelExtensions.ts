@@ -142,7 +142,7 @@ export function communityThreadToPrayerRequest(thread: APICommunityThread): Pray
         shortId: thread.group.shortId ?? '',
         name: thread.group.name,
         description: thread.group.description,
-        groupType: (thread.group.groupType as GroupType) ?? GroupType.Circle,
+        groupType: (thread.group.groupType as GroupType) ?? GroupType.Virtual,
         createdAt: parseDate(thread.group.createdAt),
         updatedAt: parseDate(thread.group.updatedAt),
         openRequestCount: 0,
@@ -388,11 +388,11 @@ export function stringToEntryKind(kind: string): EntryKind {
 export function stringToGroupType(type: string): GroupType {
   switch (type) {
     case 'core':
-      return GroupType.Core;
+      return GroupType.InPerson;
     case 'circle':
-      return GroupType.Circle;
+      return GroupType.Virtual;
     default:
-      return GroupType.Circle;
+      return GroupType.Virtual;
   }
 }
 

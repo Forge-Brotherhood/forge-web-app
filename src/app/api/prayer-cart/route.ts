@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const source = searchParams.get("source") || "all"; // all | core | circle | community
+    const source = searchParams.get("source") || "all"; // all | core | circle | community (core/circle are legacy labels)
 
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
@@ -41,14 +41,14 @@ export async function GET(request: NextRequest) {
     };
 
     if (source === "core") {
-      const coreGroup = user.memberships.find(m => m.group.groupType === "core");
+      const coreGroup = user.memberships.find(m => m.group.groupType === "in_person");
       if (!coreGroup) {
         return NextResponse.json({ threads: [], stats: { totalInCart: 0, prayedToday: 0 } });
       }
       whereClause.groupId = coreGroup.groupId;
     } else if (source === "circle") {
       const circleGroupIds = user.memberships
-        .filter(m => m.group.groupType === "circle")
+        .filter(m => m.group.groupType === "virtual")
         .map(m => m.groupId);
       whereClause.groupId = { in: circleGroupIds };
     } else if (source === "community") {

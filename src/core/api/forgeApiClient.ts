@@ -39,7 +39,6 @@ import type {
   BibleChapterContentResponse,
   BiblePassageResponse,
   VerseOfTheDayResponse,
-  BibleSearchResponse,
 } from '../models/bibleModels';
 
 // MARK: - Types
@@ -508,20 +507,8 @@ class ForgeAPIClient {
   }
 
   /**
-   * Search Bible verses
+   * Search Bible verses (removed)
    */
-  async searchBibleVerses(
-    query: string,
-    translation: string = 'ESV',
-    limit: number = 20
-  ): Promise<BibleSearchResponse> {
-    const params = new URLSearchParams({
-      q: query,
-      translation,
-      limit: limit.toString(),
-    });
-    return this.request<BibleSearchResponse>(`/api/bible/search?${params}`);
-  }
 }
 
 // Export singleton instance

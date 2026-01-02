@@ -5,14 +5,17 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "prisma generate && next build",
+    "vercel-build": "if [ \"$VERCEL_ENV\" = \"production\" ] && [ \"$RUN_PRISMA_MIGRATIONS\" = \"true\" ]; then prisma migrate deploy; fi && prisma generate && next build",
     "build:analyze": "ANALYZE=true npm run build",
     "start": "next start",
     "lint": "next lint",
+    "test": "node --test --import tsx src/lib/pipeline/plan/planBuilder.test.ts",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:backfill:bible-ranges": "prisma db execute --schema prisma/schema.prisma --file prisma/manual/backfill-bible-ranges.sql",
+    "db:backfill:group-type:add-values": "prisma db execute --schema prisma/schema.prisma --file prisma/manual/group-type-add-values.sql",
+    "db:backfill:group-type:remap": "prisma db execute --schema prisma/schema.prisma --file prisma/manual/group-type-remap-values.sql",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "keywords": [],
   "author": "",
@@ -71,6 +74,6 @@
   "devDependencies": {
     "@faker-js/faker": "^10.0.0",
     "@next/bundle-analyzer": "^15.2.3",
-    "tsx": "^4.20.5"
+    "tsx": "^4.21.0"
   }
 }

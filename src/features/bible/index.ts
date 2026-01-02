@@ -17,5 +17,4 @@ export {
   useBibleChapter,
   useBiblePassage,
   useVerseOfTheDay,
-  useBibleSearch,
 } from "./hooks";

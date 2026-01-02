@@ -8,7 +8,7 @@ const VALID_FONT_TYPES = ["serif", "sansSerif"] as const;
 const VALID_LINE_SPACINGS = ["compact", "normal", "relaxed"] as const;
 const VALID_THEMES = ["light", "sepia", "dark"] as const;
 const VALID_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
-const VALID_TRANSLATIONS = ["BSB", "KJV", "WEB", "ASV", "CEV"] as const;
+const VALID_TRANSLATIONS = ["BSB", "KJV", "WEB", "ASV"] as const;
 
 // Validation schema for PATCH (all fields optional for partial updates)
 const updateSettingsSchema = z.object({
@@ -60,6 +60,10 @@ export async function GET() {
       });
     }
 
+    const safeTranslation = VALID_TRANSLATIONS.includes(settings.selectedTranslation as any)
+      ? settings.selectedTranslation
+      : DEFAULT_SETTINGS.selectedTranslation;
+
     return NextResponse.json({
       success: true,
       settings: {
@@ -70,7 +74,7 @@ export async function GET() {
         showWordsOfJesusInRed: settings.showWordsOfJesusInRed,
         lastHighlightColor: settings.lastHighlightColor,
         highlightColorOrder: settings.highlightColorOrder,
-        selectedTranslation: settings.selectedTranslation,
+        selectedTranslation: safeTranslation,
         hiddenNoteGroups: settings.hiddenNoteGroups,
       },
     });

@@ -14,8 +14,14 @@ datasource db {
 // ---------- Enums ----------
 
 enum GroupType {
-  circle
-  core
+  in_person
+  virtual
+}
+
+enum MeetingCadence {
+  weekly
+  biweekly
+  monthly
 }
 
 enum PrayerRequestStatus {
@@ -57,6 +63,31 @@ enum UploadStatus {
   error
 }
 
+enum ReadingPlanVisibility {
+  public
+  private
+  archived
+}
+
+enum GroupReadingPlanStatus {
+  scheduled
+  active
+  paused
+  completed
+  canceled
+}
+
+enum ReadingPlanReflectionVisibility {
+  private
+  group
+}
+
+enum ReadingPlanReflectionKind {
+  reflection
+  self_prayer
+  group_prayer
+}
+
 // ---------- Core ----------
 
 model User {
@@ -90,6 +121,30 @@ model User {
   verseNotes               VerseNote[]
   readerSettings           ReaderSettings?
 
+  // Reading Plans relations
+  createdTemplates          ReadingPlanTemplate[]   @relation("ReadingPlanTemplateCreator")
+  createdGroupPlans         GroupReadingPlan[]      @relation("GroupReadingPlanCreator")
+  readingPlanProgress       ReadingPlanProgress[]   @relation("ReadingPlanProgressUser")
+  prayedForInPlans          ReadingPlanProgress[]   @relation("ReadingPlanPrayerTarget")
+  planReflections           ReadingPlanReflection[] @relation("ReadingPlanReflectionAuthor")
+  planReflectionTargets     ReadingPlanReflection[] @relation("ReadingPlanReflectionTarget")
+
+  // AI Memory & Preferences
+  memories                  UserMemory[]
+  signals                   UserSignal[]
+  conversationStates        ConversationState[]
+  preferences               UserPreferences?
+  lifeContext               UserLifeContext[]
+
+  // AI Debugger relations
+  debugRunsAsAdmin          DebugRun[] @relation("DebugRunAdmin")
+  debugRunsAsImpersonated   DebugRun[] @relation("DebugRunImpersonated")
+
+  // Artifacts
+  artifacts                 Artifact[]
+  bibleReadingProgresses    BibleReadingProgress[]
+  bibleReadingSessions      BibleReadingSession[]
+
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   deletedAt  DateTime?
@@ -102,13 +157,31 @@ model Group {
   shortId     String    @unique // NanoID (10–12 chars), generate in app
   name        String?
   description String?
-  groupType   GroupType @default(circle)
+  groupType   GroupType @default(in_person)
+
+  // Meeting schedule (only applicable for in_person groups)
+  meetingCadence   MeetingCadence?  // null for virtual groups
+  meetingDayOfWeek Int?             // 0-6 (Sunday-Saturday), null for virtual
+  meetingTime      String?          // e.g., "19:00" (24h format), null for virtual
+
+  // Meeting location (structured address for in_person groups)
+  meetingLocationName    String?    // Venue name (e.g., "First Baptist Church")
+  meetingStreetAddress   String?    // Street address (e.g., "123 Main St")
+  meetingCity            String?    // City
+  meetingState           String?    // State/Province
+  meetingPostalCode      String?    // ZIP/Postal code
+  meetingCountry         String?    // Country (ISO 3166-1 alpha-2, e.g., "US")
+  meetingLatitude        Float?     // Latitude for map display
+  meetingLongitude       Float?     // Longitude for map display
+  meetingPlaceId         String?    // Google Places ID for linking
 
   // Relations
   members              GroupMember[]
   prayerRequests       PrayerRequest[]
   invites              GroupInvite[]
   notificationPrefs    GroupNotificationPreference[]
+  readingPlans         GroupReadingPlan[]
+  artifacts            Artifact[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -349,16 +422,31 @@ model GroupNotificationPreference {
 model BibleHighlight {
   id        String   @id @default(uuid())
   userId    String
-  verseId   String   // Format: "GEN_1_1" (bookId_chapter_verse)
-  color     String   // yellow, green, blue, pink, orange
+  bookId     String   // API.Bible book code (e.g., "JHN")
+  chapter    Int
+  verseStart Int
+  verseEnd   Int
+  color      String   // yellow, green, blue, pink, orange
+  bibleVersion String  @default("BSB")
+
+  // Link to canonical Artifact row (metadata-only)
+  artifactId String?  @unique
+  artifact   Artifact? @relation("BibleHighlightArtifact", fields: [artifactId], references: [id], onDelete: SetNull)
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Optional linkage to reading plan (highlight made during plan)
+  groupPlanId   String?
+  groupPlan     GroupReadingPlan? @relation(fields: [groupPlanId], references: [id], onDelete: SetNull)
+  templateDayId String?
+  templateDay   ReadingPlanTemplateDay? @relation(fields: [templateDayId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, verseId])  // One highlight per verse per user
-  @@index([userId, verseId])
+  @@unique([userId, bookId, chapter, verseStart, verseEnd])
+  @@index([userId, bookId, chapter])
+  @@index([groupPlanId, templateDayId])
 }
 
 // ---------- Bible Notes ----------
@@ -366,18 +454,33 @@ model BibleHighlight {
 model VerseNote {
   id        String   @id @default(uuid())
   userId    String
-  verseId   String   // Format: "GEN_1_1" (bookId_chapter_verse)
+  // Anchor verse (kept for backwards compatibility). For range notes, this is the start verse.
+  // Format: "GEN_1_1" (bookId_chapter_verse)
+  verseId   String
+  bookId     String   // API.Bible book code (e.g., "JHN")
+  chapter    Int
+  verseStart Int
+  verseEnd   Int
   content   String   // Note text (max 2000 chars enforced at API level)
   isPrivate Boolean  @default(false)  // If true, only author can see
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Optional linkage to reading plan (note made during plan)
+  groupPlanId   String?
+  groupPlan     GroupReadingPlan? @relation(fields: [groupPlanId], references: [id], onDelete: SetNull)
+  templateDayId String?
+  templateDay   ReadingPlanTemplateDay? @relation(fields: [templateDayId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([verseId])
+  @@index([bookId, chapter])
+  @@index([userId, bookId, chapter])
   @@index([userId])
   @@index([isPrivate])
+  @@index([groupPlanId, templateDayId])
 }
 
 // ---------- Reader Settings ----------
@@ -399,4 +502,588 @@ model ReaderSettings {
 
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+}
+
+// ---------- Bible Reading Progress (Free Reading) ----------
+
+model BibleReadingProgress {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Location
+  bookId        String   // e.g. "GEN"
+  bookName      String?  // optional display cache from client
+  chapterId     String?  // optional API.Bible chapter ID
+  chapter       Int
+  verse         Int
+  translation   String   // e.g. "BSB"
+
+  // How the user entered (standalone, plan, search, etc.)
+  contextType     String   @default("standalone")
+  contextSourceId String?
+
+  // Optional UI state for precise resume
+  uiState       Json?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, bookId])
+  @@index([userId, updatedAt])
+  @@map("bible_reading_progress")
+}
+
+model BibleReadingSession {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Client-generated session id (UUID string)
+  sessionId     String
+
+  // Start/end reference (for artifacts + analytics)
+  bookId        String
+  bookName      String?
+  chapterId     String?
+  chapter       Int
+  verseStart    Int
+  verseEnd      Int
+  translation   String
+
+  // Session timing/metrics
+  startedAt          DateTime
+  endedAt            DateTime
+  durationSeconds    Int
+  versesVisibleCount Int      @default(0)
+  completionStatus   String   @default("in_progress") // not_started | in_progress | mostly_read | completed
+  source             String   @default("ios")
+
+  // Optional link to the created artifact
+  artifactId    String?  @unique
+  artifact      Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, sessionId])
+  @@index([userId, endedAt])
+  @@index([userId, bookId, endedAt])
+  @@map("bible_reading_session")
+}
+
+// ---------- Reading Plans ----------
+
+model ReadingPlanTemplate {
+  id            String   @id @default(uuid())
+  shortId       String   @unique // NanoID (10 chars)
+  slug          String   @unique // e.g. "romans-gospel-changes-everything"
+
+  title         String
+  subtitle      String?
+  description   String?
+  coverImageUrl String?
+
+  totalDays           Int
+  estimatedMinutesMin Int @default(7)
+  estimatedMinutesMax Int @default(12)
+  theme               String?
+
+  visibility  ReadingPlanVisibility @default(public)
+  isPublished Boolean               @default(false)
+  isFeatured  Boolean               @default(false)
+
+  createdById String?
+  createdBy   User?   @relation("ReadingPlanTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  days        ReadingPlanTemplateDay[]
+  groupPlans  GroupReadingPlan[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([visibility, isPublished])
+  @@index([createdById])
+  @@index([slug])
+}
+
+model ReadingPlanTemplateDay {
+  id          String              @id @default(uuid())
+  templateId  String
+  template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  dayNumber   Int  // 1-indexed (Day 1, Day 2, etc.)
+
+  // Scripture reference - structured format for non-contiguous ranges
+  // Each block: { bookId, chapter, startVerse?, endVerse?, order }
+  scriptureBlocks  Json     // Array of ScriptureBlock objects
+  passageRef       String   // Auto-generated from scriptureBlocks: "1 Samuel 17:1-11, 32-50"
+
+  title          String?  // "Faith Over Performance"
+  summary        String?  // Brief description for daily card
+
+  reflectionPrompt String? // "What stood out to you today?"
+  prayerPrompt     String? // "Pray for one brother's faith today."
+
+  contextIntro   String?  // Historical/cultural context
+  extraMetadata  Json?    // Future: tags, video refs, etc.
+
+  audioUrl       String?  // Cloudinary URL for narration audio
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations for progress/reflections
+  progress      ReadingPlanProgress[]
+  reflections   ReadingPlanReflection[]
+  highlights    BibleHighlight[]
+  notes         VerseNote[]
+  scriptureAudio ReadingPlanDayAudio?
+
+  @@unique([templateId, dayNumber])
+  @@index([templateId])
+}
+
+// Unified day audio with section and verse-level timestamps for navigation
+model ReadingPlanDayAudio {
+  id            String @id @default(uuid())
+  templateDayId String @unique
+  templateDay   ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
+
+  translation   String   // "BSB" - which translation's text was used
+  voiceId       String   // ElevenLabs voice ID
+  audioUrl      String   // Cloudinary URL for unified day audio
+  durationMs    Int      // Total duration in milliseconds
+
+  // Unified markers array (sections + verses)
+  // [{ type: "section", id: "title", label: "Title", startMs: 0, endMs: 5000 },
+  //  { type: "verse", id: "ROM.8.1", label: "v1", startMs: 25000, endMs: 30000 }, ...]
+  markers       Json
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([templateDayId])
+}
+
+model GroupReadingPlan {
+  id          String @id @default(uuid())
+  shortId     String @unique // NanoID (10 chars)
+
+  groupId     String
+  group       Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  templateId  String
+  template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  // Scheduling
+  startDate   DateTime  // When Day 1 begins
+  status      GroupReadingPlanStatus @default(scheduled)
+
+  // Optional configuration
+  meetingDayOfWeek  Int?     // 0-6 (Sunday-Saturday) for weekly summaries
+  notifyDaily       Boolean  @default(true)
+  timezone          String   @default("America/New_York")
+
+  createdById String
+  createdBy   User   @relation("GroupReadingPlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  progress    ReadingPlanProgress[]
+  reflections ReadingPlanReflection[]
+  highlights  BibleHighlight[]
+  notes       VerseNote[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([groupId, status])
+  @@index([templateId])
+  @@index([startDate])
+}
+
+model ReadingPlanProgress {
+  id              String           @id @default(uuid())
+
+  groupPlanId     String
+  groupPlan       GroupReadingPlan @relation(fields: [groupPlanId], references: [id], onDelete: Cascade)
+
+  templateDayId   String
+  templateDay     ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
+
+  userId          String
+  user            User @relation("ReadingPlanProgressUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Step completion flags
+  hasRead         Boolean   @default(false)
+  hasReflected    Boolean   @default(false)
+  hasPrayed       Boolean   @default(false)
+  completedAt     DateTime?
+
+  // Optional: who they prayed for
+  prayedForUserId String?
+  prayedForUser   User?     @relation("ReadingPlanPrayerTarget", fields: [prayedForUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([groupPlanId, templateDayId, userId])
+  @@index([userId])
+  @@index([groupPlanId, templateDayId])
+}
+
+model ReadingPlanReflection {
+  id            String @id @default(uuid())
+
+  groupPlanId   String
+  groupPlan     GroupReadingPlan @relation(fields: [groupPlanId], references: [id], onDelete: Cascade)
+
+  templateDayId String
+  templateDay   ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
+
+  userId        String
+  user          User @relation("ReadingPlanReflectionAuthor", fields: [userId], references: [id], onDelete: Cascade)
+
+  kind          ReadingPlanReflectionKind @default(reflection)
+  visibility    ReadingPlanReflectionVisibility @default(group)
+
+  content       String?   // Text reflection/prayer
+  audioUrl      String?   // Future: audio reflections
+
+  // For group_prayer kind
+  targetUserId  String?
+  targetUser    User?     @relation("ReadingPlanReflectionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([groupPlanId, templateDayId])
+  @@index([userId])
+}
+
+// ---------- AI Memory ----------
+
+/// User preferences for AI personalization and app behavior
+/// Source of truth for all user preferences (synced from iOS onboarding)
+model UserPreferences {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Identity
+  displayName       String?                           // How they want to be addressed
+
+  // Bible preferences
+  translationId     String   @default("BSB")          // BSB, ESV, NIV, etc.
+
+  // AI interaction style
+  explanationStyle    String   @default("balanced")     // gentle | balanced | deep | questions
+  experienceLevel     String   @default("growing")      // new | growing | mature | scholar
+  encouragementStyle  String   @default("gentle")       // direct | gentle | challenge | questions
+
+  // Study intent (from onboarding - what they hope to find)
+  studyIntent       String[] @default([])             // ["peace", "understanding", "encouragement", "guidance"]
+
+  // Memory/privacy
+  memoryMode        String   @default("standard")     // off | minimal | standard | full
+
+  // Versioning for future migrations
+  schemaVersion     Int      @default(1)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+/// Rolling conversation state (replaces compactor.ts)
+model ConversationState {
+  id              String   @id @default(cuid())
+  conversationId  String   @unique
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Rolling summary of conversation history
+  summary         String   @db.Text
+
+  // Recent messages for immediate context (array of { role, content, timestamp })
+  recentMessages  Json
+
+  // Metadata
+  turnCount       Int      @default(0)
+  lastSummaryAt   DateTime @default(now())
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@map("conversation_state")
+}
+
+/// Durable typed memories about user
+model UserMemory {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Memory classification (from vocabularies.ts)
+  // struggle_theme | faith_stage | scripture_affinity | tone_preference | group_role
+  memoryType  String
+
+  // Typed value - structure depends on memoryType
+  // struggle_theme: { theme: StruggleTheme }
+  // faith_stage: { stage: FaithStage }
+  // scripture_affinity: { reference: string, affinity: "positive" | "formative" }
+  // tone_preference: { preference: string }
+  // group_role: { groupId: string, role: "leader" | "participant" }
+  value       Json
+
+  // Confidence & reinforcement
+  strength    Float    @default(0.5)  // 0.0-1.0
+  occurrences Int      @default(1)    // Times this was observed
+
+  // Provenance
+  source      String   // signal_promotion | user_explicit | onboarding
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  // Soft delete for memory decay
+  isActive    Boolean  @default(true)
+  decayedAt   DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, memoryType])
+  @@index([userId, isActive])
+  @@map("user_memory")
+}
+
+/// Short-lived signals for reinforcement before promotion to memory
+model UserSignal {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Signal classification (from vocabularies.ts)
+  // struggle_theme_signal | faith_stage_signal | tone_preference_signal
+  signalType String
+
+  // Candidate value (same structure as UserMemory.value)
+  value      Json
+
+  // Counter for reinforcement
+  count      Int      @default(1)
+
+  // TTL-based expiration (7 days from first observation)
+  expiresAt  DateTime
+
+  // Prevent double-counting within same conversation
+  lastCountedConversationId String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("user_signal")
+}
+
+/// Life context for pastoral personalization (time-scoped, user-approved)
+model UserLifeContext {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Context type
+  type          String                              // schedule | season | prayer_topic | weekly_intention | goal
+
+  // Structured value (type-specific JSON)
+  value         Json                                // { season: "anxious" } or { carrying: "...", hoping: "..." }
+
+  // Visibility and consent
+  source        String   @default("user_entered")   // user_entered | user_confirmed
+  visibility    String   @default("private")        // private | group_shareable
+
+  // Time bounding
+  expiresAt     DateTime?                           // null = permanent (goals)
+  pinnedUntil   DateTime?                           // User explicitly kept this longer
+
+  // Check-in scheduling
+  checkInAt     DateTime?                           // Optional reminder to follow up
+  lastCheckedIn DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("user_life_context")
+}
+
+// ---------- Artifacts ----------
+
+/// User content artifacts with retrieval and relationship support
+model Artifact {
+  id              String    @id @default(cuid())
+  userId          String?   // null for purely group-owned
+  groupId         String?   // if group-scoped
+  conversationId  String?   // if derived from chat
+  sessionId       String?   // if derived from a session
+
+  // Classification
+  type            String    // conversation_session_summary | journal_entry | prayer_request | prayer_update | testimony | verse_highlight | verse_note | group_meeting_notes
+  scope           String    // private | group | global
+  title           String?   // optional display label
+  content         String    @db.Text
+
+  // Retrieval helpers
+  scriptureRefs   Json?     // e.g. ["Romans 8:1-11"]
+  tags            Json?     // controlled tags
+  metadata        Json?     // flexible fields
+
+  // Lifecycle
+  status          String    @default("active") // active | deleted
+  deletedAt       DateTime?
+
+  user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group           Group?    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  embeddings      ArtifactEmbedding[]
+  edgesFrom       ArtifactEdge[] @relation("EdgeFrom")
+  edgesTo         ArtifactEdge[] @relation("EdgeTo")
+  bibleHighlight  BibleHighlight? @relation("BibleHighlightArtifact")
+  bibleReadingSession BibleReadingSession?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId, type, createdAt])
+  @@index([groupId, type, createdAt])
+  @@index([sessionId])
+  @@index([status, createdAt])
+  @@map("artifact")
+}
+
+/// Relationships between artifacts (threads, follow-ups, references)
+model ArtifactEdge {
+  id          String   @id @default(cuid())
+  fromId      String
+  toId        String
+  relation    String   // follows_up | summarizes | references | part_of_thread
+
+  from        Artifact @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to          Artifact @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@index([fromId, relation])
+  @@index([toId, relation])
+  @@map("artifact_edge")
+}
+
+/// Model-versioned embeddings for semantic search
+model ArtifactEmbedding {
+  id          String   @id @default(cuid())
+  artifactId  String
+  model       String   // e.g. "text-embedding-3-small"
+  dimension   Int
+  vector      Bytes    // serialized float array
+
+  artifact    Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([artifactId, model])
+  @@index([model])
+  @@map("artifact_embedding")
+}
+
+// ---------- AI Pipeline ----------
+
+/// Pipeline stage artifacts for debugging and observability
+model PipelineArtifact {
+  id              String   @id @default(cuid())
+  runId           String
+  traceId         String
+  userId          String
+  stage           String                              // INGRESS | CONTEXT_CANDIDATES | RANK_AND_BUDGET | PROMPT_ASSEMBLY | MODEL_CALL
+  schemaVersion   String                              // Version of the payload schema
+  pipelineVersion String                              // Version of the pipeline
+  summary         String                              // Human-readable summary
+  payload         Json                                // Redacted stage output
+  rawRef          String?                             // Vault pointer: "vault://<runId>/<stage>"
+  stats           Json                                // Stage statistics
+  durationMs      Int                                 // Stage execution time
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime                            // Auto-cleanup after expiry
+
+  @@unique([runId, stage])
+  @@index([traceId])
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("pipeline_artifact")
+}
+
+/// Encrypted vault for raw content (debug mode only)
+model PipelineVault {
+  id               String   @id @default(cuid())
+  runId            String
+  stage            String
+  encryptedContent String   @db.Text                  // AES-256-GCM encrypted JSON
+  iv               String                              // Initialization vector
+  authTag          String                              // GCM authentication tag
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime
+
+  @@unique([runId, stage])
+  @@index([expiresAt])
+  @@map("pipeline_vault")
+}
+
+// ---------- AI Debugger ----------
+
+enum DebugRunStatus {
+  pending
+  running
+  stopped
+  completed
+  error
+}
+
+/// Admin debug runs for pipeline inspection with user impersonation
+model DebugRun {
+  id                  String         @id @default(cuid())
+  runId               String         @unique   // Links to PipelineArtifact.runId
+  traceId             String         @unique
+  adminId             String                   // The admin user who initiated
+  impersonatedUserId  String                   // User being impersonated
+  entrypoint          String                   // chat_start | followup | explain | prayer_help
+  message             String         @db.Text  // The test message
+  entityRefs          Json?                    // Optional entity references
+  status              DebugRunStatus @default(pending)
+  stoppedAtStage      String?                  // Stage where pipeline stopped
+  errorMessage        String?
+
+  // Settings stored for run continuation and raw access gating
+  settings            Json                     // { includeRaw, runModel, providerOverrides }
+
+  // Follow-up run support
+  parentRunId          String?                 // Link to previous run in conversation chain
+  conversationHistory  Json?                   // Persisted conversation [{role, content}]
+  lastAssistantMessage String?       @db.Text  // Model response for chaining to next run
+
+  admin               User           @relation("DebugRunAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+  impersonatedUser    User           @relation("DebugRunImpersonated", fields: [impersonatedUserId], references: [id], onDelete: Restrict)
+  parentRun           DebugRun?      @relation("RunChain", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns           DebugRun[]     @relation("RunChain")
+
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([adminId, createdAt])
+  @@index([runId])
+  @@index([parentRunId])
+  @@map("debug_run")
 }

@@ -3,6 +3,7 @@
 import { useBibleChapter } from "../hooks";
 import { Loader2 } from "lucide-react";
 import type { BibleChapter, SupportedTranslation } from "@/core/models/bibleModels";
+import { BibleContentRenderer } from "./BibleContentRenderer";
 
 interface ChapterContentProps {
   chapter: BibleChapter;
@@ -34,18 +35,11 @@ export function ChapterContent({ chapter, translation }: ChapterContentProps) {
         {data.chapter.chapter.reference}
       </h2>
 
-      {/* Render HTML content from API.Bible */}
-      <div
-        className="prose prose-sm dark:prose-invert max-w-none leading-relaxed bible-content"
-        dangerouslySetInnerHTML={{ __html: data.chapter.content }}
+      <BibleContentRenderer
+        elements={data.chapter.elements}
+        footnotes={data.chapter.footnotes}
+        className="max-w-none"
       />
-
-      {/* Copyright notice - required by API.Bible */}
-      <div className="mt-8 pt-4 border-t border-border">
-        <p className="text-xs text-muted-foreground">
-          {data.chapter.copyright}
-        </p>
-      </div>
     </div>
   );
 }

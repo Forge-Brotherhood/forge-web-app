@@ -1,22 +1,17 @@
 /**
  * Bible Service
- * Server-side service for API.Bible integration with KV caching
+ * Server-side service for AO Lab Bible API integration with KV caching
  */
 
 import {
-  BIBLE_TRANSLATIONS,
   DEFAULT_TRANSLATION,
-  type SupportedTranslation,
   type BibleBook,
   type BibleChapter,
   type BibleChapterContent,
   type BiblePassage,
-  type BibleVerse,
-  type ApiBibleBook,
-  type ApiBibleChapter,
-  type ApiBibleChapterContent,
-  type ApiBiblePassage,
-  type ApiBibleVerse,
+  type BibleContentElement,
+  type BibleFootnote,
+  type BibleInline,
 } from '@/core/models/bibleModels';
 import {
   getKVClient,
@@ -25,8 +20,22 @@ import {
   isCacheFresh,
 } from '@/lib/kv';
 
-const API_BIBLE_BASE_URL = 'https://rest.api.bible/v1';
-const API_BIBLE_KEY = process.env.API_BIBLE_KEY;
+const AO_LAB_BASE_URL = 'https://bible.helloao.org';
+
+/**
+ * Forge-supported translation short codes -> AO Lab translation IDs.
+ *
+ * AO Lab's `{translation}` path segment expects the translation `id` from:
+ * `GET https://bible.helloao.org/api/available_translations.json`
+ *
+ * (This is NOT always the common abbreviation like "KJV"/"WEB".)
+ */
+const FORGE_TRANSLATION_TO_AO_LAB_ID: Record<string, string> = {
+  BSB: 'BSB',
+  KJV: 'eng_kjv',
+  WEB: 'ENGWEBP',
+  ASV: 'eng_asv',
+};
 
 // MARK: - Error Handling
 
@@ -43,21 +52,20 @@ export class BibleServiceError extends Error {
 
 // MARK: - Helper Functions
 
-function getTranslationId(translation: string): string {
-  const key = translation.toUpperCase() as SupportedTranslation;
-  const bibleId =
-    BIBLE_TRANSLATIONS[key]?.id || BIBLE_TRANSLATIONS[DEFAULT_TRANSLATION].id;
-  console.log(
-    `getTranslationId: translation="${translation}" -> key="${key}" -> bibleId="${bibleId}"`
-  );
-  return bibleId;
+function normalizeTranslation(translation: string): string {
+  const normalized = translation.trim().toUpperCase();
+  return normalized || DEFAULT_TRANSLATION;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+function toAoLabTranslationId(translation: string): string {
+  const normalized = normalizeTranslation(translation);
+  return FORGE_TRANSLATION_TO_AO_LAB_ID[normalized] ?? FORGE_TRANSLATION_TO_AO_LAB_ID[DEFAULT_TRANSLATION];
+}
+
+function normalizeWhitespace(text: string): string {
+  // Some translations (notably KJV) include pilcrow "¶" paragraph marks in-line.
+  // We render paragraphs structurally, so strip these markers from the text layer.
+  return text.replace(/¶/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function determineTestament(bookId: string): 'OT' | 'NT' {
@@ -94,7 +102,7 @@ function determineTestament(bookId: string): 'OT' | 'NT' {
 }
 
 // Book name to API.Bible code mapping
-const BOOK_NAME_TO_CODE: Record<string, string> = {
+export const BOOK_NAME_TO_CODE: Record<string, string> = {
   genesis: 'GEN',
   exodus: 'EXO',
   leviticus: 'LEV',
@@ -165,99 +173,228 @@ const BOOK_NAME_TO_CODE: Record<string, string> = {
   revelation: 'REV',
 };
 
+// =============================================================================
+// Reverse mapping helpers
+// =============================================================================
+
+const LOWERCASE_WORDS = new Set(["of", "and", "the"]);
+
+function toDisplayTitleCase(input: string): string {
+  return input
+    .split(/\s+/g)
+    .filter(Boolean)
+    .map((word, idx) => {
+      if (/^\d+$/.test(word)) return word;
+      const lower = word.toLowerCase();
+      if (idx > 0 && LOWERCASE_WORDS.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
 /**
- * Convert human-readable reference to API.Bible passage ID format
- * e.g., "Proverbs 3:5-6" -> "PRO.3.5-PRO.3.6"
- * e.g., "John 3:16" -> "JHN.3.16"
+ * Best-effort mapping from API.Bible book codes (e.g. "JHN") to a display name
+ * (e.g. "John"). Picks the longest known name variant for each code.
  */
-function convertReferenceToPassageId(reference: string): string {
-  // Parse reference: "Book Chapter:Verse" or "Book Chapter:StartVerse-EndVerse"
-  const match = reference.match(/^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$/);
-  if (!match) {
-    console.error('Could not parse reference:', reference);
-    return reference; // Return as-is if we can't parse
+const BOOK_CODE_TO_CANONICAL_NAME: Record<string, string> = Object.entries(
+  BOOK_NAME_TO_CODE
+).reduce<Record<string, string>>((acc, [name, code]) => {
+  const upperCode = code.toUpperCase();
+  const existing = acc[upperCode];
+  if (!existing || name.length > existing.length) acc[upperCode] = name;
+  return acc;
+}, {});
+
+export function getBookDisplayNameFromCode(bookCode: unknown): string | null {
+  if (typeof bookCode !== "string") return null;
+  const normalized = bookCode.trim();
+  if (!normalized) return null;
+
+  const key = BOOK_CODE_TO_CANONICAL_NAME[normalized.toUpperCase()];
+  if (!key) return null;
+  return toDisplayTitleCase(key);
+}
+
+/**
+ * Parse a contiguous reference.
+ * Examples:
+ * - "John 3:16"
+ * - "Proverbs 3:5-6"
+ */
+function parseContiguousReference(reference: string): {
+  bookId: string;
+  chapter: number;
+  verseStart: number;
+  verseEnd: number;
+} | null {
+  const match = reference.trim().match(/^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$/);
+  if (!match) return null;
+
+  const [, bookName, chapterStr, verseStartStr, verseEndStr] = match;
+  const bookId = BOOK_NAME_TO_CODE[bookName.toLowerCase()];
+  if (!bookId) return null;
+
+  const chapter = Number.parseInt(chapterStr, 10);
+  const verseStart = Number.parseInt(verseStartStr, 10);
+  const verseEnd = verseEndStr ? Number.parseInt(verseEndStr, 10) : verseStart;
+
+  if (!Number.isFinite(chapter) || !Number.isFinite(verseStart) || !Number.isFinite(verseEnd)) return null;
+  if (chapter <= 0 || verseStart <= 0 || verseEnd < verseStart) return null;
+
+  return { bookId, chapter, verseStart, verseEnd };
+}
+
+type AoLabBooksResponse = {
+  translation: {
+    id: string;
+    name: string;
+    shortName: string;
+    englishName: string;
+    language: string;
+    textDirection: 'ltr' | 'rtl';
+  };
+  books: Array<{
+    id: string; // USFM
+    translationId: string;
+    name: string;
+    commonName: string;
+    title: string;
+    order: number;
+    numberOfChapters: number;
+    firstChapterNumber: number;
+    lastChapterNumber: number;
+    totalNumberOfVerses: number;
+  }>;
+};
+
+type AoLabFormattedText = { text: string; poem?: number; wordsOfJesus?: boolean };
+type AoLabInlineHeading = { heading: string };
+type AoLabInlineLineBreak = { lineBreak: true };
+type AoLabVerseFootnoteRef = { noteId: number };
+
+type AoLabChapterContent =
+  | { type: 'heading'; content: string[] }
+  | { type: 'line_break' }
+  | {
+      type: 'hebrew_subtitle';
+      content: Array<
+        string | AoLabFormattedText | AoLabInlineHeading | AoLabInlineLineBreak | AoLabVerseFootnoteRef
+      >;
+    }
+  | {
+      type: 'verse';
+      number: number;
+      content: Array<
+        string | AoLabFormattedText | AoLabInlineHeading | AoLabInlineLineBreak | AoLabVerseFootnoteRef
+      >;
+    };
+
+type AoLabChapterResponse = {
+  translation: {
+    id: string;
+    name: string;
+    shortName: string;
+    englishName: string;
+    language: string;
+    textDirection: 'ltr' | 'rtl';
+  };
+  book: {
+    id: string;
+    translationId: string;
+    name: string;
+    commonName: string;
+    title: string;
+    order: number;
+    numberOfChapters: number;
+    totalNumberOfVerses: number;
+  };
+  numberOfVerses: number;
+  chapter: {
+    number: number;
+    content: AoLabChapterContent[];
+    footnotes: Array<{
+      noteId: number;
+      text: string;
+      caller: '+' | string | null;
+      reference?: { chapter: number; verse: number };
+    }>;
+  };
+};
+
+function aoLabInlineToCanonical(
+  value:
+    | string
+    | AoLabFormattedText
+    | AoLabInlineHeading
+    | AoLabInlineLineBreak
+    | AoLabVerseFootnoteRef
+): BibleInline[] {
+  if (typeof value === 'string') {
+    const text = normalizeWhitespace(value);
+    if (!text) return [];
+    return [{ type: 'text', text }];
   }
 
-  const [, bookName, chapter, startVerse, endVerse] = match;
-  const bookCode = BOOK_NAME_TO_CODE[bookName.toLowerCase()];
-
-  if (!bookCode) {
-    console.error('Unknown book name:', bookName);
-    return reference;
+  if ('text' in value) {
+    const text = normalizeWhitespace(value.text);
+    if (!text) return [];
+    return [
+      {
+        type: 'formatted_text',
+        text,
+        poem: value.poem,
+        wordsOfJesus: value.wordsOfJesus,
+      },
+    ];
   }
 
-  if (endVerse) {
-    // Range: PRO.3.5-PRO.3.6
-    return `${bookCode}.${chapter}.${startVerse}-${bookCode}.${chapter}.${endVerse}`;
-  } else {
-    // Single verse: JHN.3.16
-    return `${bookCode}.${chapter}.${startVerse}`;
+  if ('heading' in value) {
+    const heading = normalizeWhitespace(value.heading);
+    if (!heading) return [];
+    return [{ type: 'inline_heading', heading }];
   }
+
+  if ('lineBreak' in value) {
+    return [{ type: 'inline_line_break' }];
+  }
+
+  if ('noteId' in value) {
+    return [{ type: 'footnote_ref', noteId: value.noteId }];
+  }
+
+  return [];
 }
 
-// MARK: - Transformers
+function aoLabBlockToCanonical(block: AoLabChapterContent): BibleContentElement {
+  if (block.type === 'line_break') return { type: 'line_break' };
 
-function transformBook(apiBook: ApiBibleBook): BibleBook {
-  return {
-    id: apiBook.id,
-    name: apiBook.name,
-    abbreviation: apiBook.abbreviation,
-    testament: determineTestament(apiBook.id),
-    chapterCount: 0, // Will be populated when chapters are fetched
-  };
+  if (block.type === 'heading') {
+    const inline = block.content.flatMap((s) => aoLabInlineToCanonical(String(s)));
+    return { type: 'heading', level: 2, inline };
+  }
+
+  if (block.type === 'hebrew_subtitle') {
+    const inline = block.content.flatMap(aoLabInlineToCanonical);
+    return { type: 'hebrew_subtitle', inline };
+  }
+
+  const inline = block.content.flatMap(aoLabInlineToCanonical);
+  return { type: 'verse', number: block.number, inline };
 }
 
-function transformChapter(apiChapter: ApiBibleChapter): BibleChapter {
-  return {
-    id: apiChapter.id,
-    bookId: apiChapter.bookId,
-    number: parseInt(apiChapter.number, 10),
-    reference: apiChapter.reference,
-  };
-}
-
-function transformChapterContent(
-  apiContent: ApiBibleChapterContent,
-  translation: string
-): BibleChapterContent {
-  return {
-    chapter: {
-      id: apiContent.id,
-      bookId: apiContent.bookId,
-      number: parseInt(apiContent.number, 10),
-      reference: apiContent.reference,
-    },
-    content: apiContent.content,
-    contentText: stripHtml(apiContent.content),
-    copyright: apiContent.copyright,
-  };
-}
-
-function transformPassage(
-  apiPassage: ApiBiblePassage,
-  translation: string
-): BiblePassage {
-  return {
-    id: apiPassage.id,
-    reference: apiPassage.reference,
-    translationId: apiPassage.bibleId,
-    translationAbbreviation: translation.toUpperCase(),
-    content: apiPassage.content,
-    contentText: stripHtml(apiPassage.content),
-    copyright: apiPassage.copyright,
-  };
-}
-
-function transformVerse(apiVerse: ApiBibleVerse): BibleVerse {
-  return {
-    id: apiVerse.id,
-    reference: apiVerse.reference,
-    bookId: apiVerse.bookId,
-    chapterId: apiVerse.chapterId,
-    verseNumber: parseInt(apiVerse.id.split('.').pop() || '0', 10),
-    content: apiVerse.text,
-    contentText: stripHtml(apiVerse.text),
-  };
+function filterFootnotesForElements(
+  footnotes: BibleFootnote[],
+  elements: BibleContentElement[]
+): BibleFootnote[] {
+  const referenced = new Set<number>();
+  for (const el of elements) {
+    if (el.type === 'line_break') continue;
+    for (const item of el.inline) {
+      if (item.type === 'footnote_ref') referenced.add(item.noteId);
+    }
+  }
+  if (referenced.size === 0) return [];
+  return footnotes.filter((f) => referenced.has(f.noteId));
 }
 
 // MARK: - Bible Service Class
@@ -265,33 +402,44 @@ function transformVerse(apiVerse: ApiBibleVerse): BibleVerse {
 class BibleService {
   private kv = getKVClient();
 
-  private async fetch<T>(endpoint: string): Promise<T> {
-    if (!API_BIBLE_KEY) {
-      throw new BibleServiceError('API_BIBLE_KEY is not configured', 500);
-    }
+  private isStructuredChapterContent(value: unknown): value is BibleChapterContent {
+    if (!value || typeof value !== 'object') return false;
+    const v = value as Record<string, unknown>;
+    return (
+      typeof v.chapter === 'object' &&
+      v.chapter !== null &&
+      Array.isArray(v.elements) &&
+      Array.isArray(v.footnotes)
+    );
+  }
 
-    const url = `${API_BIBLE_BASE_URL}${endpoint}`;
-    console.log('Bible API request URL:', url);
+  private isStructuredPassage(value: unknown): value is BiblePassage {
+    if (!value || typeof value !== 'object') return false;
+    const v = value as Record<string, unknown>;
+    return (
+      typeof v.id === 'string' &&
+      typeof v.reference === 'string' &&
+      Array.isArray(v.elements) &&
+      Array.isArray(v.footnotes)
+    );
+  }
 
+  private async fetchAoLab<T>(path: string): Promise<T> {
+    const url = `${AO_LAB_BASE_URL}${path}`;
     const response = await fetch(url, {
-      headers: {
-        'api-key': API_BIBLE_KEY,
-        Accept: 'application/json',
-      },
-      next: { revalidate: 3600 }, // Cache for 1 hour
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 3600 },
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API.Bible error:', response.status, errorText);
+      const errorText = await response.text().catch(() => '');
       throw new BibleServiceError(
-        `API.Bible request failed: ${response.status}`,
+        `AO Lab Bible API request failed: ${response.status} ${errorText}`.trim(),
         response.status
       );
     }
 
-    const json = await response.json();
-    return json.data as T;
+    return (await response.json()) as T;
   }
 
   /**
@@ -301,7 +449,8 @@ class BibleService {
   async getBooks(
     translation: string = DEFAULT_TRANSLATION
   ): Promise<BibleBook[]> {
-    const cacheKey = CacheKeys.bibleBooks(translation);
+    const normalizedTranslation = normalizeTranslation(translation);
+    const cacheKey = CacheKeys.bibleBooks(normalizedTranslation);
 
     // 1. Check cache first
     const cached = await this.kv.get<BibleBook[]>(cacheKey);
@@ -311,21 +460,27 @@ class BibleService {
     }
 
     console.log(
-      `[KV Cache] MISS: books for ${translation.toUpperCase()}, fetching from API.Bible`
+      `[KV Cache] MISS: books for ${normalizedTranslation.toUpperCase()}, fetching from AO Lab`
     );
 
-    // 2. Fetch from API.Bible
-    const bibleId = getTranslationId(translation);
-    const apiBooks = await this.fetch<ApiBibleBook[]>(
-      `/bibles/${bibleId}/books`
+    const ao = await this.fetchAoLab<AoLabBooksResponse>(
+      `/api/${encodeURIComponent(toAoLabTranslationId(normalizedTranslation))}/books.json`
     );
-    const books = apiBooks.map(transformBook);
+
+    const books: BibleBook[] = ao.books.map((b) => ({
+      id: b.id,
+      name: b.name || b.commonName || b.title,
+      abbreviation: b.id,
+      testament: determineTestament(b.id),
+      chapterCount: b.numberOfChapters,
+      order: b.order,
+    }));
 
     // 3. Cache results
     await this.kv.set(cacheKey, books, CACHE_TTL_SECONDS);
 
     console.log(
-      `[KV Cache] Cached ${books.length} books for ${translation.toUpperCase()}`
+      `[KV Cache] Cached ${books.length} books for ${normalizedTranslation.toUpperCase()}`
     );
     return books;
   }
@@ -338,7 +493,8 @@ class BibleService {
     bookId: string,
     translation: string = DEFAULT_TRANSLATION
   ): Promise<BibleChapter[]> {
-    const cacheKey = CacheKeys.bibleChapters(translation, bookId);
+    const normalizedTranslation = normalizeTranslation(translation);
+    const cacheKey = CacheKeys.bibleChapters(normalizedTranslation, bookId);
 
     // 1. Check cache first
     const cached = await this.kv.get<BibleChapter[]>(cacheKey);
@@ -350,24 +506,28 @@ class BibleService {
     }
 
     console.log(
-      `[KV Cache] MISS: chapters for ${bookId} (${translation.toUpperCase()}), fetching from API.Bible`
+      `[KV Cache] MISS: chapters for ${bookId} (${normalizedTranslation.toUpperCase()}), synthesizing from AO Lab books metadata`
     );
 
-    // 2. Fetch from API.Bible
-    const bibleId = getTranslationId(translation);
-    const apiChapters = await this.fetch<ApiBibleChapter[]>(
-      `/bibles/${bibleId}/books/${bookId}/chapters`
-    );
-    // Filter out intro chapters (usually "GEN.intro")
-    const chapters = apiChapters
-      .filter((ch) => !ch.id.includes('intro'))
-      .map(transformChapter);
+    const books = await this.getBooks(normalizedTranslation);
+    const book = books.find((b) => b.id.toUpperCase() === bookId.toUpperCase());
+    if (!book) throw new BibleServiceError(`Unknown bookId: ${bookId}`, 400);
+
+    const chapters: BibleChapter[] = Array.from({ length: book.chapterCount }, (_, idx) => {
+      const number = idx + 1;
+      return {
+        id: `${book.id}.${number}`,
+        bookId: book.id,
+        number,
+        reference: `${book.name} ${number}`,
+      };
+    });
 
     // 3. Cache results
     await this.kv.set(cacheKey, chapters, CACHE_TTL_SECONDS);
 
     console.log(
-      `[KV Cache] Cached ${chapters.length} chapters for ${bookId} (${translation.toUpperCase()})`
+      `[KV Cache] Cached ${chapters.length} chapters for ${bookId} (${normalizedTranslation.toUpperCase()})`
     );
     return chapters;
   }
@@ -380,11 +540,16 @@ class BibleService {
     chapterId: string,
     translation: string = DEFAULT_TRANSLATION
   ): Promise<BibleChapterContent> {
-    const cacheKey = CacheKeys.chapterContent(translation, chapterId);
+    const normalizedTranslation = normalizeTranslation(translation);
+    const cacheKey = CacheKeys.chapterContent(normalizedTranslation, chapterId);
 
     // 1. Check cache first
     const cached = await this.kv.get<BibleChapterContent>(cacheKey);
-    if (cached && isCacheFresh(cached.lastRefreshedAt)) {
+    if (
+      cached &&
+      isCacheFresh(cached.lastRefreshedAt) &&
+      this.isStructuredChapterContent(cached.data)
+    ) {
       console.log(
         `[KV Cache] HIT: content for ${chapterId} (${translation.toUpperCase()})`
       );
@@ -392,29 +557,49 @@ class BibleService {
     }
 
     console.log(
-      `[KV Cache] MISS: content for ${chapterId} (${translation.toUpperCase()}), fetching from API.Bible`
+      `[KV Cache] MISS: content for ${chapterId} (${normalizedTranslation.toUpperCase()}), fetching from AO Lab`
     );
 
-    // 2. Fetch from API.Bible
-    const bibleId = getTranslationId(translation);
-    const params = new URLSearchParams({
-      'content-type': 'html',
-      'include-notes': 'false',
-      'include-titles': 'true',
-      'include-chapter-numbers': 'false',
-      'include-verse-numbers': 'true',
-    });
+    const [bookIdRaw, chapterNumRaw] = chapterId.split('.');
+    const bookId = bookIdRaw?.trim().toUpperCase();
+    const chapterNum = Number.parseInt(chapterNumRaw || '', 10);
+    if (!bookId || !Number.isFinite(chapterNum) || chapterNum <= 0) {
+      throw new BibleServiceError(`Invalid chapterId: ${chapterId}`, 400);
+    }
 
-    const apiContent = await this.fetch<ApiBibleChapterContent>(
-      `/bibles/${bibleId}/chapters/${chapterId}?${params}`
+    const ao = await this.fetchAoLab<AoLabChapterResponse>(
+      `/api/${encodeURIComponent(toAoLabTranslationId(normalizedTranslation))}/${encodeURIComponent(bookId)}/${encodeURIComponent(
+        String(chapterNum)
+      )}.json`
     );
-    const chapterContent = transformChapterContent(apiContent, translation);
+
+    const chapter: BibleChapter = {
+      id: `${bookId}.${chapterNum}`,
+      bookId,
+      number: chapterNum,
+      reference: `${ao.book.name} ${chapterNum}`,
+    };
+
+    const elements = ao.chapter.content.map(aoLabBlockToCanonical);
+    const footnotes: BibleFootnote[] = (ao.chapter.footnotes || []).map((f) => ({
+      noteId: f.noteId,
+      text: f.text,
+      caller: f.caller,
+      reference: f.reference,
+    }));
+
+    const chapterContent: BibleChapterContent = {
+      translation: normalizedTranslation,
+      chapter,
+      elements,
+      footnotes,
+    };
 
     // 3. Cache result
     await this.kv.set(cacheKey, chapterContent, CACHE_TTL_SECONDS);
 
     console.log(
-      `[KV Cache] Cached content for ${chapterId} (${translation.toUpperCase()})`
+      `[KV Cache] Cached content for ${chapterId} (${normalizedTranslation.toUpperCase()})`
     );
     return chapterContent;
   }
@@ -427,12 +612,13 @@ class BibleService {
     reference: string,
     translation: string = DEFAULT_TRANSLATION
   ): Promise<BiblePassage> {
+    const normalizedTranslation = normalizeTranslation(translation);
     const normalizedReference = reference.trim();
-    const cacheKey = CacheKeys.passage(translation, normalizedReference);
+    const cacheKey = CacheKeys.passage(normalizedTranslation, normalizedReference);
 
     // 1. Check cache first
     const cached = await this.kv.get<BiblePassage>(cacheKey);
-    if (cached && isCacheFresh(cached.lastRefreshedAt)) {
+    if (cached && isCacheFresh(cached.lastRefreshedAt) && this.isStructuredPassage(cached.data)) {
       console.log(
         `[KV Cache] HIT: passage "${normalizedReference}" (${translation.toUpperCase()})`
       );
@@ -440,61 +626,45 @@ class BibleService {
     }
 
     console.log(
-      `[KV Cache] MISS: passage "${normalizedReference}" (${translation.toUpperCase()}), fetching from API.Bible`
+      `[KV Cache] MISS: passage "${normalizedReference}" (${normalizedTranslation.toUpperCase()}), building from AO Lab chapter data`
     );
 
-    // 2. Fetch from API.Bible
-    const bibleId = getTranslationId(translation);
-    // Convert human-readable reference to API.Bible format
-    const passageId = convertReferenceToPassageId(reference);
-    console.log(`getPassage: reference="${reference}" -> passageId="${passageId}"`);
+    const parsed = parseContiguousReference(normalizedReference);
+    if (!parsed) {
+      throw new BibleServiceError(
+        `Invalid reference format: ${reference}. Expected e.g. "John 3:16" or "John 3:16-17"`,
+        400
+      );
+    }
 
-    const params = new URLSearchParams({
-      'content-type': 'html',
-      'include-notes': 'false',
-      'include-titles': 'false',
-      'include-chapter-numbers': 'false',
-      'include-verse-numbers': 'true',
-    });
+    const chapterId = `${parsed.bookId}.${parsed.chapter}`;
+    const chapter = await this.getChapterContent(chapterId, normalizedTranslation);
 
-    const apiPassage = await this.fetch<ApiBiblePassage>(
-      `/bibles/${bibleId}/passages/${passageId}?${params}`
+    const verseElements = chapter.elements.filter(
+      (el): el is Extract<BibleContentElement, { type: 'verse' }> =>
+        el.type === 'verse' && el.number >= parsed.verseStart && el.number <= parsed.verseEnd
     );
-    const passage = transformPassage(apiPassage, translation);
+
+    const footnotes = filterFootnotesForElements(chapter.footnotes, verseElements);
+
+    const passage: BiblePassage = {
+      id: `${normalizedTranslation}:${normalizedReference.toLowerCase()}`,
+      reference: normalizedReference,
+      translation: normalizedTranslation,
+      elements: verseElements,
+      footnotes,
+    };
 
     // 3. Cache result
     await this.kv.set(cacheKey, passage, CACHE_TTL_SECONDS);
 
     console.log(
-      `[KV Cache] Cached passage "${normalizedReference}" (${translation.toUpperCase()})`
+      `[KV Cache] Cached passage "${normalizedReference}" (${normalizedTranslation.toUpperCase()})`
     );
     return passage;
   }
 
-  /**
-   * Search for verses containing a query
-   * Note: Search results are not cached as they're dynamic
-   */
-  async searchVerses(
-    query: string,
-    translation: string = DEFAULT_TRANSLATION,
-    limit: number = 20
-  ): Promise<{ verses: BibleVerse[]; total: number }> {
-    const bibleId = getTranslationId(translation);
-    const params = new URLSearchParams({
-      query: query,
-      limit: limit.toString(),
-    });
-
-    const result = await this.fetch<{ verses: ApiBibleVerse[]; total: number }>(
-      `/bibles/${bibleId}/search?${params}`
-    );
-
-    return {
-      verses: (result.verses || []).map(transformVerse),
-      total: result.total || 0,
-    };
-  }
+  // Search is intentionally removed in this provider migration.
 }
 
 // Export singleton instance

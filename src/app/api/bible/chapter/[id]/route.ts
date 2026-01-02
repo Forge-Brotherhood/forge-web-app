@@ -14,7 +14,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const { id: chapterId } = await params;
     const { searchParams } = new URL(request.url);
-    const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
+    const translation = (searchParams.get("translation") || DEFAULT_TRANSLATION).toUpperCase();
 
     if (!chapterId) {
       return NextResponse.json(
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json(
       {
         chapter,
-        translation: translation.toUpperCase(),
+        translation,
       },
       {
         headers: {

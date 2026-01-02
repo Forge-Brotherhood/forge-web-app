@@ -1,67 +1,88 @@
 /**
- * Bible API Response Models
- * Types for API.Bible integration
+ * Bible Models (Canonical)
+ *
+ * Canonical structured schema used by Forge clients (web + iOS).
+ * Source data is AO Lab's Free Use Bible API.
  */
 
 // MARK: - Bible Translation
 
 export interface BibleTranslation {
-  id: string;           // API.Bible bibleId
-  abbreviation: string; // NIV, ESV, NLT, KJV, WEB
+  id: string;           // AO Lab translation code, e.g. "BSB"
+  abbreviation: string; // "BSB", "KJV", ...
   name: string;         // Full name
-  language: string;     // en
+  language: string;     // "eng"
 }
 
 // MARK: - Bible Book
 
 export interface BibleBook {
-  id: string;           // API.Bible bookId (e.g., "GEN")
+  id: string;           // USFM book id (e.g., "GEN")
   name: string;         // "Genesis"
-  abbreviation: string; // "Gen"
+  abbreviation: string; // Short label for UI (often equals id)
   testament: 'OT' | 'NT';
   chapterCount: number;
+  order?: number;       // 1-based canonical order, if available
 }
 
 // MARK: - Bible Chapter
 
 export interface BibleChapter {
-  id: string;           // API.Bible chapterId
+  id: string;           // Canonical id: `${bookId}.${number}` (e.g., "GEN.1")
   bookId: string;
   number: number;       // Chapter number (1-based)
   reference: string;    // "Genesis 1"
 }
 
-// MARK: - Bible Verse
+// =============================================================================
+// Canonical Structured Content Types
+// =============================================================================
 
-export interface BibleVerse {
-  id: string;           // API.Bible verseId
-  reference: string;    // "John 3:16"
-  bookId: string;
-  chapterId: string;
-  verseNumber: number;
-  content: string;      // HTML content
-  contentText: string;  // Plain text (stripped of HTML)
-}
+export type BibleInline =
+  | { type: 'text'; text: string }
+  | {
+      type: 'formatted_text';
+      text: string;
+      poem?: number; // indent level (1+)
+      wordsOfJesus?: boolean;
+    }
+  | { type: 'inline_heading'; heading: string }
+  | { type: 'inline_line_break' }
+  | { type: 'footnote_ref'; noteId: number };
+
+export type BibleContentElement =
+  | { type: 'heading'; level: number; inline: BibleInline[] }
+  | { type: 'line_break' }
+  | { type: 'hebrew_subtitle'; inline: BibleInline[] }
+  | { type: 'verse'; number: number; inline: BibleInline[] };
+
+export type BibleFootnote = {
+  noteId: number;
+  text: string;
+  caller: '+' | string | null;
+  reference?: {
+    chapter: number;
+    verse: number;
+  };
+};
 
 // MARK: - Bible Passage (multiple verses)
 
 export interface BiblePassage {
-  id: string;
-  reference: string;    // "John 3:16-17"
-  translationId: string;
-  translationAbbreviation: string;
-  content: string;      // Full HTML content
-  contentText: string;  // Plain text
-  copyright: string;    // Required by API.Bible
+  id: string;              // deterministic id, e.g. `${translation}:${reference}`
+  reference: string;       // "John 3:16-17"
+  translation: string;     // "BSB"
+  elements: BibleContentElement[];
+  footnotes: BibleFootnote[];
 }
 
 // MARK: - Bible Chapter Content
 
 export interface BibleChapterContent {
+  translation: string; // "BSB"
   chapter: BibleChapter;
-  content: string;       // HTML content
-  contentText: string;   // Plain text
-  copyright: string;
+  elements: BibleContentElement[];
+  footnotes: BibleFootnote[];
 }
 
 // MARK: - Verse of the Day
@@ -81,7 +102,7 @@ export interface BibleBooksResponse {
 
 export interface BibleChaptersResponse {
   chapters: BibleChapter[];
-  book: BibleBook;
+  bookId: string;
   translation: string;
 }
 
@@ -99,7 +120,9 @@ export interface VerseOfTheDayResponse {
 }
 
 export interface BibleSearchResponse {
-  verses: BibleVerse[];
+  // Search removed. This type is intentionally not used.
+  // (Kept out of public exports by removal in hooks/api client.)
+  verses: never[];
   query: string;
   translation: string;
   total: number;
@@ -107,64 +130,15 @@ export interface BibleSearchResponse {
 
 // MARK: - Supported Translations
 
-export type SupportedTranslation = 'BSB' | 'KJV' | 'WEB' | 'ASV' | 'CEV';
+export type SupportedTranslation = 'BSB' | 'KJV' | 'WEB' | 'ASV';
 
 export const BIBLE_TRANSLATIONS: Record<SupportedTranslation, { id: string; name: string }> = {
-  BSB: { id: 'bba9f40183526463-01', name: 'Berean Standard Bible' },
-  KJV: { id: 'de4e12af7f28f599-02', name: 'King James Version' },
-  WEB: { id: '9879dbb7cfe39e4d-01', name: 'World English Bible' },
-  ASV: { id: '06125adad2d5898a-01', name: 'American Standard Version' },
-  CEV: { id: '555fef9a6cb31151-01', name: 'Contemporary English Version' },
+  // id is the AO Lab translation id (from /api/available_translations.json)
+  BSB: { id: 'BSB', name: 'Berean Standard Bible' },
+  KJV: { id: 'eng_kjv', name: 'King James Version' },
+  WEB: { id: 'ENGWEBP', name: 'World English Bible' },
+  ASV: { id: 'eng_asv', name: 'American Standard Version' },
 };
 
 // BSB is a modern, readable translation - good default
 export const DEFAULT_TRANSLATION: SupportedTranslation = 'BSB';
-
-// MARK: - API.Bible Raw Response Types (for internal transformation)
-
-export interface ApiBibleBook {
-  id: string;
-  bibleId: string;
-  abbreviation: string;
-  name: string;
-  nameLong: string;
-}
-
-export interface ApiBibleChapter {
-  id: string;
-  bibleId: string;
-  bookId: string;
-  number: string;
-  reference: string;
-}
-
-export interface ApiBibleChapterContent {
-  id: string;
-  bibleId: string;
-  bookId: string;
-  number: string;
-  reference: string;
-  content: string;
-  copyright: string;
-}
-
-export interface ApiBiblePassage {
-  id: string;
-  bibleId: string;
-  orgId: string;
-  bookId: string;
-  chapterIds: string[];
-  reference: string;
-  content: string;
-  copyright: string;
-}
-
-export interface ApiBibleVerse {
-  id: string;
-  orgId: string;
-  bibleId: string;
-  bookId: string;
-  chapterId: string;
-  reference: string;
-  text: string;
-}

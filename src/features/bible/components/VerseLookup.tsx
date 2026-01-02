@@ -8,6 +8,7 @@ import { useBiblePassage } from "../hooks";
 import { Search, Loader2, X } from "lucide-react";
 import type { SupportedTranslation } from "@/core/models/bibleModels";
 import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { BibleContentRenderer } from "./BibleContentRenderer";
 
 interface VerseLookupProps {
   translation?: SupportedTranslation;
@@ -89,15 +90,13 @@ export function VerseLookup({
         <Card>
           <CardContent className="pt-4">
             <h3 className="font-semibold mb-2">
-              {data.passage.reference} ({data.passage.translationAbbreviation})
+              {data.passage.reference} ({data.passage.translation})
             </h3>
-            <div
-              className="prose prose-sm dark:prose-invert max-w-none"
-              dangerouslySetInnerHTML={{ __html: data.passage.content }}
+            <BibleContentRenderer
+              elements={data.passage.elements}
+              footnotes={data.passage.footnotes}
+              className="max-w-none"
             />
-            <p className="text-xs text-muted-foreground mt-4">
-              {data.passage.copyright}
-            </p>
           </CardContent>
         </Card>
       )}

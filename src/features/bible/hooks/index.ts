@@ -5,5 +5,4 @@ export {
   useBibleChapter,
   useBiblePassage,
   useVerseOfTheDay,
-  useBibleSearch,
 } from "./useBible";

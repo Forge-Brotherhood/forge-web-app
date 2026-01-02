@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { bibleService, BibleServiceError } from "@/lib/bible";
-import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { BibleServiceError } from "@/lib/bible";
 
 // GET /api/bible/search - Search Bible verses
 export async function GET(request: NextRequest) {
@@ -14,26 +13,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { searchParams } = new URL(request.url);
-    const query = searchParams.get("q");
-    const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
-    const limit = parseInt(searchParams.get("limit") || "20", 10);
-
-    if (!query) {
-      return NextResponse.json(
-        { error: "Search query 'q' is required" },
-        { status: 400 }
-      );
-    }
-
-    const result = await bibleService.searchVerses(query, translation, limit);
-
-    return NextResponse.json({
-      verses: result.verses,
-      query,
-      translation: translation.toUpperCase(),
-      total: result.total,
-    });
+    return NextResponse.json(
+      { error: "Bible search is no longer supported." },
+      { status: 410 }
+    );
   } catch (error) {
     console.error("Error searching Bible verses:", error);
 

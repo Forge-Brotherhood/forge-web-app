@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { deleteArtifact, updateArtifact } from "@/lib/artifacts/artifactService";
+import { generateSafeNoteSummary } from "@/lib/pipeline/stages/noteSummary";
+import type { VerseNoteMetadata } from "@/lib/artifacts/types";
 
 const updateNoteSchema = z.object({
   content: z.string().min(1).max(2000).optional(),
@@ -63,11 +66,52 @@ export async function PATCH(
       },
     });
 
+    // Update artifact (content, metadata, embedding) if present
+    try {
+      const artifact = await prisma.artifact.findFirst({
+        where: {
+          userId: authResult.userId,
+        type: "verse_note",
+          status: "active",
+          metadata: { path: ["noteId"], equals: id },
+        },
+      });
+
+      if (artifact) {
+        const existingMetadata = (artifact.metadata as VerseNoteMetadata | null) || ({} as VerseNoteMetadata);
+        const summary = validatedData.content
+          ? await generateSafeNoteSummary(validatedData.content)
+          : undefined;
+
+        const updatedMetadata: VerseNoteMetadata = {
+          ...existingMetadata,
+          ...(validatedData.isPrivate !== undefined ? { isPrivate: validatedData.isPrivate } : {}),
+          ...(summary ? { noteSummary: summary.summary } : {}),
+          ...(summary?.tags && summary.tags.length > 0 ? { noteTags: summary.tags } : {}),
+        };
+
+        await updateArtifact(artifact.id, authResult.userId, {
+          ...(validatedData.content ? { content: validatedData.content } : {}),
+          // Update title with new summary when content changes
+          ...(summary ? { title: summary.summary } : {}),
+          // Update tags array alongside metadata
+          ...(summary?.tags && summary.tags.length > 0 ? { tags: summary.tags } : {}),
+          ...(Object.keys(updatedMetadata).length > 0 ? { metadata: updatedMetadata as unknown as Record<string, unknown> } : {}),
+        });
+      }
+    } catch (artifactError) {
+      console.error("[Notes] Failed to update artifact:", artifactError);
+    }
+
     return NextResponse.json({
       success: true,
       note: {
         id: updatedNote.id,
-        verseId: updatedNote.verseId,
+        verseId: updatedNote.verseId, // anchor (start verse)
+        bookId: updatedNote.bookId,
+        chapter: updatedNote.chapter,
+        verseStart: updatedNote.verseStart,
+        verseEnd: updatedNote.verseEnd,
         content: updatedNote.content,
         isPrivate: updatedNote.isPrivate,
         author: {
@@ -130,6 +174,24 @@ export async function DELETE(
     await prisma.verseNote.delete({
       where: { id },
     });
+
+    // Soft-delete corresponding artifact
+    try {
+      const artifact = await prisma.artifact.findFirst({
+        where: {
+          userId: authResult.userId,
+          type: "verse_note",
+          status: "active",
+          metadata: { path: ["noteId"], equals: id },
+        },
+      });
+
+      if (artifact) {
+        await deleteArtifact(artifact.id, authResult.userId);
+      }
+    } catch (artifactError) {
+      console.error("[Notes] Failed to delete artifact:", artifactError);
+    }
 
     return NextResponse.json({
       success: true,

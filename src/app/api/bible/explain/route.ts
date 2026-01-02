@@ -98,7 +98,7 @@ Reference: ${validatedData.verseReference}
           Authorization: `Bearer ${openaiApiKey}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-4-turbo",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             { role: "user", content: userMessage },

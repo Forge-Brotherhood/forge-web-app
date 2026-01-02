@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
       whereClause.groupId = resolvedGroup.id;
     } else if (source === "core") {
       // Get threads from user's core group
-      const coreGroup = user.memberships.find(m => m.group.groupType === "core");
+      const coreGroup = user.memberships.find(m => m.group.groupType === "in_person");
       if (!coreGroup) {
         return NextResponse.json({ threads: [], totalCount: 0, hasMore: false });
       }
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     } else if (source === "circle") {
       // Get threads from all user's circle groups
       const circleGroupIds = user.memberships
-        .filter(m => m.group.groupType === "circle")
+        .filter(m => m.group.groupType === "virtual")
         .map(m => m.groupId);
       whereClause.groupId = { in: circleGroupIds };
     } else if (source === "community") {
@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
     // If no groupId provided (undefined), find user's core group or first active group
     // Note: null means explicitly community-only, undefined means auto-assign
     if (body.groupId === undefined) {
-      const coreGroup = user.memberships.find(m => m.group.groupType === "core");
+      const coreGroup = user.memberships.find(m => m.group.groupType === "in_person");
       const activeGroup = coreGroup || user.memberships[0];
       
       if (activeGroup) {

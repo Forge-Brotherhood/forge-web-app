@@ -39,11 +39,11 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case "joinCoreGroup": {
-        // Create or join a core group
+        // Create or join a "core" group (maps to GroupType.in_person)
         const existingMembership = await prisma.groupMember.findFirst({
           where: {
             userId: user.id,
-            group: { groupType: "core" },
+            group: { groupType: "in_person" },
             status: "active",
           },
         });
@@ -55,10 +55,10 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Find a core group with space or create new one
+        // Find an in_person group with space or create a new one
         let group = await prisma.group.findFirst({
           where: {
-            groupType: "core",
+            groupType: "in_person",
             members: {
               every: { status: "active" },
             },
@@ -74,11 +74,11 @@ export async function POST(request: NextRequest) {
         });
 
         if (!group || group._count.members >= 6) {
-          // Create new core group
+          // Create new in_person group
           const newGroup = await prisma.group.create({
             data: {
               name: `Core Group ${faker.company.buzzNoun()}`,
-              groupType: "core",
+              groupType: "in_person",
               shortId: faker.string.alphanumeric(8),
             },
           });
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
               id: { not: user.id },
               memberships: {
                 none: {
-                  group: { groupType: "core" },
+                  group: { groupType: "in_person" },
                   status: "active",
                 },
               },
@@ -143,11 +143,11 @@ export async function POST(request: NextRequest) {
       }
 
       case "joinCircleGroup": {
-        // Create or join a prayer circle
+        // Create or join a "circle" group (maps to GroupType.virtual)
         const existingMembership = await prisma.groupMember.findFirst({
           where: {
             userId: user.id,
-            group: { groupType: "circle" },
+            group: { groupType: "virtual" },
             status: "active",
           },
         });
@@ -159,10 +159,10 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Find or create a circle group
+        // Find or create a virtual group
         let group = await prisma.group.findFirst({
           where: {
-            groupType: "circle",
+            groupType: "virtual",
           },
           orderBy: {
             createdAt: "desc",
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
           group = await prisma.group.create({
             data: {
               name: `Prayer Circle ${faker.company.buzzAdjective()}`,
-              groupType: "circle",
+              groupType: "virtual",
               shortId: faker.string.alphanumeric(8),
             },
           });
@@ -220,11 +220,11 @@ export async function POST(request: NextRequest) {
       }
 
       case "createTestThread": {
-        // Create a test thread in user's core group
+        // Create a test thread in user's "core" group (in_person)
         const membership = await prisma.groupMember.findFirst({
           where: {
             userId: user.id,
-            group: { groupType: "core" },
+            group: { groupType: "in_person" },
             status: "active",
           },
         });
@@ -328,7 +328,7 @@ export async function POST(request: NextRequest) {
         const group = await prisma.groupMember.findFirst({
           where: {
             userId: user.id,
-            group: { groupType: "core" },
+            group: { groupType: "in_person" },
             status: "active",
           },
           include: { group: true },

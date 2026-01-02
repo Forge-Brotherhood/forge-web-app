@@ -12,6 +12,10 @@ const isPublicRoute = createRouteMatcher([
   '/api/bible/books',
   '/api/bible/chapters',
   '/api/bible/chapter/(.*)',
+  // Reading plan template day (for onboarding)
+  '/api/reading-plans/templates/(.*)/days/(.*)',
+  // Internal API routes (protected by API key, not Clerk)
+  '/api/internal/(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

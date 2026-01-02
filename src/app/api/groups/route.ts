@@ -21,7 +21,14 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const groupType = searchParams.get("type") as "core" | "circle" | null;
+    // Back-compat mapping (older clients used core/circle)
+    const groupTypeParam = searchParams.get("type");
+    const groupType =
+      groupTypeParam === "core"
+        ? "in_person"
+        : groupTypeParam === "circle"
+          ? "virtual"
+          : null;
 
     const groups = await prisma.group.findMany({
       where: {
@@ -110,7 +117,7 @@ export async function POST(request: NextRequest) {
         data: {
           name: validatedData.name,
           description: validatedData.description,
-          groupType: validatedData.groupType,
+          groupType: validatedData.groupType === "core" ? "in_person" : "virtual",
           shortId: Math.random().toString(36).substring(2, 10),
         },
       });

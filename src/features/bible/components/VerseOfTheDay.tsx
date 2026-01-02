@@ -5,6 +5,7 @@ import { useVerseOfTheDay } from "../hooks";
 import { BookOpen, Loader2 } from "lucide-react";
 import type { SupportedTranslation } from "@/core/models/bibleModels";
 import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { getPlainTextFromElements } from "./BibleContentRenderer";
 
 interface VerseOfTheDayProps {
   translation?: SupportedTranslation;
@@ -42,6 +43,7 @@ export function VerseOfTheDay({
   }
 
   const { verseOfTheDay } = data;
+  const quote = getPlainTextFromElements(verseOfTheDay.verse.elements);
 
   return (
     <Card
@@ -61,13 +63,10 @@ export function VerseOfTheDay({
       </CardHeader>
       <CardContent>
         <blockquote className="italic text-foreground/90 mb-3 leading-relaxed">
-          &ldquo;{verseOfTheDay.verse.contentText}&rdquo;
+          &ldquo;{quote}&rdquo;
         </blockquote>
         <p className="text-sm font-medium text-primary">
-          {verseOfTheDay.verse.reference} ({verseOfTheDay.verse.translationAbbreviation})
-        </p>
-        <p className="text-xs text-muted-foreground mt-2">
-          {verseOfTheDay.verse.copyright}
+          {verseOfTheDay.verse.reference} ({verseOfTheDay.verse.translation})
         </p>
       </CardContent>
     </Card>
