@@ -531,7 +531,6 @@ model BibleReadingProgress {
 
   @@unique([userId, bookId])
   @@index([userId, updatedAt])
-  @@map("bible_reading_progress")
 }
 
 model BibleReadingSession {
@@ -569,7 +568,6 @@ model BibleReadingSession {
   @@unique([userId, sessionId])
   @@index([userId, endedAt])
   @@index([userId, bookId, endedAt])
-  @@map("bible_reading_session")
 }
 
 // ---------- Reading Plans ----------
@@ -793,8 +791,6 @@ model UserPreferences {
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-
-  @@map("user_preferences")
 }
 
 /// Rolling conversation state (replaces compactor.ts)
@@ -818,7 +814,6 @@ model ConversationState {
   updatedAt       DateTime @updatedAt
 
   @@index([userId])
-  @@map("conversation_state")
 }
 
 /// Durable typed memories about user
@@ -857,7 +852,6 @@ model UserMemory {
 
   @@index([userId, memoryType])
   @@index([userId, isActive])
-  @@map("user_memory")
 }
 
 /// Short-lived signals for reinforcement before promotion to memory
@@ -887,7 +881,6 @@ model UserSignal {
 
   @@index([userId])
   @@index([expiresAt])
-  @@map("user_signal")
 }
 
 /// Life context for pastoral personalization (time-scoped, user-approved)
@@ -920,7 +913,6 @@ model UserLifeContext {
   @@index([userId])
   @@index([userId, type])
   @@index([expiresAt])
-  @@map("user_life_context")
 }
 
 // ---------- Artifacts ----------
@@ -963,7 +955,6 @@ model Artifact {
   @@index([groupId, type, createdAt])
   @@index([sessionId])
   @@index([status, createdAt])
-  @@map("artifact")
 }
 
 /// Relationships between artifacts (threads, follow-ups, references)
@@ -980,7 +971,6 @@ model ArtifactEdge {
 
   @@index([fromId, relation])
   @@index([toId, relation])
-  @@map("artifact_edge")
 }
 
 /// Model-versioned embeddings for semantic search
@@ -997,7 +987,6 @@ model ArtifactEmbedding {
 
   @@unique([artifactId, model])
   @@index([model])
-  @@map("artifact_embedding")
 }
 
 // ---------- AI Pipeline ----------
@@ -1023,7 +1012,6 @@ model PipelineArtifact {
   @@index([traceId])
   @@index([userId, createdAt])
   @@index([expiresAt])
-  @@map("pipeline_artifact")
 }
 
 /// Encrypted vault for raw content (debug mode only)
@@ -1039,7 +1027,6 @@ model PipelineVault {
 
   @@unique([runId, stage])
   @@index([expiresAt])
-  @@map("pipeline_vault")
 }
 
 // ---------- AI Debugger ----------
@@ -1085,5 +1072,4 @@ model DebugRun {
   @@index([adminId, createdAt])
   @@index([runId])
   @@index([parentRunId])
-  @@map("debug_run")
 }
