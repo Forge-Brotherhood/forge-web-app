@@ -23,6 +23,7 @@ import { executeRankAndBudgetStage } from "./stages/rankAndBudget";
 import { executePromptAssemblyStage } from "./stages/promptAssembly";
 import { executeModelCallStage } from "./stages/modelCall";
 import { executeMemoryExtractionAsync } from "./stages/memoryExtraction";
+import type { FullPromptData } from "./payloads/promptAssembly";
 
 // =============================================================================
 // Stage Result
@@ -31,6 +32,7 @@ import { executeMemoryExtractionAsync } from "./stages/memoryExtraction";
 export interface StageResult<T> {
   artifact: StageArtifact<T>;
   shouldContinue: boolean;
+  output: StageOutput<T>;
 }
 
 // =============================================================================
@@ -98,7 +100,7 @@ export async function runStage<T>(
   // Check if we should stop at this stage
   const shouldContinue = !shouldStopAtStage(ctx, stage);
 
-  return { artifact, shouldContinue };
+  return { artifact, shouldContinue, output: result };
 }
 
 // =============================================================================
@@ -111,6 +113,7 @@ export async function runStage<T>(
  */
 export async function runPipeline(ctx: RunContext): Promise<PipelineResult> {
   const artifacts: StageArtifact[] = [];
+  let promptAssemblyFullPromptData: FullPromptData | null = null;
 
   try {
     // Stage 1: INGRESS
@@ -157,6 +160,8 @@ export async function runPipeline(ctx: RunContext): Promise<PipelineResult> {
       () => executePromptAssemblyStage(ctx, ranked.artifact.payload)
     );
     artifacts.push(prompt.artifact);
+    promptAssemblyFullPromptData =
+      (prompt.output.rawContent as FullPromptData | undefined) ?? null;
     if (!prompt.shouldContinue) {
       return { artifacts, stoppedAt: PipelineStage.PROMPT_ASSEMBLY };
     }
@@ -166,7 +171,12 @@ export async function runPipeline(ctx: RunContext): Promise<PipelineResult> {
       PipelineStage.MODEL_CALL,
       "1.0.0",
       ctx,
-      () => executeModelCallStage(ctx, prompt.artifact.payload)
+      () =>
+        executeModelCallStage(
+          ctx,
+          prompt.artifact.payload,
+          promptAssemblyFullPromptData
+        )
     );
     artifacts.push(model.artifact);
 

@@ -132,30 +132,32 @@ function truncate(text: string, maxLength: number): string {
  */
 export async function executeModelCallStage(
   ctx: RunContext,
-  promptPayload: PromptAssemblyPayload
+  promptPayload: PromptAssemblyPayload,
+  fullPromptDataFromPromptAssembly?: FullPromptData | null
 ): Promise<StageOutput<ModelCallPayload>> {
   const startTime = Date.now();
 
-  console.log("[ModelCall] Starting with rawRef:", promptPayload.rawRef);
+  // Prefer in-memory prompt data from PROMPT_ASSEMBLY (works in production).
+  // Vault is debug-only storage and may be empty in production.
+  let fullPromptData: FullPromptData | null = fullPromptDataFromPromptAssembly ?? null;
 
-  // Get full prompt data from vault or reconstruct
-  let fullPromptData: FullPromptData | null = null;
-  if (promptPayload.rawRef) {
+  // Fallback: try retrieving from vault (useful for debug mode / replay).
+  if (!fullPromptData && promptPayload.rawRef) {
     const parsed = promptPayload.rawRef.match(/^vault:\/\/([^/]+)\/(.+)$/);
-    console.log("[ModelCall] Parsed vault ref:", parsed);
     if (parsed) {
       fullPromptData = (await retrieveFromVault(
         parsed[1],
         parsed[2] as PipelineStage
       )) as FullPromptData | null;
-      console.log("[ModelCall] Retrieved from vault:", fullPromptData ? "success" : "null");
     }
   }
 
-  // If we couldn't get from vault, we need to reconstruct (this shouldn't happen in normal flow)
+  // Final fallback: minimal prompt (should not happen in normal flow)
   if (!fullPromptData) {
-    // This is a fallback - in normal operation, we'd have the raw data
-    console.warn("[ModelCall] No vault data, using minimal prompt. rawRef was:", promptPayload.rawRef);
+    console.warn(
+      "[ModelCall] Missing full prompt data; using minimal prompt. rawRef was:",
+      promptPayload.rawRef
+    );
     fullPromptData = {
       systemPrompt: "",
       messages: [{ role: "user", content: ctx.message }],
