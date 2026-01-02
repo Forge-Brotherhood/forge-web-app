@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node --test --import tsx src/lib/pipeline/plan/planBuilder.test.ts",
+    "db:push": "prisma db push --schema prisma/schema.prisma",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:backfill:bible-ranges": "prisma db execute --schema prisma/schema.prisma --file prisma/manual/backfill-bible-ranges.sql",
     "db:backfill:group-type:add-values": "prisma db execute --schema prisma/schema.prisma --file prisma/manual/group-type-add-values.sql",

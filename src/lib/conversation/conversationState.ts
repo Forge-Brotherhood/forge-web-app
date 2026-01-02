@@ -34,6 +34,14 @@ export type ConversationStateData = {
 // Public API
 // =============================================================================
 
+type UpdateConversationStateOptions = {
+  /**
+   * When true, may call OpenAI to generate rolling summaries if messages overflow.
+   * When false, skips summarization to keep the update fast and low-risk (good for hot paths).
+   */
+  shouldSummarize: boolean;
+};
+
 const isConversationMessage = (value: unknown): value is ConversationMessage => {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
@@ -97,8 +105,41 @@ export async function updateConversationState(
   newUserMessage: string,
   newAssistantMessage: string
 ): Promise<void> {
+  await updateConversationStateInternal(conversationId, userId, newUserMessage, newAssistantMessage, {
+    shouldSummarize: true,
+  });
+}
+
+/**
+ * Fast update version meant for hot API paths.
+ * Skips summary generation to minimize DB + network pressure.
+ */
+export async function updateConversationStateFast(
+  conversationId: string,
+  userId: string,
+  newUserMessage: string,
+  newAssistantMessage: string
+): Promise<void> {
+  await updateConversationStateInternal(conversationId, userId, newUserMessage, newAssistantMessage, {
+    shouldSummarize: false,
+  });
+}
+
+async function updateConversationStateInternal(
+  conversationId: string,
+  userId: string,
+  newUserMessage: string,
+  newAssistantMessage: string,
+  options: UpdateConversationStateOptions
+): Promise<void> {
   const existing = await prisma.conversationState.findUnique({
     where: { conversationId },
+    select: {
+      userId: true,
+      summary: true,
+      recentMessages: true,
+      turnCount: true,
+    },
   });
 
   const now = new Date().toISOString();
@@ -132,7 +173,9 @@ export async function updateConversationState(
   let summary = existing.summary;
   if (allMessages.length > MEMORY_CONFIG.MAX_RECENT_MESSAGES) {
     const droppedMessages = allMessages.slice(0, -MEMORY_CONFIG.MAX_RECENT_MESSAGES);
-    summary = await generateIncrementalSummary(existing.summary, droppedMessages);
+    if (options.shouldSummarize) {
+      summary = await generateIncrementalSummary(existing.summary, droppedMessages);
+    }
   }
 
   await prisma.conversationState.update({

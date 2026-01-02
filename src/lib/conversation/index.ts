@@ -7,6 +7,7 @@
 export {
   getConversationState,
   updateConversationState,
+  updateConversationStateFast,
   buildMessagesWithState,
   deleteConversationState,
   estimateTokens,

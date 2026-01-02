@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getAuth } from "@/lib/auth";
+import { Prisma } from "@prisma/client";
 
 const paramsSchema = z.object({
   bookId: z.string().min(1),
@@ -44,6 +45,17 @@ export async function GET(
       return NextResponse.json(
         { error: "Invalid request parameters", details: error.issues },
         { status: 400 }
+      );
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2021") {
+      console.error("[ReadingPositionByBook] GET failed (missing table):", error);
+      return NextResponse.json(
+        {
+          error:
+            'Database schema is missing required tables. Run `npx prisma db push` (local/dev) or `npx prisma migrate deploy` (deploy).',
+          details: error.meta ?? null,
+        },
+        { status: 503 }
       );
     }
     console.error("[ReadingPositionByBook] GET failed:", error);

@@ -6,21 +6,21 @@
 --
 -- Postgres keeps constraints and foreign keys intact on table rename.
 
-ALTER TABLE "bible_reading_progress" RENAME TO "BibleReadingProgress";
-ALTER TABLE "bible_reading_session" RENAME TO "BibleReadingSession";
+ALTER TABLE IF EXISTS "bible_reading_progress" RENAME TO "BibleReadingProgress";
+ALTER TABLE IF EXISTS "bible_reading_session" RENAME TO "BibleReadingSession";
 
-ALTER TABLE "user_preferences" RENAME TO "UserPreferences";
-ALTER TABLE "conversation_state" RENAME TO "ConversationState";
-ALTER TABLE "user_memory" RENAME TO "UserMemory";
-ALTER TABLE "user_signal" RENAME TO "UserSignal";
-ALTER TABLE "user_life_context" RENAME TO "UserLifeContext";
+ALTER TABLE IF EXISTS "user_preferences" RENAME TO "UserPreferences";
+ALTER TABLE IF EXISTS "conversation_state" RENAME TO "ConversationState";
+ALTER TABLE IF EXISTS "user_memory" RENAME TO "UserMemory";
+ALTER TABLE IF EXISTS "user_signal" RENAME TO "UserSignal";
+ALTER TABLE IF EXISTS "user_life_context" RENAME TO "UserLifeContext";
 
-ALTER TABLE "artifact" RENAME TO "Artifact";
-ALTER TABLE "artifact_edge" RENAME TO "ArtifactEdge";
-ALTER TABLE "artifact_embedding" RENAME TO "ArtifactEmbedding";
+ALTER TABLE IF EXISTS "artifact" RENAME TO "Artifact";
+ALTER TABLE IF EXISTS "artifact_edge" RENAME TO "ArtifactEdge";
+ALTER TABLE IF EXISTS "artifact_embedding" RENAME TO "ArtifactEmbedding";
 
-ALTER TABLE "pipeline_artifact" RENAME TO "PipelineArtifact";
-ALTER TABLE "pipeline_vault" RENAME TO "PipelineVault";
-ALTER TABLE "debug_run" RENAME TO "DebugRun";
+ALTER TABLE IF EXISTS "pipeline_artifact" RENAME TO "PipelineArtifact";
+ALTER TABLE IF EXISTS "pipeline_vault" RENAME TO "PipelineVault";
+ALTER TABLE IF EXISTS "debug_run" RENAME TO "DebugRun";
 
 

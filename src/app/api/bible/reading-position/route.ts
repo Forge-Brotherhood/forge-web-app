@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getAuth } from "@/lib/auth";
+import { Prisma } from "@prisma/client";
 
 const uiStateSchema = z
   .object({
@@ -93,6 +94,17 @@ export async function GET(request: NextRequest) {
       recentPositions,
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2021") {
+      console.error("[ReadingPosition] GET failed (missing table):", error);
+      return NextResponse.json(
+        {
+          error:
+            'Database schema is missing required tables. Run `npx prisma db push` (local/dev) or `npx prisma migrate deploy` (deploy).',
+          details: error.meta ?? null,
+        },
+        { status: 503 }
+      );
+    }
     console.error("[ReadingPosition] GET failed:", error);
     return NextResponse.json(
       { error: "Failed to fetch reading position" },
@@ -229,6 +241,17 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         { error: "Invalid request data", details: error.issues },
         { status: 400 }
+      );
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2021") {
+      console.error("[ReadingPosition] PUT failed (missing table):", error);
+      return NextResponse.json(
+        {
+          error:
+            'Database schema is missing required tables. Run `npx prisma db push` (local/dev) or `npx prisma migrate deploy` (deploy).',
+          details: error.meta ?? null,
+        },
+        { status: 503 }
       );
     }
     console.error("[ReadingPosition] PUT failed:", error);

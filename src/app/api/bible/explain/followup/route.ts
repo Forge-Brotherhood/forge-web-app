@@ -19,7 +19,7 @@ import {
   createResponseDeliveredEvent,
   createErrorEvent,
 } from "@/lib/observability";
-import { updateConversationState } from "@/lib/conversation";
+import { updateConversationStateFast } from "@/lib/conversation";
 // Pipeline imports
 import {
   runPipeline,
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
 
     // Persist rolling conversation state for this client chat session (best-effort)
     if (validatedData.conversationId) {
-      updateConversationState(
+      await updateConversationStateFast(
         validatedData.conversationId,
         user.id,
         validatedData.question,
