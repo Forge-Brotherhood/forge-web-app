@@ -34,8 +34,10 @@ function estimateTokens(text: string): number {
 // =============================================================================
 
 function getModelForEntrypoint(entrypoint: string): string {
-  // Use GPT-5.1 for all Bible study interactions
-  return "gpt-5.1";
+  // Use the chat-optimized GPT-5.1 alias for Bible study interactions.
+  // This matches OpenAI’s GPT‑5.1 developer guidance and helps ensure
+  // chat-completions behavior is stable across environments.
+  return "gpt-5.1-chat-latest";
 }
 
 // =============================================================================

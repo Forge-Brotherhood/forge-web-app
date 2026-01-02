@@ -52,7 +52,17 @@ export interface AIModelCalled extends BaseEvent {
   model: string;
   latencyMs: number;
   inputTokens: number;
+  inputTokenDetails?: {
+    cachedTokens: number;
+    audioTokens: number;
+  };
   outputTokens: number;
+  outputTokenDetails?: {
+    reasoningTokens: number;
+    audioTokens: number;
+    acceptedPredictionTokens: number;
+    rejectedPredictionTokens: number;
+  };
   finishReason: string;
   toolCallCount: number;
 }
@@ -165,7 +175,11 @@ export function createModelCalledEvent(
   inputTokens: number,
   outputTokens: number,
   finishReason: string,
-  toolCallCount: number
+  toolCallCount: number,
+  tokenDetails?: {
+    inputTokenDetails?: AIModelCalled["inputTokenDetails"];
+    outputTokenDetails?: AIModelCalled["outputTokenDetails"];
+  }
 ): AIModelCalled {
   return {
     type: "ai.model.called",
@@ -176,7 +190,9 @@ export function createModelCalledEvent(
     model,
     latencyMs,
     inputTokens,
+    inputTokenDetails: tokenDetails?.inputTokenDetails,
     outputTokens,
+    outputTokenDetails: tokenDetails?.outputTokenDetails,
     finishReason,
     toolCallCount,
   };

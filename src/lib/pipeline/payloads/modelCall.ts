@@ -6,6 +6,18 @@
 
 export const MODEL_CALL_SCHEMA_VERSION = "1.0.0";
 
+export type InputTokenDetails = {
+  cachedTokens: number;
+  audioTokens: number;
+};
+
+export type OutputTokenDetails = {
+  reasoningTokens: number;
+  audioTokens: number;
+  acceptedPredictionTokens: number;
+  rejectedPredictionTokens: number;
+};
+
 export interface ModelCallPayload {
   schemaVersion: typeof MODEL_CALL_SCHEMA_VERSION;
   model: string;
@@ -13,7 +25,9 @@ export interface ModelCallPayload {
   maxTokens: number;
   latencyMs: number;
   inputTokens: number;
+  inputTokenDetails?: InputTokenDetails;
   outputTokens: number;
+  outputTokenDetails?: OutputTokenDetails;
   finishReason: string;
   responsePreview: string; // Always redacted
   responseLength: number;

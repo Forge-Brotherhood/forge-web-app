@@ -37,6 +37,16 @@ interface OpenAIResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      audio_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+      audio_tokens?: number;
+      accepted_prediction_tokens?: number;
+      rejected_prediction_tokens?: number;
+    };
   };
 }
 
@@ -88,9 +98,7 @@ export async function executeModelCallStage(
       role: m.role,
       content: m.content,
     })),
-    temperature: promptPayload.modelRequestRedacted.temperature,
     max_completion_tokens: promptPayload.modelRequestRedacted.maxTokens,
-    reasoning_effort: "none", // Disable reasoning tokens for GPT-5.1
   };
 
   // Execute the model call using fetch
@@ -125,7 +133,23 @@ export async function executeModelCallStage(
     maxTokens: promptPayload.modelRequestRedacted.maxTokens,
     latencyMs,
     inputTokens: data.usage?.prompt_tokens ?? 0,
+    inputTokenDetails: data.usage?.prompt_tokens_details
+      ? {
+          cachedTokens: data.usage.prompt_tokens_details.cached_tokens ?? 0,
+          audioTokens: data.usage.prompt_tokens_details.audio_tokens ?? 0,
+        }
+      : undefined,
     outputTokens: data.usage?.completion_tokens ?? 0,
+    outputTokenDetails: data.usage?.completion_tokens_details
+      ? {
+          reasoningTokens: data.usage.completion_tokens_details.reasoning_tokens ?? 0,
+          audioTokens: data.usage.completion_tokens_details.audio_tokens ?? 0,
+          acceptedPredictionTokens:
+            data.usage.completion_tokens_details.accepted_prediction_tokens ?? 0,
+          rejectedPredictionTokens:
+            data.usage.completion_tokens_details.rejected_prediction_tokens ?? 0,
+        }
+      : undefined,
     finishReason: choice.finish_reason ?? "unknown",
     responsePreview: responseContent,
     responseLength: responseContent.length,

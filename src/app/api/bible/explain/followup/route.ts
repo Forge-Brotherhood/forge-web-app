@@ -188,7 +188,17 @@ export async function POST(request: NextRequest) {
       responsePreview: string;
       latencyMs: number;
       inputTokens: number;
+      inputTokenDetails?: {
+        cachedTokens: number;
+        audioTokens: number;
+      };
       outputTokens: number;
+      outputTokenDetails?: {
+        reasoningTokens: number;
+        audioTokens: number;
+        acceptedPredictionTokens: number;
+        rejectedPredictionTokens: number;
+      };
       finishReason: string;
       model: string;
     };
@@ -215,7 +225,11 @@ export async function POST(request: NextRequest) {
         modelPayload.inputTokens,
         modelPayload.outputTokens,
         modelPayload.finishReason,
-        0
+        0,
+        {
+          inputTokenDetails: modelPayload.inputTokenDetails,
+          outputTokenDetails: modelPayload.outputTokenDetails,
+        }
       )
     );
 
