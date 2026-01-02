@@ -1,7 +1,7 @@
-import { PrismaClient, ReadingPlanVisibility } from "@prisma/client";
+import { ReadingPlanVisibility } from "@prisma/client";
 import { customAlphabet } from "nanoid";
 
-const prisma = new PrismaClient();
+import { prisma } from "../src/lib/prisma";
 const generateShortId = customAlphabet(
   "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
   10

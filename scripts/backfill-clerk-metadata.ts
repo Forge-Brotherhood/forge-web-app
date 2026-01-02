@@ -9,13 +9,11 @@
 
 import "dotenv/config";
 import { createClerkClient } from "@clerk/backend";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../src/lib/prisma";
 
 const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY,
 });
-
-const prisma = new PrismaClient();
 
 async function backfill() {
   console.log("Starting Clerk metadata backfill...\n");

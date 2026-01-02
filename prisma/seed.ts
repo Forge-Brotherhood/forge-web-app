@@ -1,10 +1,10 @@
-import { PrismaClient, PrayerRequestStatus, PrayerEntryKind, GroupType, PrayerResponseType, BanState } from '@prisma/client';
+import { PrayerRequestStatus, PrayerEntryKind, GroupType, PrayerResponseType, BanState } from '@prisma/client';
 import { faker } from '@faker-js/faker';
 import { customAlphabet } from 'nanoid';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const prisma = new PrismaClient();
+import { prisma } from '../src/lib/prisma';
 
 // NanoID generator for shortIds (10 chars, alphanumeric)
 const generateShortId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 10);
