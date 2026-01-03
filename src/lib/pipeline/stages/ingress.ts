@@ -13,6 +13,7 @@ import {
   type IngressPayload,
 } from "../payloads/ingress";
 import { buildPlan } from "../plan/planBuilder";
+import { RETRIEVAL_NEEDS } from "../plan/types";
 
 // =============================================================================
 // Input Normalization
@@ -104,6 +105,28 @@ export async function executeIngressStage(
       })) ?? [],
     isFirstMessage: !ctx.conversationHistory?.length,
   });
+
+  // Force "all recent context" for chat_start so suggestions are grounded in real user history.
+  if (ctx.entrypoint === "chat_start") {
+    const forcedNeeds = [
+      RETRIEVAL_NEEDS.bible_reading_sessions,
+      RETRIEVAL_NEEDS.verse_notes,
+      RETRIEVAL_NEEDS.verse_highlights,
+      RETRIEVAL_NEEDS.conversation_session_summaries,
+      RETRIEVAL_NEEDS.artifact_semantic,
+      RETRIEVAL_NEEDS.user_memory,
+    ] as const;
+
+    const existing = new Set(plan.retrieval.needs);
+    for (const need of forcedNeeds) existing.add(need);
+    plan.retrieval.needs = Array.from(existing);
+
+    // Always bound to the last month for "recent" context (reduces noise and prompt bloat).
+    plan.retrieval.filters = {
+      ...(plan.retrieval.filters ?? {}),
+      temporal: { range: "last_month" },
+    };
+  }
 
   // Extract additional entities from message
   const detectedEntities = extractEntities(normalizedInput);

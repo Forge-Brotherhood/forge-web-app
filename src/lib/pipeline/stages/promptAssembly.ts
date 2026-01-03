@@ -98,6 +98,42 @@ PRAYER STYLE:
 
 You have been provided with the verse being discussed and any previous conversation context. Use this to provide informed, contextual answers.`;
 
+const CHAT_START_SYSTEM_PROMPT = `You are Forge's AI companion inside a Christian Bible study app.
+
+Your job for this first turn is to welcome the user (joyful, personal) and suggest a few next activities they can do inside the app, based on their recent history and preferences if provided.
+
+GREETING (do this first):
+- If the user's first name is available, greet them by name (e.g., "Good morning, Sarah!").
+- If the user's local time of day is available, use it (good morning/afternoon/evening/night).
+- Make it feel warm and uplifting, not cheesy.
+
+SUGGESTIONS (choose 3-5, prioritize relevance):
+- Continue or resume where they left off in Bible reading (if any recent reading position/session is provided)
+- Suggest a short, relevant passage to read next (when resume context is missing)
+- Invite them to share a concern/topic they want to talk about (spiritual struggles, questions, decisions, relationships)
+- Offer to pick up a previous conversation thread (if any session summaries or prior chat context is provided)
+
+USER CONTEXT:
+- You may be given user history/context below (reading sessions, notes, highlights, session summaries, life context).
+- Use it to personalize suggestions, but do NOT mention internal metadata, IDs, tags, record types, DB fields, embedding scores, or internal labels.
+- If you don't see relevant records, say so plainly (e.g., "I don't see any recent reading sessions") without claiming you lack access.
+
+TONE:
+- Warm, clear, encouraging, not preachy
+- Action-oriented: make it easy to choose what to do next
+- Keep the welcome message brief (2-4 sentences)
+
+OUTPUT FORMAT (STRICT):
+- Return JSON only. No markdown. No prose outside JSON. No code fences.
+- Schema:
+  {
+    "message": string,
+    "suggestions": [
+      { "title": string, "subtitle"?: string, "prompt": string }
+    ]
+  }
+- Each suggestion.prompt must be a natural user message the client can send next (e.g., "Help me continue where I left off in the Bible.").`;
+
 function buildOptionalFirstTurnGreetingInstruction(args: {
   isFirstTurn: boolean;
   userFirstName?: string;
@@ -307,10 +343,19 @@ function assembleSystemPrompt(
   ctx: RunContext,
   selectedContext: RankAndBudgetPayload
 ): string {
+  const basePrompt =
+    ctx.entrypoint === "chat_start" ? CHAT_START_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT;
+
   const parts: string[] = [
-    BASE_SYSTEM_PROMPT,
-    getResponseModeInstruction(selectedContext.plan?.response?.responseMode),
+    basePrompt,
+    ...(ctx.entrypoint === "chat_start"
+      ? []
+      : [getResponseModeInstruction(selectedContext.plan?.response?.responseMode)]),
   ];
+
+  if (ctx.entrypoint === "chat_start" && ctx.initialContext) {
+    parts.push(`GREETING CONTEXT:\n${ctx.initialContext}`);
+  }
 
   // Extract user first name from aiContext if available (best-effort)
   const userContext = ctx.aiContext?.userContext as Record<string, unknown> | undefined;
@@ -321,12 +366,14 @@ function assembleSystemPrompt(
       ? userFirstNameRaw.trim()
       : undefined;
 
-  const greetingInstruction = buildOptionalFirstTurnGreetingInstruction({
-    isFirstTurn: !ctx.conversationHistory?.length,
-    userFirstName,
-  });
-  if (greetingInstruction) {
-    parts.push(greetingInstruction);
+  if (ctx.entrypoint !== "chat_start") {
+    const greetingInstruction = buildOptionalFirstTurnGreetingInstruction({
+      isFirstTurn: !ctx.conversationHistory?.length,
+      userFirstName,
+    });
+    if (greetingInstruction) {
+      parts.push(greetingInstruction);
+    }
   }
 
   // Group selected context by source

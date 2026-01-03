@@ -387,7 +387,11 @@ async function getArtifactContext(
   const needs = new Set(ingress.plan.retrieval.needs);
   if (!needs.has(RETRIEVAL_NEEDS.artifact_semantic)) return [];
 
-  console.log("[ContextCandidates] Fetching semantic artifacts for userId:", ctx.userId);
+  const isChatStart = ctx.entrypoint === "chat_start";
+  console.log(
+    `[ContextCandidates] Fetching ${isChatStart ? "recent" : "semantic"} artifacts for userId:`,
+    ctx.userId
+  );
 
   try {
     const artifactTypes: ArtifactType[] =
@@ -417,6 +421,37 @@ async function getArtifactContext(
         createdAfter,
         createdBefore,
       });
+    }
+
+    // For chat_start, we want genuinely "recent context" (recency-ranked),
+    // not query-shaped semantic matches to the synthetic chat_start message.
+    if (isChatStart) {
+      const recent = await prisma.artifact.findMany({
+        where: {
+          userId: ctx.userId,
+          type: { in: artifactTypes },
+          status: "active",
+          ...(createdAfter || createdBefore
+            ? {
+                createdAt: {
+                  ...(createdAfter ? { gte: createdAfter } : {}),
+                  ...(createdBefore ? { lte: createdBefore } : {}),
+                },
+              }
+            : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+
+      console.log("[ContextCandidates] Found recent artifacts:", recent.length);
+
+      return recent.map((artifact) =>
+        createArtifactCandidate(artifact, {
+          recencyScore: calculateRecencyScore(artifact.createdAt),
+          createdAt: artifact.createdAt.toISOString(),
+        })
+      );
     }
 
     // Semantic search using user's message (with optional date filtering)
