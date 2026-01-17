@@ -40,12 +40,44 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
+      const correlationId =
+        request.headers.get("x-request-id") ??
+        request.headers.get("x-vercel-id") ??
+        request.headers.get("cf-ray") ??
+        crypto.randomUUID();
+      console.warn(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "warn",
+          tag: "api.chat",
+          event: "request_validation_failed",
+          correlationId,
+          path: new URL(request.url).pathname,
+          issues: err.issues,
+        })
+      );
       return new Response(JSON.stringify({ error: "Invalid request data", details: err.issues }), {
         status: 400,
         headers: { "Content-Type": "application/json; charset=utf-8" },
       });
     }
     const message = err instanceof Error ? err.message : String(err);
+    const correlationId =
+      request.headers.get("x-request-id") ??
+      request.headers.get("x-vercel-id") ??
+      request.headers.get("cf-ray") ??
+      crypto.randomUUID();
+    console.error(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "error",
+        tag: "api.chat",
+        event: "route_failed",
+        correlationId,
+        path: new URL(request.url).pathname,
+        error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack?.slice(0, 4000) } : { message },
+      })
+    );
     return new Response(JSON.stringify({ error: "Failed to chat", details: message }), {
       status: 500,
       headers: { "Content-Type": "application/json; charset=utf-8" },

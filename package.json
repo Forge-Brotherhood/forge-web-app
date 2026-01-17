@@ -56,7 +56,7 @@
     "@vercel/kv": "^3.0.0",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
-    "cloudinary": "^2.7.0",
+    "cloudinary": "^2.9.0",
     "clsx": "^2.1.1",
     "critters": "^0.0.23",
     "date-fns": "^4.1.0",
@@ -88,5 +88,8 @@
     "@types/pg": "^8.11.10",
     "prisma": "^7.2.0",
     "tsx": "^4.21.0"
+  },
+  "overrides": {
+    "formdata-node": "6.0.3"
   }
 }
