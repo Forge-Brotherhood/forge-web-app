@@ -13,7 +13,7 @@ import {
   type IngressPayload,
 } from "../payloads/ingress";
 import { buildPlan } from "../plan/planBuilder";
-import { RETRIEVAL_NEEDS } from "../plan/types";
+import { RETRIEVAL_NEEDS, type Plan } from "../plan/types";
 
 // =============================================================================
 // Input Normalization
@@ -96,36 +96,50 @@ export async function executeIngressStage(
   // Normalize input
   const normalizedInput = normalizeMessage(ctx.message);
 
-  const plan = await buildPlan({
-    message: normalizedInput,
-    conversationHistory:
-      ctx.conversationHistory?.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })) ?? [],
-    isFirstMessage: !ctx.conversationHistory?.length,
-  });
-
-  // Force "all recent context" for chat_start so suggestions are grounded in real user history.
+  // For chat_start we can skip planner intent/LLM entirely and use a deterministic plan.
+  // This keeps the pipeline fast and guarantees we retrieve the right recent context bundle.
+  let plan: Plan;
   if (ctx.entrypoint === "chat_start") {
-    const forcedNeeds = [
-      RETRIEVAL_NEEDS.bible_reading_sessions,
-      RETRIEVAL_NEEDS.verse_notes,
-      RETRIEVAL_NEEDS.verse_highlights,
-      RETRIEVAL_NEEDS.conversation_session_summaries,
-      RETRIEVAL_NEEDS.artifact_semantic,
-      RETRIEVAL_NEEDS.user_memory,
-    ] as const;
-
-    const existing = new Set(plan.retrieval.needs);
-    for (const need of forcedNeeds) existing.add(need);
-    plan.retrieval.needs = Array.from(existing);
-
-    // Always bound to the last month for "recent" context (reduces noise and prompt bloat).
-    plan.retrieval.filters = {
-      ...(plan.retrieval.filters ?? {}),
-      temporal: { range: "last_month" },
+    plan = {
+      response: {
+        responseMode: "coach",
+        lengthTarget: "short",
+        safetyFlags: { selfHarm: false, violence: false },
+        flags: { selfDisclosure: false, situational: false },
+        signals: ["chat_start_forced_plan"],
+        source: "rules",
+        confidence: 0.99,
+      },
+      retrieval: {
+        needs: [
+          RETRIEVAL_NEEDS.bible_reading_sessions,
+          RETRIEVAL_NEEDS.verse_notes,
+          RETRIEVAL_NEEDS.verse_highlights,
+          RETRIEVAL_NEEDS.conversation_session_summaries,
+          RETRIEVAL_NEEDS.artifact_semantic,
+          RETRIEVAL_NEEDS.user_memory,
+        ],
+        filters: { temporal: { range: "last_month" } },
+        limits: {
+          [RETRIEVAL_NEEDS.user_memory]: 10,
+          [RETRIEVAL_NEEDS.verse_highlights]: 20,
+          [RETRIEVAL_NEEDS.verse_notes]: 20,
+          [RETRIEVAL_NEEDS.artifact_semantic]: 10,
+          [RETRIEVAL_NEEDS.conversation_session_summaries]: 5,
+          [RETRIEVAL_NEEDS.bible_reading_sessions]: 10,
+        },
+      },
     };
+  } else {
+    plan = await buildPlan({
+      message: normalizedInput,
+      conversationHistory:
+        ctx.conversationHistory?.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })) ?? [],
+      isFirstMessage: !ctx.conversationHistory?.length,
+    });
   }
 
   // Extract additional entities from message

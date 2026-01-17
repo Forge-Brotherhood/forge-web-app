@@ -16,9 +16,46 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { searchSimilar } from "@/lib/artifacts/embeddingService";
 import type { ArtifactType } from "@/lib/artifacts/types";
-import { getBookDisplayNameFromCode } from "@/lib/bible";
+import { getBookDisplayNameFromCode } from "@/lib/bible/bookCodes";
 import { computeDateBounds } from "@/lib/memory/intentClassifier";
 import { RETRIEVAL_NEEDS, type ScriptureScope } from "../plan/types";
+import type { ChapterCompletionStatus } from "@/lib/bible/readingCompletion";
+
+type ParsedReadRange = { verseStart: number; verseEnd: number } | null;
+
+const parseFirstVerseRangeFromReadRange = (readRange: string): ParsedReadRange => {
+  const raw = readRange.trim();
+  if (!raw) return null;
+
+  // Expect chapter-local strings like:
+  // - "2:1-10"
+  // - "2:1"
+  // - "1-10"
+  // - "1"
+  const afterColon = raw.includes(":") ? raw.split(":").slice(1).join(":") : raw;
+  const m = afterColon.match(/^(\d{1,3})(?:-(\d{1,3}))?$/);
+  if (!m) return null;
+
+  const a = Number(m[1]);
+  const b = m[2] ? Number(m[2]) : a;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+
+  const start = Math.max(1, Math.min(a, b));
+  const end = Math.max(1, Math.max(a, b));
+  return { verseStart: start, verseEnd: end };
+};
+
+type UserLifeContext = {
+  currentSeason?: string;
+  weeklyIntention?: {
+    carrying?: string;
+    hoping?: string;
+  };
+};
+
+type UserContext = {
+  lifeContext?: UserLifeContext;
+};
 
 // =============================================================================
 // Preview Redaction
@@ -85,115 +122,7 @@ async function getBibleContext(
   return candidates;
 }
 
-/**
- * Get user's durable memories from new UserMemory model.
- *
- * Memories are typed facts about the user (struggle themes, faith stages, etc.)
- * that have been promoted from signals after repeated observation.
- */
-async function getUserMemories(
-  ctx: RunContext,
-  _ingress: IngressPayload
-): Promise<CandidateContext[]> {
-  console.log("[ContextCandidates] Fetching memories for userId:", ctx.userId);
-
-  const memories = await prisma.userMemory.findMany({
-    where: {
-      userId: ctx.userId,
-      isActive: true,
-      strength: { gte: 0.3 }, // Only include memories with sufficient strength
-    },
-    orderBy: [
-      { strength: "desc" },
-      { lastSeenAt: "desc" },
-    ],
-    take: 10, // Limit to top 10 by strength and recency
-  });
-
-  console.log("[ContextCandidates] Found memories:", memories.length);
-
-  return memories.map((memory) => {
-    const value = memory.value as Record<string, unknown>;
-    const label = formatMemoryLabel(memory.memoryType, value);
-    const preview = formatMemoryPreview(memory.memoryType, value, memory.strength);
-
-    return {
-      id: `memory:${memory.id}`,
-      source: "user_memory" as const,
-      label,
-      preview: createRedactedPreview(preview),
-      metadata: {
-        memoryType: memory.memoryType,
-        value,
-        strength: memory.strength,
-        occurrences: memory.occurrences,
-        firstSeenAt: memory.firstSeenAt.toISOString(),
-        lastSeenAt: memory.lastSeenAt.toISOString(),
-      },
-      features: {
-        recencyScore: calculateRecencyScore(memory.lastSeenAt),
-        scopeScore: memory.strength, // Use strength as scope score
-      },
-    };
-  });
-}
-
-/**
- * Format a human-readable label for a memory type.
- */
-function formatMemoryLabel(
-  memoryType: string,
-  value: Record<string, unknown>
-): string {
-  switch (memoryType) {
-    case "struggle_theme":
-      return `Struggle: ${formatThemeValue(value.theme as string)}`;
-    case "faith_stage":
-      return `Faith Stage: ${value.stage}`;
-    case "scripture_affinity":
-      return `Scripture Affinity: ${value.reference || value.theme}`;
-    case "tone_preference":
-      return `Tone Preference: ${value.tone}`;
-    case "group_role":
-      return `Group Role: ${value.role}`;
-    default:
-      return `Memory: ${memoryType}`;
-  }
-}
-
-/**
- * Format a preview string for a memory.
- */
-function formatMemoryPreview(
-  memoryType: string,
-  value: Record<string, unknown>,
-  strength: number
-): string {
-  const strengthLabel = strength >= 0.8 ? "strong" : strength >= 0.5 ? "moderate" : "light";
-
-  switch (memoryType) {
-    case "struggle_theme":
-      return `User has shown a ${strengthLabel} pattern of struggling with ${formatThemeValue(value.theme as string)}`;
-    case "faith_stage":
-      return `User appears to be in a ${value.stage} stage of their faith journey (${strengthLabel} signal)`;
-    case "scripture_affinity":
-      return `User has a ${strengthLabel} affinity for ${value.reference || value.theme}`;
-    case "tone_preference":
-      return `User prefers a ${value.tone} communication style (${strengthLabel} pattern)`;
-    case "group_role":
-      return `User serves as ${value.role} in their group (${strengthLabel} pattern)`;
-    default:
-      return `${memoryType}: ${JSON.stringify(value)}`;
-  }
-}
-
-/**
- * Format a struggle theme value to be more readable.
- */
-function formatThemeValue(theme: string): string {
-  // Convert snake_case to title case
-  return theme.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
+// NOTE: User memory retrieval is disabled for the pipeline flows for now.
 
 function buildArtifactWhereForScope(
   scope: ScriptureScope | undefined,
@@ -240,16 +169,12 @@ function createArtifactCandidate(
   },
   features?: CandidateContext["features"]
 ): CandidateContext {
-  const scriptureRefs =
-    Array.isArray(artifact.scriptureRefs) &&
-    artifact.scriptureRefs.every((v) => typeof v === "string")
-      ? (artifact.scriptureRefs as string[])
-      : null;
+  const scriptureRefs = artifact.scriptureRefs as string[] | null;
 
   // Extract noteSummary and noteTags from artifact metadata for top-level access
-  const artifactMeta = artifact.metadata as Record<string, unknown> | null;
-  const noteSummary = artifactMeta?.noteSummary as string | undefined;
-  const noteTags = artifactMeta?.noteTags as string[] | undefined;
+  const artifactMeta = artifact.metadata as { noteSummary?: string; noteTags?: string[] } | null;
+  const noteSummary = artifactMeta?.noteSummary;
+  const noteTags = artifactMeta?.noteTags;
 
   const label = formatArtifactLabel(artifact.type, artifact.title);
   return {
@@ -266,7 +191,7 @@ function createArtifactCandidate(
       // Flatten noteSummary and noteTags to top level for promptAssembly access
       ...(noteSummary ? { noteSummary } : {}),
       ...(noteTags && noteTags.length > 0 ? { noteTags } : {}),
-      ...(artifact.metadata ? { artifactMetadata: artifact.metadata as unknown } : {}),
+      ...(artifact.metadata ? { artifactMetadata: artifact.metadata } : {}),
     },
     ...(features ? { features } : {}),
   };
@@ -282,16 +207,8 @@ async function getLifeContext(
 
   // Get from aiContext if available
   // userContext is the full UserAiContext which has lifeContext nested inside
-  const userContext = ctx.aiContext?.userContext as Record<string, unknown> | undefined;
-  const lifeContext = userContext?.lifeContext as Record<string, unknown> | undefined;
-
-  console.log("[ContextCandidates] Life context from aiContext:", {
-    hasAiContext: !!ctx.aiContext,
-    hasUserContext: !!userContext,
-    userContextKeys: userContext ? Object.keys(userContext) : [],
-    hasLifeContext: !!lifeContext,
-    lifeContextKeys: lifeContext ? Object.keys(lifeContext) : [],
-  });
+  const userContext = ctx.aiContext?.userContext as UserContext | undefined;
+  const lifeContext = userContext?.lifeContext;
 
   if (lifeContext?.currentSeason) {
     candidates.push({
@@ -307,7 +224,7 @@ async function getLifeContext(
   }
 
   // Life context has weeklyIntention with carrying and hoping
-  const weeklyIntention = lifeContext?.weeklyIntention as Record<string, unknown> | undefined;
+  const weeklyIntention = lifeContext?.weeklyIntention;
 
   if (weeklyIntention?.carrying) {
     candidates.push({
@@ -658,18 +575,19 @@ async function getBibleReadingSessions(
     endedBefore = bounds.before;
   }
 
-  const whereBase: NonNullable<Parameters<typeof prisma.bibleReadingSession.findMany>[0]>["where"] =
-    {
-      userId: ctx.userId,
-      ...(endedAfter || endedBefore
-        ? {
-            endedAt: {
-              ...(endedAfter ? { gte: endedAfter } : {}),
-              ...(endedBefore ? { lte: endedBefore } : {}),
-            },
-          }
-        : {}),
-    };
+  const sessionWhereBase: NonNullable<
+    Parameters<typeof prisma.bibleReadingSession.findMany>[0]
+  >["where"] = {
+    userId: ctx.userId,
+    ...(endedAfter || endedBefore
+      ? {
+          endedAt: {
+            ...(endedAfter ? { gte: endedAfter } : {}),
+            ...(endedBefore ? { lte: endedBefore } : {}),
+          },
+        }
+      : {}),
+  };
 
   // Defensive scope validation: plans can come from LLM/rules/debug tools; never send invalid filters to Prisma.
   const safeScope = (() => {
@@ -687,28 +605,39 @@ async function getBibleReadingSessions(
     return undefined;
   })();
 
-  const where =
+  const rollupWhere =
     safeScope?.kind === "chapter"
-      ? { ...whereBase, bookId: safeScope.bookId, chapter: safeScope.chapter }
+      ? { userId: ctx.userId, bookId: safeScope.bookId, chapter: safeScope.chapter }
       : safeScope?.kind === "book"
-        ? { ...whereBase, bookId: safeScope.bookId }
-        : whereBase;
+        ? { userId: ctx.userId, bookId: safeScope.bookId }
+        : { userId: ctx.userId };
 
-  const sessions = await prisma.bibleReadingSession.findMany({
-    where,
-    orderBy: { endedAt: "desc" },
+  const rollups = await prisma.bibleChapterDailyRollup.findMany({
+    where: {
+      ...rollupWhere,
+      ...(endedAfter || endedBefore
+        ? {
+            lastReadAt: {
+              ...(endedAfter ? { gte: endedAfter } : {}),
+              ...(endedBefore ? { lte: endedBefore } : {}),
+            },
+          }
+        : {}),
+    },
+    orderBy: { lastReadAt: "desc" },
     take: limit,
   });
 
-  return sessions.map((s) => {
-    const bookName = s.bookName ?? getBookDisplayNameFromCode(s.bookId) ?? s.bookId;
-    const ref =
-      s.verseStart === s.verseEnd
-        ? `${bookName} ${s.chapter}:${s.verseStart}`
-        : `${bookName} ${s.chapter}:${s.verseStart}-${s.verseEnd}`;
+  return rollups.map((r) => {
+    const bookName = r.bookName ?? getBookDisplayNameFromCode(r.bookId) ?? r.bookId;
+    const firstReadRange = r.readRanges[0] ?? null;
+    const ref = firstReadRange ? `${bookName} ${firstReadRange}` : `${bookName} ${r.chapter}`;
+    const firstRange = firstReadRange
+      ? parseFirstVerseRangeFromReadRange(firstReadRange)
+      : null;
 
     const durationText = (() => {
-      const seconds = s.durationSeconds;
+      const seconds = r.durationSeconds;
       if (!Number.isFinite(seconds) || seconds < 0) return null;
       const mins = Math.floor(seconds / 60);
       const secs = Math.floor(seconds % 60);
@@ -718,41 +647,42 @@ async function getBibleReadingSessions(
 
     const label = `Reading — ${ref}`;
     const previewParts: string[] = [];
-    if (s.translation) previewParts.push(s.translation);
+    if (r.translation) previewParts.push(r.translation);
     if (durationText) previewParts.push(durationText);
-    if (s.completionStatus) previewParts.push(s.completionStatus);
+    const completion = r.completionStatus as ChapterCompletionStatus | null;
+    const completionLabel = completion?.status ?? null;
+    if (completionLabel) previewParts.push(completionLabel);
     const preview = previewParts.length > 0 ? previewParts.join(" · ") : ref;
 
     return {
-      id: `bible_reading_session:${s.sessionId}`,
+      id: `bible_chapter_daily_rollup:${r.bookId}:${r.chapter}:${r.localDate}`,
       source: "bible_reading_session",
       label,
       preview: createRedactedPreview(preview),
       metadata: {
-        sessionId: s.sessionId,
-        translation: s.translation,
+        translation: r.translation,
+        readRanges: r.readRanges,
         startRef: {
-          bookId: s.bookId,
+          bookId: r.bookId,
           book: bookName,
-          chapter: s.chapter,
-          verse: s.verseStart,
+          chapter: r.chapter,
+          verse: firstRange?.verseStart ?? null,
         },
         endRef: {
-          bookId: s.bookId,
+          bookId: r.bookId,
           book: bookName,
-          chapter: s.chapter,
-          verse: s.verseEnd,
+          chapter: r.chapter,
+          verse: firstRange?.verseEnd ?? null,
         },
-        durationSeconds: s.durationSeconds,
-        versesVisibleCount: s.versesVisibleCount,
-        completionStatus: s.completionStatus,
-        startedAt: s.startedAt.toISOString(),
-        endedAt: s.endedAt.toISOString(),
-        source: s.source,
+        durationSeconds: r.durationSeconds,
+        completionStatus: r.completionStatus,
+        localDate: r.localDate,
+        timeZone: r.timeZone,
+        endedAt: r.lastReadAt?.toISOString() ?? null,
       },
       features: {
-        recencyScore: calculateRecencyScore(s.endedAt),
-        createdAt: s.endedAt.toISOString(),
+        recencyScore: calculateRecencyScore(r.lastReadAt ?? r.updatedAt),
+        createdAt: (r.lastReadAt ?? r.updatedAt).toISOString(),
       },
     };
   });
@@ -900,7 +830,7 @@ export async function executeContextCandidatesStage(
     bibleReadingSessions,
   ] = await Promise.all([
     getBibleContext(ctx, ingress),
-    needs.has(RETRIEVAL_NEEDS.user_memory) ? getUserMemories(ctx, ingress) : Promise.resolve([]),
+    Promise.resolve([]),
     shouldIncludeLifeContext ? getLifeContext(ctx) : Promise.resolve([]),
     getRecentActivity(ctx),
     getSystemContext(ingress),

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 // Valid enum values
-const VALID_FONT_TYPES = ["serif", "sansSerif"] as const;
+const VALID_FONT_TYPES = ["serifA", "serifB", "sansSerif", "serif"] as const;
 const VALID_LINE_SPACINGS = ["compact", "normal", "relaxed"] as const;
 const VALID_THEMES = ["light", "sepia", "dark"] as const;
 const VALID_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
@@ -26,7 +26,7 @@ const updateSettingsSchema = z.object({
 // Default settings
 const DEFAULT_SETTINGS = {
   fontSize: 19,
-  fontType: "serif",
+  fontType: "serifA",
   lineSpacing: "normal",
   theme: "light",
   showWordsOfJesusInRed: true,
@@ -64,11 +64,16 @@ export async function GET() {
       ? settings.selectedTranslation
       : DEFAULT_SETTINGS.selectedTranslation;
 
+    const rawFontType = settings.fontType;
+    const safeFontType = VALID_FONT_TYPES.includes(rawFontType as any)
+      ? (rawFontType === "serif" ? "serifA" : rawFontType)
+      : DEFAULT_SETTINGS.fontType;
+
     return NextResponse.json({
       success: true,
       settings: {
         fontSize: settings.fontSize,
-        fontType: settings.fontType,
+        fontType: safeFontType,
         lineSpacing: settings.lineSpacing,
         theme: settings.theme,
         showWordsOfJesusInRed: settings.showWordsOfJesusInRed,
@@ -101,15 +106,18 @@ export async function PATCH(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = updateSettingsSchema.parse(body);
+    const normalizedFontType =
+      validatedData.fontType === "serif" ? "serifA" : validatedData.fontType;
 
     // Upsert settings (create if doesn't exist, update if exists)
     const settings = await prisma.readerSettings.upsert({
       where: { userId: authResult.userId },
-      update: validatedData,
+      update: { ...validatedData, ...(normalizedFontType ? { fontType: normalizedFontType } : {}) },
       create: {
         userId: authResult.userId,
         ...DEFAULT_SETTINGS,
         ...validatedData,
+        ...(normalizedFontType ? { fontType: normalizedFontType } : {}),
       },
     });
 
@@ -117,7 +125,7 @@ export async function PATCH(request: NextRequest) {
       success: true,
       settings: {
         fontSize: settings.fontSize,
-        fontType: settings.fontType,
+        fontType: settings.fontType === "serif" ? "serifA" : settings.fontType,
         lineSpacing: settings.lineSpacing,
         theme: settings.theme,
         showWordsOfJesusInRed: settings.showWordsOfJesusInRed,

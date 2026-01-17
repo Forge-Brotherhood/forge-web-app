@@ -142,23 +142,19 @@ export async function POST(
       text?: string;
     }> | null;
 
-    // Check if memory persistence was enabled for this run
-    const settings = debugRun.settings as { persistMemories?: boolean } | null;
-    const persistMemories = settings?.persistMemories || false;
-
     const ctx = createRunContext({
       traceId: debugRun.traceId,
       userId: debugRun.impersonatedUserId,
       entrypoint: debugRun.entrypoint as
         | "chat_start"
+        | "guide_followup"
         | "followup"
-        | "explain"
-        | "prayer_help",
+        | "explain",
       message: debugRun.message,
       entityRefs: entityRefs || undefined,
       mode: "debug",
       stopAtStage: effectiveStopAtStage,
-      sideEffects: persistMemories ? "enabled" : "disabled",
+      sideEffects: "disabled",
       writePolicy: "forbid",
       appVersion: "admin-debug-1.0",
       platform: "web-admin",

@@ -28,6 +28,16 @@ export type ConversationStateData = {
   summary: string;
   recentMessages: ConversationMessage[];
   turnCount: number;
+  previousResponseId?: string | null;
+  sessionMemoryNotes?: Array<{
+    text: string;
+    keywords?: string[];
+    createdAtISO?: string;
+    expiresAtISO?: string;
+    category?: string;
+    confidence?: string;
+    source?: string;
+  }> | null;
 };
 
 // =============================================================================
@@ -82,6 +92,14 @@ export async function getConversationState(
 ): Promise<ConversationStateData | null> {
   const state = await prisma.conversationState.findUnique({
     where: { conversationId },
+    select: {
+      userId: true,
+      summary: true,
+      recentMessages: true,
+      turnCount: true,
+      previousResponseId: true,
+      sessionMemoryNotes: true,
+    },
   });
 
   if (!state || state.userId !== userId) {
@@ -92,6 +110,18 @@ export async function getConversationState(
     summary: state.summary,
     recentMessages: parseConversationMessages(state.recentMessages as unknown),
     turnCount: state.turnCount,
+    previousResponseId: state.previousResponseId ?? null,
+    sessionMemoryNotes: Array.isArray(state.sessionMemoryNotes)
+      ? (state.sessionMemoryNotes as unknown as Array<{
+          text: string;
+          keywords?: string[];
+          createdAtISO?: string;
+          expiresAtISO?: string;
+          category?: string;
+          confidence?: string;
+          source?: string;
+        }>)
+      : null,
   };
 }
 
@@ -139,6 +169,8 @@ async function updateConversationStateInternal(
       summary: true,
       recentMessages: true,
       turnCount: true,
+      previousResponseId: true,
+      sessionMemoryNotes: true,
     },
   });
 
@@ -157,6 +189,8 @@ async function updateConversationStateInternal(
         summary: "",
         recentMessages: newMessages,
         turnCount: 1,
+        previousResponseId: null,
+        sessionMemoryNotes: [],
       },
     });
     return;
@@ -185,6 +219,9 @@ async function updateConversationStateInternal(
       recentMessages,
       turnCount: { increment: 1 },
       lastSummaryAt: new Date(),
+      // Preserve any existing pointer unless explicitly updated elsewhere.
+      previousResponseId: existing.previousResponseId ?? null,
+      sessionMemoryNotes: existing.sessionMemoryNotes ?? [],
     },
   });
 }

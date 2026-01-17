@@ -10,6 +10,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { parseReference } from "@/lib/bibleReference";
+import { Prisma } from "@prisma/client";
 
 const args = process.argv.slice(2);
 const isApply = args.includes("--apply");
@@ -187,7 +188,7 @@ async function main(): Promise<void> {
 
     await prisma.artifact.update({
       where: { id: artifact.id },
-      data: { metadata: nextMetadata },
+      data: { metadata: nextMetadata as unknown as Prisma.InputJsonValue },
     });
     updated++;
   }

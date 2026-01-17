@@ -119,6 +119,7 @@ model User {
   bibleHighlights          BibleHighlight[]
   verseNotes               VerseNote[]
   readerSettings           ReaderSettings?
+  rollups                  UserRollup[]
 
   // Reading Plans relations
   createdTemplates          ReadingPlanTemplate[]   @relation("ReadingPlanTemplateCreator")
@@ -129,11 +130,13 @@ model User {
   planReflectionTargets     ReadingPlanReflection[] @relation("ReadingPlanReflectionTarget")
 
   // AI Memory & Preferences
-  memories                  UserMemory[]
-  signals                   UserSignal[]
   conversationStates        ConversationState[]
+  chatSessions              ChatSession[]
+  chatConversations         ChatConversation[] @relation("ChatConversationUser")
+  chatSessionMemoryNotes    ChatSessionMemoryNote[] @relation("ChatSessionMemoryNoteUser")
   preferences               UserPreferences?
   lifeContext               UserLifeContext[]
+  memoryState               UserMemoryState?
 
   // AI Debugger relations
   debugRunsAsAdmin          DebugRun[] @relation("DebugRunAdmin")
@@ -143,6 +146,8 @@ model User {
   artifacts                 Artifact[]
   bibleReadingProgresses    BibleReadingProgress[]
   bibleReadingSessions      BibleReadingSession[]
+  bibleReadingSessionSegments BibleReadingSessionSegment[]
+  bibleChapterDailyRollups  BibleChapterDailyRollup[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -540,33 +545,86 @@ model BibleReadingSession {
   // Client-generated session id (UUID string)
   sessionId     String
 
-  // Start/end reference (for artifacts + analytics)
-  bookId        String
-  bookName      String?
-  chapterId     String?
-  chapter       Int
-  verseStart    Int
-  verseEnd      Int
-  translation   String
-
   // Session timing/metrics
   startedAt          DateTime
   endedAt            DateTime
   durationSeconds    Int
-  versesVisibleCount Int      @default(0)
-  completionStatus   String   @default("in_progress") // not_started | in_progress | mostly_read | completed
   source             String   @default("ios")
 
-  // Optional link to the created artifact
-  artifactId    String?  @unique
-  artifact      Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  // How the user entered (standalone, plan, search, etc.)
+  contextType     String   @default("standalone")
+  contextSourceId String?
+  entryPoint      String?
+
+  segments      BibleReadingSessionSegment[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@unique([userId, sessionId])
   @@index([userId, endedAt])
-  @@index([userId, bookId, endedAt])
+}
+
+model BibleReadingSessionSegment {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionId     String
+  session       BibleReadingSession @relation(fields: [userId, sessionId], references: [userId, sessionId], onDelete: Cascade)
+
+  // Client-generated segment id (UUID string) for idempotency/dedupe.
+  segmentId     String
+
+  // Location
+  bookId        String
+  bookName      String?
+  chapterId     String?
+  chapter       Int
+  translation   String
+
+  // Segment timing/metrics
+  startedAt          DateTime
+  endedAt            DateTime
+  durationSeconds    Int
+  readRanges         String[]
+  source             String   @default("ios")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, segmentId])
+  @@index([userId, sessionId, endedAt])
+  @@index([userId, sessionId, bookId, chapter])
+}
+
+model BibleChapterDailyRollup {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bookId        String
+  bookName      String?
+  chapterId     String?
+  chapter       Int
+  translation   String
+
+  durationSeconds    Int      @default(0)
+  completionStatus   Json?
+  readRanges         String[]
+
+  // Temporal bucket (user-local)
+  localDate     String   // YYYY-MM-DD in user-local timezone
+  timeZone      String   // IANA timezone (e.g. America/Los_Angeles) from client
+  firstReadAt   DateTime?
+  lastReadAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, bookId, chapter, localDate])
+  @@index([userId, lastReadAt])
+  @@index([userId, bookId, chapter])
 }
 
 // ---------- Reading Plans ----------
@@ -805,6 +863,13 @@ model ConversationState {
   // Recent messages for immediate context (array of { role, content, timestamp })
   recentMessages  Json
 
+  // OpenAI Responses API session pointer for chaining across turns
+  previousResponseId String?
+
+  // Session-scoped personalization notes (captured during chat, consolidated on session end)
+  // Array of { text: string, keywords?: string[], createdAtISO?: string }
+  sessionMemoryNotes Json?
+
   // Metadata
   turnCount       Int      @default(0)
   lastSummaryAt   DateTime @default(now())
@@ -815,71 +880,120 @@ model ConversationState {
   @@index([userId])
 }
 
-/// Durable typed memories about user
-model UserMemory {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+/// Minimal managed conversation pointer for the Guide assistant.
+/// Stores OpenAI Responses API chaining pointer and metadata about how the user entered the conversation.
+model ChatConversation {
+  id               String   @id @default(cuid())
+  conversationId   String   @unique
+  userId           String
+  user             User     @relation("ChatConversationUser", fields: [userId], references: [id], onDelete: Cascade)
 
-  // Memory classification (from vocabularies.ts)
-  // struggle_theme | faith_stage | scripture_affinity | tone_preference | group_role
-  memoryType  String
+  /// Surface that initiated the conversation (e.g. "bible_reader", "home", "community", "other")
+  entrypoint       String   @default("other")
 
-  // Typed value - structure depends on memoryType
-  // struggle_theme: { theme: StruggleTheme }
-  // faith_stage: { stage: FaithStage }
-  // scripture_affinity: { reference: string, affinity: "positive" | "formative" }
-  // tone_preference: { preference: string }
-  // group_role: { groupId: string, role: "leader" | "participant" }
-  value       Json
+  /// Context emphasis for the assistant (e.g. "general" | "bible")
+  mode             String   @default("general")
 
-  // Confidence & reinforcement
-  strength    Float    @default(0.5)  // 0.0-1.0
-  occurrences Int      @default(1)    // Times this was observed
+  /// OpenAI Responses API session pointer for chaining across turns
+  previousResponseId String?
 
-  // Provenance
-  source      String   // signal_promotion | user_explicit | onboarding
-  firstSeenAt DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  // Soft delete for memory decay
-  isActive    Boolean  @default(true)
-  decayedAt   DateTime?
+  notes            ChatSessionMemoryNote[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([userId, memoryType])
-  @@index([userId, isActive])
+  @@index([userId])
+  @@index([userId, updatedAt])
 }
 
-/// Short-lived signals for reinforcement before promotion to memory
-model UserSignal {
+/// Session-scoped memory notes captured during a chat, with optional TTL.
+/// Consolidated into durable memory on chat end.
+model ChatSessionMemoryNote {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [conversationId], onDelete: Cascade)
+
+  userId         String
+  user           User     @relation("ChatSessionMemoryNoteUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  text           String   @db.Text
+  keywords       String[] @default([])
+
+  expiresAt      DateTime?
+
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([expiresAt])
+}
+
+// ---------- Chat Sessions (Transcript Storage) ----------
+
+/// Durable chat session metadata for AI chats (Guide + Bible).
+/// Stores list-friendly data (3–5 word title, endedAt) and links to full transcript messages.
+model ChatSession {
   id         String   @id @default(cuid())
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // Signal classification (from vocabularies.ts)
-  // struggle_theme_signal | faith_stage_signal | tone_preference_signal
-  signalType String
+  // Client conversation/session identifier (iOS conversationId)
+  sessionId  String
 
-  // Candidate value (same structure as UserMemory.value)
-  value      Json
+  // "guide" | "bible"
+  kind       String
 
-  // Counter for reinforcement
-  count      Int      @default(1)
+  // 3–5 word title for history list
+  title      String
 
-  // TTL-based expiration (7 days from first observation)
-  expiresAt  DateTime
+  startedAt  DateTime @default(now())
+  endedAt    DateTime
 
-  // Prevent double-counting within same conversation
-  lastCountedConversationId String?
+  messages   ChatMessage[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  @@unique([userId, kind, sessionId])
+  @@index([userId, kind, endedAt])
+  @@index([sessionId])
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  // "user" | "assistant"
+  role          String
+  content       String      @db.Text
+  actions       Json?
+
+  // Preserve client ordering if needed (ISO string). createdAt is canonical for ordering.
+  clientTimestamp String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([chatSessionId, createdAt])
+}
+
+/// State-based memory store (cookbook-style) for durable personalization notes.
+/// Session-scoped notes live on ConversationState.sessionMemoryNotes and are consolidated on chat end.
+model UserMemoryState {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  schemaVersion String   @default("forge.user_memory_state.v1")
+
+  /// Global durable memory notes (array of { text, keywords, createdAtISO, expiresAtISO? }).
+  /// `expiresAtISO` is generally omitted for global notes; TTL notes are session-scoped.
+  globalNotes   Json
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   @@index([userId])
-  @@index([expiresAt])
 }
 
 /// Life context for pastoral personalization (time-scoped, user-approved)
@@ -945,7 +1059,6 @@ model Artifact {
   edgesFrom       ArtifactEdge[] @relation("EdgeFrom")
   edgesTo         ArtifactEdge[] @relation("EdgeTo")
   bibleHighlight  BibleHighlight? @relation("BibleHighlightArtifact")
-  bibleReadingSession BibleReadingSession?
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -1045,7 +1158,7 @@ model DebugRun {
   traceId             String         @unique
   adminId             String                   // The admin user who initiated
   impersonatedUserId  String                   // User being impersonated
-  entrypoint          String                   // chat_start | followup | explain | prayer_help
+  entrypoint          String                   // chat_start | guide_followup | followup | explain
   message             String         @db.Text  // The test message
   entityRefs          Json?                    // Optional entity references
   status              DebugRunStatus @default(pending)
@@ -1071,4 +1184,39 @@ model DebugRun {
   @@index([adminId, createdAt])
   @@index([runId])
   @@index([parentRunId])
+}
+
+// ---------- Rollups ----------
+
+/// Canonical, auditable rollup snapshots (source of truth).
+/// Used to answer: "What did we know when we recommended X?"
+model UserRollup {
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Rollup schema identifier, includes version (e.g. "forge.user_month_rollup_derived.v2")
+  schema         String
+
+  /// Inclusive window boundaries in UTC date space.
+  windowStartUtc DateTime @db.Date
+  windowEndUtc   DateTime @db.Date
+
+  generatedAtUtc DateTime @default(now())
+
+  /// Full rollup payload
+  payload        Json
+
+  /// Optional hash of payload for dedupe/debug
+  payloadHash    String?
+
+  /// Optional structured coverage metadata (timezone known/unknown, etc.)
+  dataCoverage   Json?
+
+  /// Optional retention / TTL marker
+  expiresAt      DateTime?
+
+  @@id([userId, windowEndUtc, schema])
+
+  @@index([userId, windowEndUtc(sort: Desc)])
+  @@index([userId, schema])
 }

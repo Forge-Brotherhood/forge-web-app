@@ -157,7 +157,7 @@ export async function PUT(request: NextRequest) {
       },
     });
 
-    // If this is a session end payload, persist session + maybe create artifact
+    // If this is a session end payload, persist the session container (chapter-level details live on segments/rollups).
     if (input.sessionMetrics) {
       if (!input.sessionId) {
         return NextResponse.json(
@@ -167,58 +167,31 @@ export async function PUT(request: NextRequest) {
       }
 
       const metrics = input.sessionMetrics;
-      const versesVisibleCount = metrics.versesVisibleCount ?? 0;
-      const completionStatus = metrics.completionStatus ?? "in_progress";
-
       const startedAt = metrics.startedAt ? new Date(metrics.startedAt) : new Date();
       const endedAt = metrics.endedAt ? new Date(metrics.endedAt) : new Date();
-      const verseStart = metrics.verseStart ?? 1;
-      const verseEnd = metrics.verseEnd ?? input.verse;
 
-      const session = await prisma.bibleReadingSession.upsert({
+      await prisma.bibleReadingSession.upsert({
         where: { userId_sessionId: { userId: authResult.userId, sessionId: input.sessionId } },
         create: {
           userId: authResult.userId,
           sessionId: input.sessionId,
-          bookId: input.bookId,
-          bookName: input.bookName ?? null,
-          chapterId: input.chapterId ?? null,
-          chapter: input.chapter,
-          verseStart,
-          verseEnd,
-          translation: input.translation,
           startedAt,
           endedAt,
           durationSeconds: metrics.durationSeconds,
-          versesVisibleCount,
-          completionStatus,
           source: "ios",
+          contextType: input.contextType,
+          contextSourceId: input.contextSourceId ?? null,
         },
         update: {
-          bookName: input.bookName ?? undefined,
-          chapterId: input.chapterId ?? undefined,
-          chapter: input.chapter,
-          verseStart,
-          verseEnd,
-          translation: input.translation,
           startedAt,
           endedAt,
           durationSeconds: metrics.durationSeconds,
-          versesVisibleCount,
-          completionStatus,
+          contextType: input.contextType,
+          contextSourceId: input.contextSourceId ?? undefined,
         },
       });
 
-      const isMeaningful = shouldCreateReadingSessionArtifact({
-        durationSeconds: metrics.durationSeconds,
-        versesVisibleCount,
-        completionStatus,
-      });
-
-      // NOTE: Bible reading sessions are first-class (BibleReadingSession model).
-      // We no longer create a parallel Artifact record for them.
-      // Keep the "meaningful" check for future use (analytics/notifications), but do nothing here.
-      void isMeaningful;
+      // NOTE: chapter-level metrics are handled by the segment ingestion endpoint.
     }
 
     return NextResponse.json({

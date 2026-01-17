@@ -20,7 +20,6 @@ import type { ArtifactType } from "@/lib/artifacts/types";
 // =============================================================================
 
 const TOKEN_ESTIMATE_METHOD: TokenEstimateMethod = "heuristic";
-const DEFAULT_MAX_MEMORIES = 5;
 const DEFAULT_MAX_SEMANTIC_ARTIFACTS = 5;
 const DEFAULT_MAX_HIGHLIGHTS = 10;
 const DEFAULT_MAX_NOTES = 10;
@@ -79,15 +78,6 @@ function calculateScore(
   temporalDirection?: TemporalDirection
 ): number {
   const features = candidate.features || {};
-
-  // For user memories, use strength (stored as scopeScore) as primary signal
-  if (candidate.source === "user_memory") {
-    const strengthScore = features.scopeScore ?? 0.5;
-    const recencyScore = features.recencyScore ?? 0.5;
-
-    // Weight: 70% strength, 30% recency
-    return strengthScore * 0.7 + recencyScore * 0.3;
-  }
 
   // For artifacts, use semantic similarity as primary signal
   if (candidate.source === "artifact") {
@@ -150,7 +140,6 @@ export async function executeRankAndBudgetStage(
   });
 
   // Separate candidates by type
-  const memoryCandidates: CandidateContext[] = [];
   const artifactCandidates: CandidateContext[] = [];
   const otherCandidates: CandidateContext[] = [];
 
@@ -182,15 +171,12 @@ export async function executeRankAndBudgetStage(
 
   for (const candidate of candidates) {
     if (candidate.source === "user_memory") {
-      if (!needs.has(RETRIEVAL_NEEDS.user_memory)) {
-        excludedList.push({
-          id: candidate.id,
-          reason: "plan_needs",
-          details: "User memory not requested by retrieval plan",
-        });
-      } else {
-        memoryCandidates.push(candidate);
-      }
+      // User memory retrieval is disabled for pipeline flows for now.
+      excludedList.push({
+        id: candidate.id,
+        reason: "disabled",
+        details: "User memory retrieval is disabled for pipeline flows",
+      });
     } else if (candidate.source === "artifact") {
       if (!isArtifactAllowed(candidate)) {
         excludedList.push({
@@ -203,20 +189,6 @@ export async function executeRankAndBudgetStage(
       }
     } else {
       otherCandidates.push(candidate);
-    }
-  }
-
-  // Safety filter for memory candidates
-  const safeMemories: CandidateContext[] = [];
-  for (const memory of memoryCandidates) {
-    if (isSafeContent(memory.preview)) {
-      safeMemories.push(memory);
-    } else {
-      excludedList.push({
-        id: memory.id,
-        reason: "safety_filter",
-        details: "Contains potentially sensitive content",
-      });
     }
   }
 
@@ -233,8 +205,6 @@ export async function executeRankAndBudgetStage(
       });
     }
   }
-
-  const filteredMemories = safeMemories;
 
   // Semantic threshold filter for artifacts
   const filteredArtifacts = safeArtifacts.filter((artifact) => {
@@ -276,13 +246,6 @@ export async function executeRankAndBudgetStage(
     }
   }
 
-  // Score and rank memories
-  const scoredMemories = filteredMemories.map((candidate) => ({
-    candidate,
-    score: calculateScore(candidate),
-  }));
-  scoredMemories.sort((a, b) => b.score - a.score);
-
   // Score and rank artifacts (with temporal direction if present)
   const scoredArtifacts = filteredArtifacts.map((candidate) => ({
     candidate,
@@ -290,7 +253,6 @@ export async function executeRankAndBudgetStage(
   }));
   scoredArtifacts.sort((a, b) => b.score - a.score);
 
-  const maxMemories = plan.retrieval.limits?.[RETRIEVAL_NEEDS.user_memory] ?? DEFAULT_MAX_MEMORIES;
   const maxSemanticArtifacts =
     plan.retrieval.limits?.[RETRIEVAL_NEEDS.artifact_semantic] ?? DEFAULT_MAX_SEMANTIC_ARTIFACTS;
   const maxHighlights =
@@ -315,40 +277,6 @@ export async function executeRankAndBudgetStage(
       reason: c.source,
     });
     tokenBudgetUsed += tokenEstimate;
-  }
-
-  // Select memories
-  let memoryCount = 0;
-  for (const item of scoredMemories) {
-    if (memoryCount >= maxMemories) {
-      excludedList.push({
-        id: item.candidate.id,
-        reason: "max_limit",
-        details: `Max memories ${maxMemories}`,
-      });
-      continue;
-    }
-
-    const tokenEstimate = estimateTokens(item.candidate.preview);
-    if (tokenBudgetUsed + tokenEstimate > MAX_TOKEN_BUDGET) {
-      excludedList.push({
-        id: item.candidate.id,
-        reason: "budget_exceeded",
-        details: `Would exceed ${MAX_TOKEN_BUDGET} token budget`,
-      });
-      continue;
-    }
-
-    selected.push({
-      id: item.candidate.id,
-      candidate: item.candidate,
-      finalScore: item.score,
-      tokenEstimate,
-      tokenEstimateMethod: TOKEN_ESTIMATE_METHOD,
-      reason: "memory_ranking",
-    });
-    tokenBudgetUsed += tokenEstimate;
-    memoryCount++;
   }
 
   // Select artifacts with per-need caps
@@ -476,10 +404,9 @@ export async function executeRankAndBudgetStage(
   // Build summary
   return {
     payload,
-    summary: `${memoryCount} memories, ${artifactCount} artifacts, ${otherCandidates.length} other, ${excludedList.length} excluded`,
+    summary: `${artifactCount} artifacts, ${otherCandidates.length} other, ${excludedList.length} excluded`,
     stats: {
       selectedCount: selected.length,
-      memoryCount,
       artifactCount,
       excludedCount: excludedList.length,
       budgetUsed: totalTokens,

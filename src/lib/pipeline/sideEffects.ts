@@ -5,7 +5,6 @@
  * In debug mode, logs what WOULD happen but doesn't mutate.
  */
 
-import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import type { RunContext } from "./types";
 
@@ -95,26 +94,14 @@ function createNoOpSideEffects(): SideEffects {
 function createProdSideEffects(): SideEffects {
   return {
     async writeMemory(userId: string, memory: MemoryData) {
-      await prisma.userMemory.create({
-        data: {
-          userId,
-          memoryType: memory.memoryType,
-          value: memory.value,
-          strength: memory.strength ?? 0.5,
-          source: memory.source ?? "side_effect",
-        },
-      });
+      // Memory writes are disabled (legacy UserMemory removed; Responses `/api/chat` uses UserMemoryState).
+      console.log("[SideEffects] writeMemory disabled:", { userId, memoryType: memory.memoryType });
     },
 
     async updateAccessStats(memoryIds: string[]) {
+      // Memory access tracking disabled (legacy UserMemory removed).
       if (memoryIds.length === 0) return;
-      await prisma.userMemory.updateMany({
-        where: { id: { in: memoryIds } },
-        data: {
-          lastSeenAt: new Date(),
-          occurrences: { increment: 1 },
-        },
-      });
+      console.log("[SideEffects] updateAccessStats disabled:", { count: memoryIds.length });
     },
 
     async setCache(_key: string, _value: unknown, _ttl?: number) {

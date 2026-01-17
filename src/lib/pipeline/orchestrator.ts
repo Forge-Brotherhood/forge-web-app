@@ -22,7 +22,6 @@ import { executeContextCandidatesStage } from "./stages/contextCandidates";
 import { executeRankAndBudgetStage } from "./stages/rankAndBudget";
 import { executePromptAssemblyStage } from "./stages/promptAssembly";
 import { executeModelCallStage } from "./stages/modelCall";
-import { executeMemoryExtractionAsync } from "./stages/memoryExtraction";
 import type { FullPromptData } from "./payloads/promptAssembly";
 
 // =============================================================================
@@ -180,26 +179,6 @@ export async function runPipeline(ctx: RunContext): Promise<PipelineResult> {
     );
     artifacts.push(model.artifact);
 
-    // Stage 6: MEMORY_EXTRACTION
-    // In debug mode, run synchronously to ensure artifact is persisted before response
-    // (serverless functions may terminate async operations after response is sent)
-    // In production mode, run async (fire-and-forget) to not block the response
-    if (ctx.mode === "debug") {
-      console.log("[Pipeline] Running memory extraction synchronously (debug mode)");
-      try {
-        await executeMemoryExtractionAsync(ctx, ingress.artifact.payload, model.artifact.payload);
-        console.log("[Pipeline] Memory extraction completed (debug mode)");
-      } catch (err) {
-        console.error("[Pipeline] Memory extraction failed (debug mode):", err);
-        // Don't throw - memory extraction failure shouldn't fail the pipeline
-      }
-    } else {
-      // Fire-and-forget in production - response streams back immediately
-      executeMemoryExtractionAsync(ctx, ingress.artifact.payload, model.artifact.payload)
-        .then(() => console.log("[Pipeline] Memory extraction completed"))
-        .catch((err) => console.error("[Pipeline] Memory extraction failed:", err));
-    }
-
     // Extract response from model call
     const response = {
       content: model.artifact.payload.responsePreview,
@@ -228,7 +207,6 @@ export function getStageOrder(): PipelineStage[] {
     PipelineStage.RANK_AND_BUDGET,
     PipelineStage.PROMPT_ASSEMBLY,
     PipelineStage.MODEL_CALL,
-    PipelineStage.MEMORY_EXTRACTION, // Async, runs after MODEL_CALL
   ];
 }
 

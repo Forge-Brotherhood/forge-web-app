@@ -14,7 +14,6 @@ export enum PipelineStage {
   RANK_AND_BUDGET = "RANK_AND_BUDGET",
   PROMPT_ASSEMBLY = "PROMPT_ASSEMBLY",
   MODEL_CALL = "MODEL_CALL",
-  MEMORY_EXTRACTION = "MEMORY_EXTRACTION", // Async, runs after MODEL_CALL
 }
 
 // Pipeline version for all artifacts in a run
@@ -35,7 +34,7 @@ export interface RunContext {
   groupId?: string;
 
   // Request info
-  entrypoint: "chat_start" | "followup" | "explain" | "prayer_help";
+  entrypoint: "chat_start" | "guide_followup" | "followup" | "explain";
   message: string;
   entityRefs: EntityRef[];
 

@@ -40,8 +40,9 @@ export default defineConfig({
     // Prisma 7+ prefers datasource URLs in prisma.config.ts (not schema.prisma).
     // We do *not* hardcode credentials; we load DATABASE_URL from the environment / .env.
     url: process.env.DATABASE_URL,
-    shadowDatabaseUrl:
-      process.env.SHADOW_DATABASE_URL ?? process.env.DIRECT_URL ?? process.env.DATABASE_URL,
+    // IMPORTANT: Shadow DB must be a *different* database than `url`.
+    // Only configure it when explicitly provided; otherwise Prisma may error even on `migrate deploy`.
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },
   migrations: {
     seed: "tsx prisma/seed.ts",

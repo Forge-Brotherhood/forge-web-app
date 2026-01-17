@@ -13,6 +13,10 @@ export interface KVClient {
   get<T>(key: string): Promise<CachedValue<T> | null>;
   set<T>(key: string, value: T, ttlSeconds?: number): Promise<void>;
   delete(key: string): Promise<void>;
+  /**
+   * Optional: close underlying connections (e.g. ioredis) so scripts can exit cleanly.
+   */
+  disconnect?(): Promise<void>;
 }
 
 // Cache TTL configuration

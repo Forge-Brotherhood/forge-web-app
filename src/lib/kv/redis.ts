@@ -24,7 +24,7 @@ export class RedisClient implements KVClient {
     });
 
     this.client.on('connect', () => {
-      console.log('[Redis] Connected to Redis');
+      if (process.env.KV_SILENT !== "1") console.log('[Redis] Connected to Redis');
     });
   }
 
@@ -64,6 +64,19 @@ export class RedisClient implements KVClient {
     } catch (error) {
       console.error(`[Redis] Error deleting key "${key}":`, error);
       throw error;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    try {
+      await this.client.quit();
+    } catch (error) {
+      // quit() can throw if already closed; fall back to disconnect.
+      try {
+        this.client.disconnect();
+      } catch {
+        // ignore
+      }
     }
   }
 }

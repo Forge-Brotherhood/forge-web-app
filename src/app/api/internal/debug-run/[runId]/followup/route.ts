@@ -63,7 +63,6 @@ interface FollowUpRunResponse {
 interface DebugRunSettings {
   includeRaw: boolean;
   runModel: boolean;
-  persistMemories?: boolean;
   providerOverrides?: {
     model?: string;
     temperature?: number;
@@ -148,23 +147,19 @@ export async function POST(
     const parentSettings = parentRun.settings as unknown as DebugRunSettings;
 
     // 8. Create new DebugRun record linked to parent
-    // Inherit persistMemories from parent run
-    const persistMemories = parentSettings.persistMemories || false;
-
     await prisma.debugRun.create({
       data: {
         runId,
         traceId,
         adminId: input.adminId,
         impersonatedUserId: parentRun.impersonatedUserId,
-        entrypoint: "followup", // Follow-up runs use followup entrypoint
+        entrypoint: parentRun.entrypoint === "chat_start" ? "guide_followup" : "followup",
         message: input.newMessage,
         entityRefs: parentRun.entityRefs || [],
         status: "running",
         settings: {
           includeRaw: input.includeRaw,
           runModel: input.runModel,
-          persistMemories, // Inherit from parent
           providerOverrides: parentSettings.providerOverrides,
         },
         parentRunId: parentRun.id, // Use the parent's id (CUID), not runId
@@ -195,12 +190,12 @@ export async function POST(
     const ctx = createRunContext({
       traceId,
       userId: parentRun.impersonatedUserId,
-      entrypoint: "followup",
+      entrypoint: parentRun.entrypoint === "chat_start" ? "guide_followup" : "followup",
       message: input.newMessage,
       entityRefs: entityRefs || undefined,
       mode: "debug",
       stopAtStage: effectiveStopAtStage,
-      sideEffects: persistMemories ? "enabled" : "disabled",
+      sideEffects: "disabled",
       writePolicy: "forbid",
       appVersion: "admin-debug-1.0",
       platform: "web-admin",

@@ -25,12 +25,12 @@ export function getKVClient(): KVClient {
       // Dynamic import to avoid loading ioredis in production
       const { VercelKVClient } = require('./vercel');
       kvClient = new VercelKVClient();
-      console.log('[KV] Using Vercel KV client');
+      if (process.env.KV_SILENT !== "1") console.log('[KV] Using Vercel KV client');
     } else {
       // Development: use local Redis
       const { RedisClient } = require('./redis');
       kvClient = new RedisClient();
-      console.log('[KV] Using Redis client');
+      if (process.env.KV_SILENT !== "1") console.log('[KV] Using Redis client');
     }
   }
   return kvClient!;

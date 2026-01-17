@@ -16,9 +16,30 @@ const isPublicRoute = createRouteMatcher([
   '/api/reading-plans/templates/(.*)/days/(.*)',
   // Internal API routes (protected by API key, not Clerk)
   '/api/internal/(.*)',
+  // Jobs/cron API routes (protected by API key, not Clerk)
+  '/api/jobs/(.*)',
+  '/api/cron/(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Allow internal admin tooling to hit /api/chat with impersonation using INTERNAL_API_KEY,
+  // without being redirected to Clerk sign-in by middleware.
+  const isChatRoute = req.nextUrl.pathname === "/api/chat" || req.nextUrl.pathname === "/api/bible-chat";
+  if (isChatRoute) {
+    const internalKey = req.headers.get("x-internal-api-key");
+    const expectedKey = process.env.INTERNAL_API_KEY;
+    const impersonateUserId = req.headers.get("x-impersonate-user-id");
+
+    if (
+      expectedKey &&
+      internalKey === expectedKey &&
+      typeof impersonateUserId === "string" &&
+      impersonateUserId.trim().length > 0
+    ) {
+      return NextResponse.next();
+    }
+  }
+
   if (!isPublicRoute(req)) {
     const { userId } = await auth();
 

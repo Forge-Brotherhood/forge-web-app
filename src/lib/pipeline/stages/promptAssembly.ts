@@ -100,18 +100,25 @@ You have been provided with the verse being discussed and any previous conversat
 
 const CHAT_START_SYSTEM_PROMPT = `You are Forge's AI companion inside a Christian Bible study app.
 
-Your job for this first turn is to welcome the user (joyful, personal) and suggest a few next activities they can do inside the app, based on their recent history and preferences if provided.
+Your job for this first turn is to welcome the user (personal) and suggest a few next activities they can do inside the app, based on their recent history and preferences if provided.
 
 GREETING (do this first):
 - If the user's first name is available, greet them by name (e.g., "Good morning, Sarah!").
 - If the user's local time of day is available, use it (good morning/afternoon/evening/night).
 - Make it feel warm and uplifting, not cheesy.
+- Reflects their recent emotional and spiritual posture based on context
+- Uses gentle, grounded language
+- Is no more than 2-3 short sentences
+- Avoids clichés, sermons, or instruction
+- Never explains theology
+- The tone should feel like a trusted spiritual companion quietly meeting them where they are.
 
 SUGGESTIONS (choose 3-5, prioritize relevance):
 - Continue or resume where they left off in Bible reading (if any recent reading position/session is provided)
 - Suggest a short, relevant passage to read next (when resume context is missing)
 - Invite them to share a concern/topic they want to talk about (spiritual struggles, questions, decisions, relationships)
 - Offer to pick up a previous conversation thread (if any session summaries or prior chat context is provided)
+- Remind them of a routine that they do daily that is important to them (e.g. prayer, reading the Bible, etc.)
 
 USER CONTEXT:
 - You may be given user history/context below (reading sessions, notes, highlights, session summaries, life context).
@@ -121,7 +128,6 @@ USER CONTEXT:
 TONE:
 - Warm, clear, encouraging, not preachy
 - Action-oriented: make it easy to choose what to do next
-- Keep the welcome message brief (2-4 sentences)
 
 OUTPUT FORMAT (STRICT):
 - Return JSON only. No markdown. No prose outside JSON. No code fences.
@@ -133,6 +139,48 @@ OUTPUT FORMAT (STRICT):
     ]
   }
 - Each suggestion.prompt must be a natural user message the client can send next (e.g., "Help me continue where I left off in the Bible.").`;
+
+const GUIDE_FOLLOWUP_SYSTEM_PROMPT = `You are Forge's Guide inside a Christian Bible study app.
+
+Your job is to help the user take their next faithful step: Scripture, prayer, and practical application.
+
+IDENTITY + TRANSPARENCY:
+- Do NOT call yourself “AI” or mention LLMs, models, tokens, system prompts, or internal tools.
+- You are “Guide.” Speak naturally and warmly.
+
+SCOPE:
+- You can talk about the user's concerns, questions, decisions, relationships, habits, and spiritual life.
+- You may suggest Bible readings, invite prayer, or propose a simple next step.
+- You should not pretend to have completed actions in the app. You can suggest what the user can do next.
+
+OUT-OF-SCOPE REDIRECT (spiritual growth only):
+- If the user asks about something outside spiritual growth (e.g., coding, sports, celebrity news, generic trivia, politics-as-politics), do NOT answer the request.
+- Respond with a brief, warm redirect like:
+  "I’m here to help with Scripture, prayer, and your next step with God. What’s something you’re carrying today, or what passage are you in?"
+- If the user’s request can be reframed spiritually (e.g., anxiety about work, conflict, decision-making), ask one clarifying question and offer one next step.
+
+SAFETY / GUARDRAILS:
+- Self-harm or suicide: respond with care, encourage immediate help, and urge them to contact local emergency services or a trusted person right now.
+- Violence or harm: do not provide instructions; encourage safety and de-escalation.
+- Medical/legal/financial: do not provide professional advice; offer general support and encourage appropriate professional help.
+- Sexual content involving minors: refuse and provide safety guidance.
+- Hate, harassment, manipulation: refuse and redirect to love, grace, and safety.
+- Do not diagnose mental health conditions or label the user; use their own words and ask gentle clarifying questions.
+
+THEOLOGY STYLE:
+- Be theologically conservative and pastorally sensitive.
+- Avoid overconfident claims on disputed doctrines.
+- Keep counsel grounded in Scripture; if you cite Scripture, keep it relevant and modest.
+
+USER CONTEXT:
+- You may be provided with the user's recent context (reading sessions, notes, highlights, session summaries, life context, and artifacts).
+- Use it to personalize, but never mention internal metadata (IDs, tags, record types, DB fields, embedding scores, internal labels).
+- If context isn't present for something, say so plainly (e.g., “I don’t see any recent notes about that.”) without claiming you lack access.
+
+OUTPUT STYLE:
+- Clear and helpful; prefer 2–5 short paragraphs.
+- End with one gentle next step or question when appropriate.
+- Plain prose paragraphs only. Avoid bullet lists unless the user explicitly asks for a list.`;
 
 function buildOptionalFirstTurnGreetingInstruction(args: {
   isFirstTurn: boolean;
@@ -161,29 +209,6 @@ function getResponseModeInstruction(responseMode: string): string {
     case "explain":
     default:
       return `RESPONSE MODE: EXPLAIN\n- Explain the passage clearly and simply.\n- Stay faithful to the text and its context.`;
-  }
-}
-
-/**
- * Format a memory for inclusion in the prompt.
- * New UserMemory model has memoryType and value (JSON).
- */
-function formatMemoryForPrompt(
-  memoryType: string,
-  value: Record<string, unknown>,
-  preview: string
-): string {
-  switch (memoryType) {
-    case "struggle_theme":
-      return `[Internal: User has expressed wrestling with ${value.theme || preview}]`;
-    case "faith_stage":
-      return `[Internal: User appears to be in a ${value.stage || preview} stage of faith]`;
-    case "scripture_affinity":
-      return `[Internal: User has shown interest in ${value.book || value.theme || preview}]`;
-    case "tone_preference":
-      return `[Internal: User prefers ${value.tone || preview} style responses]`;
-    default:
-      return `[Internal: ${preview}]`;
   }
 }
 
@@ -267,12 +292,24 @@ function formatBibleReadingSessionForPrompt(
       : "—";
 
   const translation = typeof meta.translation === "string" ? meta.translation : null;
-  const completionStatus =
-    typeof meta.completionStatus === "string" ? meta.completionStatus : null;
+  const completionStatus = (() => {
+    const raw = meta.completionStatus;
+    if (typeof raw === "string") return raw;
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && "status" in raw) {
+      const s = (raw as any).status;
+      return typeof s === "string" ? s : null;
+    }
+    return null;
+  })();
   const durationSeconds =
     typeof meta.durationSeconds === "number" ? meta.durationSeconds : null;
   const versesVisibleCount =
     typeof meta.versesVisibleCount === "number" ? meta.versesVisibleCount : null;
+
+  const readRanges =
+    Array.isArray(meta.readRanges) && meta.readRanges.every((v) => typeof v === "string")
+      ? (meta.readRanges as string[])
+      : null;
 
   const startRefRaw = meta.startRef;
   const startRef =
@@ -309,6 +346,11 @@ function formatBibleReadingSessionForPrompt(
         : `${book} ${chapter}:${verseEnd}`
       : null;
 
+  const readRangesText =
+    book && typeof chapter === "number" && readRanges && readRanges.length > 0
+      ? `${book} ${readRanges.join(", ")}`
+      : null;
+
   const durationText = (() => {
     if (typeof durationSeconds !== "number" || !Number.isFinite(durationSeconds) || durationSeconds < 0) {
       return null;
@@ -320,7 +362,11 @@ function formatBibleReadingSessionForPrompt(
   })();
 
   const label = `[Reading - ${dateStr}]`;
-  const refStr = referenceText ? ` (${referenceText})` : "";
+  const refStr = readRangesText
+    ? ` (${readRangesText})`
+    : referenceText
+      ? ` (${referenceText})`
+      : "";
 
   const metaBits: string[] = [];
   if (translation) metaBits.push(translation);
@@ -331,10 +377,7 @@ function formatBibleReadingSessionForPrompt(
   const metaStr = metaBits.length > 0 ? ` — ${metaBits.join(" · ")}` : "";
 
   // Candidate preview is already redacted; include it as a fallback if we couldn't derive much.
-  const fallback =
-    (!referenceText && !metaStr.trim()) && candidate.preview !== ""
-      ? `\n${candidate.preview}`
-      : "";
+  const fallback = !referenceText && candidate.preview !== "" ? `\n${candidate.preview}` : "";
 
   return `${label}${refStr}${metaStr}${fallback}`;
 }
@@ -344,7 +387,11 @@ function assembleSystemPrompt(
   selectedContext: RankAndBudgetPayload
 ): string {
   const basePrompt =
-    ctx.entrypoint === "chat_start" ? CHAT_START_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT;
+    ctx.entrypoint === "chat_start"
+      ? CHAT_START_SYSTEM_PROMPT
+      : ctx.entrypoint === "guide_followup"
+        ? GUIDE_FOLLOWUP_SYSTEM_PROMPT
+        : BASE_SYSTEM_PROMPT;
 
   const parts: string[] = [
     basePrompt,
@@ -377,9 +424,6 @@ function assembleSystemPrompt(
   }
 
   // Group selected context by source
-  const memorySelected = selectedContext.selected.filter(
-    (s) => s.candidate.source === "user_memory"
-  );
   const bibleSelected = selectedContext.selected.filter(
     (s) => s.candidate.source === "bible"
   );
@@ -395,7 +439,6 @@ function assembleSystemPrompt(
 
   console.log("[PromptAssembly] Selected context:", {
     totalSelected: selectedContext.selected.length,
-    memorySelected: memorySelected.length,
     bibleSelected: bibleSelected.length,
     lifeContextSelected: lifeContextSelected.length,
     bibleReadingSelected: bibleReadingSelected.length,
@@ -462,26 +505,9 @@ function assembleSystemPrompt(
   });
 
   // =========================================================================
-  // 2. Inject Memory Context (simplified for new model)
-  // =========================================================================
-  if (memorySelected.length > 0) {
-    const memoryParts: string[] = [];
-    memoryParts.push("USER CONTEXT (use with discernment, do not mention explicitly):");
-
-    for (const item of memorySelected) {
-      const memoryType = item.candidate.metadata?.memoryType as string || "insight";
-      const value = item.candidate.metadata?.value as Record<string, unknown> || {};
-      const formatted = formatMemoryForPrompt(memoryType, value, item.candidate.preview);
-      memoryParts.push(formatted);
-    }
-
-    parts.push(memoryParts.join("\n"));
-  }
-
-  // =========================================================================
   // 3. Inject Life Context (if present and no memories)
   // =========================================================================
-  if (memorySelected.length === 0 && lifeContext && (lifeContext.currentSeason || lifeContext.weeklyIntention)) {
+  if (lifeContext && (lifeContext.currentSeason || lifeContext.weeklyIntention)) {
     const lifeContextParts: string[] = [];
 
     lifeContextParts.push("LIFE CONTEXT (use with discernment, do not mention explicitly):");
@@ -692,6 +718,7 @@ export async function executePromptAssemblyStage(
   }));
 
   const model = getModelForEntrypoint(ctx.entrypoint);
+  const maxTokens = 500;
 
   const payload: PromptAssemblyPayload = {
     schemaVersion: PROMPT_ASSEMBLY_SCHEMA_VERSION,
@@ -700,7 +727,7 @@ export async function executePromptAssemblyStage(
       messagesPreview,
       messagesCount: messages.length,
       temperature: 0.7,
-      maxTokens: 500,
+      maxTokens,
     },
     tokenBreakdown: {
       systemPrompt: systemTokens,

@@ -44,4 +44,8 @@ export class VercelKVClient implements KVClient {
       throw error;
     }
   }
+
+  async disconnect(): Promise<void> {
+    // No persistent connection to close for @vercel/kv
+  }
 }

@@ -13,17 +13,39 @@ A modern Next.js 15 web application for sharing and supporting prayer requests i
 
 ## Getting Started
 
+0. Use the supported Node version (Prisma requires Node 20.19+ / 22.12+ / 24+):
+   ```bash
+   nvm use
+   ```
+
 1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Run the development server:
+2. Create a local `.env`:
+   ```bash
+   cp env.example .env
+   ```
+
+3. (Optional) Start local Postgres/Redis:
+   ```bash
+   # docker compose auto-loads `.env` by default; if your `.env` contains multiline values
+   # (common for private keys), it can break compose parsing. Use an explicit env file.
+   npm run db:up
+   ```
+
+4. Bootstrap your local database (enables extensions, syncs schema, baselines existing migrations):
+   ```bash
+   npm run db:bootstrap
+   ```
+
+5. Run the development server:
    ```bash
    npm run dev
    ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser
+6. Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ## Available Scripts
 
@@ -31,11 +53,18 @@ A modern Next.js 15 web application for sharing and supporting prayer requests i
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
+- `npm run db:up` - Start local Postgres/Redis via Docker
+- `npm run db:down` - Stop local Postgres/Redis
+- `npm run db:extensions` - Enable required Postgres extensions (currently `citext`)
 - `npm run db:migrate:deploy` - Apply Prisma migrations to the target database (prod-safe)
+- `npm run db:migrate:baseline` - Mark existing migration folders as applied (baseline)
+- `npm run db:bootstrap` - One-time setup for a fresh database (enables extensions, `db push`, then baselines migrations)
 
 ## Production migrations (Vercel)
 
 This repo uses Prisma migrations in `prisma/migrations/*`. **These are not applied just by checking in code**—they must run during deployment.
+
+Important: the current migration set is **incremental** (it assumes the base schema already exists). For a brand-new database, use `npm run db:bootstrap` once, then enable migrations for subsequent deploys.
 
 - **Vercel deploy behavior**: if `package.json` contains a `vercel-build` script, Vercel will run it during production builds.
 - **Configured here**: `vercel-build` runs `prisma migrate deploy` before `next build` **only when**:
@@ -95,7 +124,7 @@ DATABASE_URL="..." npx prisma db push
 2. **Verify there’s no drift**:
 
 ```bash
-DATABASE_URL="..." npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+DATABASE_URL="..." npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema prisma/schema.prisma --script
 ```
 
 3. Once the diff is empty (or only benign noise), **baseline** by resolving your initial migration(s) as applied, then enable `RUN_PRISMA_MIGRATIONS=true` on Vercel Production.
@@ -116,6 +145,16 @@ Then retry:
 ```bash
 DATABASE_URL="..." npx prisma db push --accept-data-loss
 ```
+
+## Local database notes
+
+- This schema uses Postgres `citext` (see `@db.Citext` fields), so the DB must have the extension enabled:
+
+```bash
+npm run db:extensions
+```
+
+- If you’re using Docker Compose, prefer `npm run db:up` (it uses `--env-file env.example`) so Compose doesn’t accidentally try to parse your full `.env` (multiline secrets can break Compose parsing).
 
 ## Project Structure
 

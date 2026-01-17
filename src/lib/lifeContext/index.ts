@@ -22,6 +22,7 @@ import type {
   SeasonValue,
   PrayerTopicValue,
   WeeklyIntentionValue,
+  GoalValue,
   EncouragementStyle,
 } from "./types";
 import {
@@ -254,6 +255,17 @@ export async function getActiveLifeContextForAI(
 ): Promise<ActiveLifeContext> {
   const items = await getActiveLifeContext(userId);
 
+  return buildActiveLifeContextForAIFromItems(items, encouragementStyle);
+}
+
+/**
+ * Pure helper: build ActiveLifeContext from already-fetched active life context items.
+ * Useful for callers (like rollups) that already have the items and want to avoid refetching.
+ */
+export function buildActiveLifeContextForAIFromItems(
+  items: LifeContextItemResponse[],
+  encouragementStyle: EncouragementStyle = "gentle"
+): ActiveLifeContext {
   const context: ActiveLifeContext = {
     encouragementStyle,
   };
@@ -292,7 +304,11 @@ export async function getActiveLifeContextForAI(
       }
 
       case "goal": {
-        // Goals aren't currently surfaced in AI context
+        const v = item.value as GoalValue;
+        if (!context.goals) context.goals = [];
+        if (typeof v.goal === "string" && v.goal.trim().length > 0) {
+          context.goals.push(v.goal.trim());
+        }
         break;
       }
     }

@@ -48,13 +48,13 @@ const requestSchema = z.object({
 
   // Debug run configuration
   impersonatedUserId: z.string(),
-  entrypoint: z.enum(["chat_start", "followup", "explain", "prayer_help"]),
-  message: z.string().min(1).max(5000),
+  entrypoint: z.enum(["chat_start", "guide_followup", "followup", "explain"]),
+  // chat_start can be invoked with an empty message (server will inject default).
+  message: z.string().max(5000),
   entityRefs: z.array(entityRefSchema).optional(),
   stopAtStage: z.nativeEnum(PipelineStage).optional(),
   includeRaw: z.boolean(),
   runModel: z.boolean(),
-  persistMemories: z.boolean().optional(), // Enable real signal/memory persistence
   providerOverrides: z
     .object({
       model: z.string().optional(),
@@ -73,6 +73,14 @@ const requestSchema = z.object({
     )
     .optional(),
   initialContext: z.string().optional(),
+}).superRefine((val, ctx) => {
+  if (val.entrypoint !== "chat_start" && !val.message.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "message is required for this entrypoint",
+      path: ["message"],
+    });
+  }
 });
 
 // =============================================================================
@@ -119,6 +127,10 @@ export async function POST(request: NextRequest) {
     // 2. Parse and validate request
     const body = await request.json();
     const input = requestSchema.parse(body);
+    const effectiveMessage =
+      input.entrypoint === "chat_start" && !input.message.trim()
+        ? "Start the Guide conversation."
+        : input.message.trim();
 
     // 3. Verify impersonated user exists
     const impersonatedUser = await prisma.user.findUnique({
@@ -136,7 +148,7 @@ export async function POST(request: NextRequest) {
     // 4. Log impersonation event
     console.log(
       `[INTERNAL-DEBUG] IMPERSONATION: Admin ${input.adminEmail || input.adminId} impersonating user ${impersonatedUser.email} (${impersonatedUser.id})` +
-      (input.persistMemories ? " [MEMORY PERSISTENCE ENABLED]" : "")
+      ""
     );
 
     // 5. Generate IDs
@@ -157,13 +169,12 @@ export async function POST(request: NextRequest) {
         adminId: input.adminId,
         impersonatedUserId: input.impersonatedUserId,
         entrypoint: input.entrypoint,
-        message: input.message,
+        message: effectiveMessage,
         entityRefs: input.entityRefs || [],
         status: "running",
         settings: {
           includeRaw: input.includeRaw,
           runModel: input.runModel,
-          persistMemories: input.persistMemories || false,
           providerOverrides: input.providerOverrides,
         },
         // Persist conversation history for follow-up runs
@@ -183,17 +194,16 @@ export async function POST(request: NextRequest) {
     }
 
     // 9. Create run context with debug mode enabled
-    // If persistMemories is true, enable side effects for memory extraction
     const ctx = createRunContext({
       traceId,
       userId: input.impersonatedUserId,
       entrypoint: input.entrypoint,
-      message: input.message,
+      message: effectiveMessage,
       entityRefs: input.entityRefs,
       mode: "debug",
       stopAtStage: effectiveStopAtStage,
-      sideEffects: input.persistMemories ? "enabled" : "disabled",
-      writePolicy: "forbid", // Still forbid other writes
+      sideEffects: "disabled",
+      writePolicy: "forbid",
       appVersion: "admin-debug-1.0",
       platform: "web-admin",
       conversationHistory: input.conversationHistory,

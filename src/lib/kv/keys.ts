@@ -58,4 +58,15 @@ export const CacheKeys = {
    * e.g., "ai:context:user123"
    */
   aiContext: (userId: string): string => `ai:context:${userId}`,
+
+  /**
+   * Key for cached Home suggestions (guide suggestions) for a user+config.
+   * e.g., "guide:suggestions:v1:user123:sha256(...)".
+   */
+  guideSuggestions: (userId: string, configHash: string): string =>
+    `guide:suggestions:v1:${userId}:${configHash}`,
+
+  /**
+   * (rollups removed) Intentionally no rollup cache keys.
+   */
 };
