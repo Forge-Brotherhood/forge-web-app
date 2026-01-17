@@ -66,6 +66,8 @@ This repo uses Prisma migrations in `prisma/migrations/*`. **These are not appli
 
 Important: the current migration set is **incremental** (it assumes the base schema already exists). For a brand-new database, use `npm run db:bootstrap` once, then enable migrations for subsequent deploys.
 
+- **Node version on Vercel**: this repo pins Node via `package.json#engines.node` so Vercel won’t silently jump major versions. Keep Vercel Project Settings aligned (Node 22.x).
+
 - **Vercel deploy behavior**: if `package.json` contains a `vercel-build` script, Vercel will run it during production builds.
 - **Configured here**: `vercel-build` runs `prisma migrate deploy` before `next build` **only when**:
   - `VERCEL_ENV=production`
