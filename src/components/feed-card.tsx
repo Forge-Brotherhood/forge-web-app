@@ -31,8 +31,6 @@ export interface PrayerRequest {
   scriptureReference?: string;
   voiceNoteUrl?: string;
   streakDays?: number;
-  groupName?: string;
-  groupId?: string;
   sharedToCommunity?: boolean;
 }
 
@@ -138,7 +136,6 @@ export const FeedCard = ({
     content: prayer.content,
     createdAt: prayer.createdAt,
     updateStatus: prayer.updateStatus,
-    groupName: prayer.groupName,
     prayerListCount: prayer.prayerListCount,
     isInPrayerList: prayer.isInPrayerList,
   } as FeedItem;

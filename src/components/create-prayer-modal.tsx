@@ -15,45 +15,19 @@ interface CreatePrayerModalProps {
   onClose: () => void;
 }
 
-type PostingScope = "community" | "group" | "both";
-
 export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [prayerText, setPrayerText] = useState("");
   const [uploadedMedia, setUploadedMedia] = useState<any[]>([]);
-  const [postingScope, setPostingScope] = useState<PostingScope>("community");
-  const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
   const { user } = useUser();
-  const { profile, getPostingOptions } = useProfile();
+  const { profile } = useProfile();
   const router = useRouter();
   const createThreadMutation = useCreateThreadMutation();
 
   // Check if any media is still uploading or processing
-  const hasUploadingMedia = uploadedMedia.some(media => 
+  const hasUploadingMedia = uploadedMedia.some(media =>
     media.status === 'uploading' || media.status === 'processing'
   );
-
-  // Get posting options based on user's group memberships
-  const postingOptions = getPostingOptions();
-
-  // Initialize posting scope based on available options
-  React.useEffect(() => {
-    // Only set initial value if user hasn't made a manual selection
-    if (!hasUserSelectedScope) {
-      if (postingOptions.communityOnly) {
-        setPostingScope("community");
-      } else if (postingOptions.canPostToGroups) {
-        setPostingScope("both"); // Default to sharing with both group and community
-      }
-    }
-  }, [postingOptions, hasUserSelectedScope]);
-
-  // Handle posting scope changes
-  const handleScopeChange = (newScope: PostingScope) => {
-    console.log('Scope change requested:', newScope, 'Current scope:', postingScope);
-    setPostingScope(newScope);
-    setHasUserSelectedScope(true);
-  };
 
   const getInitials = () => {
     // Use profile displayName first, then fall back to Clerk data
@@ -97,13 +71,11 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
       const result = await createThreadMutation.mutateAsync({
         content: prayerText.trim(),
         isAnonymous,
-        sharedToCommunity: postingScope === "community" || postingScope === "both",
-        groupId: postingScope === "group" || postingScope === "both" ? 
-          postingOptions.groups[0]?.groupId : null,
+        sharedToCommunity: true,
         mediaIds: mediaIds.length > 0 ? mediaIds : undefined,
         mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
       });
-      
+
       // Close modal and navigate to the thread
       onClose();
       router.push(`/threads/${result.id}`);
@@ -129,13 +101,7 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
               {isAnonymous ? "Post anonymously" : (profile?.displayName || user?.firstName || "You")}
             </p>
             <p className="text-sm text-muted-foreground">
-              {postingOptions.communityOnly 
-                ? "Share with the community"
-                : postingScope === "both" 
-                  ? "Share with your group and community"
-                  : postingScope === "group"
-                    ? "Share with your group only"
-                    : "Share with the community"}
+              Share with the community
             </p>
           </div>
         </div>
@@ -167,60 +133,12 @@ export function CreatePrayerModal({ onClose }: CreatePrayerModalProps) {
 
         {/* Media Upload */}
         <div className="space-y-2">
-          <MediaUpload 
+          <MediaUpload
             onMediaChange={setUploadedMedia}
             maxItems={3}
             disabled={createThreadMutation.isPending}
           />
         </div>
-
-        {/* Posting Scope Selection */}
-        {postingOptions.canPostToGroups && (
-          <div className="space-y-3">
-            <label className="text-sm font-medium">Share with:</label>
-            <div className="grid gap-2">
-              <Button
-                type="button"
-                variant={postingScope === "both" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleScopeChange("both")}
-                className="justify-start h-10 text-sm"
-                disabled={createThreadMutation.isPending}
-              >
-                My group and community
-              </Button>
-              <Button
-                type="button"
-                variant={postingScope === "group" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleScopeChange("group")}
-                className="justify-start h-10 text-sm"
-                disabled={createThreadMutation.isPending}
-              >
-                My group only
-              </Button>
-              <Button
-                type="button"
-                variant={postingScope === "community" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleScopeChange("community")}
-                className="justify-start h-10 text-sm"
-                disabled={createThreadMutation.isPending}
-              >
-                Community only
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Community-Only Notice for Non-Group Users */}
-        {postingOptions.communityOnly && (
-          <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              <span className="font-medium">Posting to community:</span> You&apos;re not part of a prayer group yet, so this will be shared with the community.
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Privacy Notice */}

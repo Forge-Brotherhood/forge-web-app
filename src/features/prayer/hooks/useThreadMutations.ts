@@ -23,7 +23,6 @@ import type {
 } from "@core/models/apiModels";
 import { threadKeys } from "./useThreadDetail";
 import { communityKeys } from "./useCommunityFeed";
-import { groupKeys } from "@features/groups/hooks/useGroupFeed";
 
 // MARK: - Types
 
@@ -57,7 +56,6 @@ interface CreateThreadData {
   title?: string;
   isAnonymous?: boolean;
   sharedToCommunity?: boolean;
-  groupId?: string | null;
   postKind?: "request" | "update" | "testimony";
   mediaIds?: string[];
   mediaUrls?: Array<{
@@ -83,7 +81,6 @@ function invalidateAllThreadCaches(queryClient: ReturnType<typeof useQueryClient
       return (
         key === 'threads' ||
         key === 'community' ||
-        key === 'group' ||
         key === 'prayer-cart' ||
         key === 'prayerList' ||
         (Array.isArray(query.queryKey) && query.queryKey.includes('feed'))
@@ -176,7 +173,6 @@ export function useAddPostMutation() {
       );
 
       queryClient.invalidateQueries({ queryKey: communityKeys.all });
-      queryClient.invalidateQueries({ queryKey: groupKeys.all });
     },
   });
 }
@@ -243,7 +239,6 @@ export function usePrayerToggleMutation() {
         queryKey: threadKeys.detail(threadId),
       });
       queryClient.invalidateQueries({ queryKey: communityKeys.all });
-      queryClient.invalidateQueries({ queryKey: groupKeys.all });
     },
   });
 }
@@ -373,7 +368,6 @@ export function useDeletePostMutation() {
     onSuccess: (_data, { threadId }) => {
       queryClient.invalidateQueries({ queryKey: threadKeys.detail(threadId) });
       queryClient.invalidateQueries({ queryKey: communityKeys.all });
-      queryClient.invalidateQueries({ queryKey: groupKeys.all });
     },
   });
 }
@@ -393,7 +387,6 @@ export function useDeleteThreadMutation() {
       });
 
       queryClient.invalidateQueries({ queryKey: communityKeys.all });
-      queryClient.invalidateQueries({ queryKey: groupKeys.all });
     },
   });
 }
@@ -413,7 +406,6 @@ export function usePrayerListToggleMutation() {
     },
     onSuccess: (_result, { threadId }) => {
       queryClient.invalidateQueries({ queryKey: communityKeys.all });
-      queryClient.invalidateQueries({ queryKey: groupKeys.all });
       queryClient.invalidateQueries({ queryKey: threadKeys.detail(threadId) });
       // Invalidate prayer list caches
       queryClient.invalidateQueries({ queryKey: ['prayerList'] });
@@ -437,7 +429,6 @@ export function useCreateThreadMutation() {
         title: data.title,
         isAnonymous: data.isAnonymous || false,
         sharedToCommunity: data.sharedToCommunity ?? true,
-        groupId: data.groupId || undefined,
         postKind: data.postKind || "request",
         mediaIds: data.mediaIds?.length ? data.mediaIds : undefined,
         mediaUrls: data.mediaUrls?.length ? data.mediaUrls : undefined,

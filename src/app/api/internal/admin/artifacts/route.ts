@@ -37,7 +37,6 @@ function validateInternalApiKey(request: NextRequest): boolean {
 
 const createArtifactSchema = z.object({
   userId: z.string().min(1),
-  groupId: z.string().optional(),
   type: z.enum(ARTIFACT_TYPES as unknown as [string, ...string[]]),
   scope: z.enum(ARTIFACT_SCOPES as unknown as [string, ...string[]]),
   title: z.string().optional(),
@@ -127,7 +126,6 @@ export async function GET(request: NextRequest) {
     const transformedArtifacts = artifacts.map((artifact) => ({
       id: artifact.id,
       userId: artifact.userId,
-      groupId: artifact.groupId,
       type: artifact.type,
       scope: artifact.scope,
       title: artifact.title,
@@ -209,7 +207,6 @@ export async function POST(request: NextRequest) {
     const artifact = await prisma.artifact.create({
       data: {
         userId: validated.userId,
-        groupId: validated.groupId ?? null,
         type: validated.type,
         scope: validated.scope,
         title: validated.title ?? null,
@@ -245,7 +242,6 @@ export async function POST(request: NextRequest) {
       artifact: {
         id: artifact.id,
         userId: artifact.userId,
-        groupId: artifact.groupId,
         type: artifact.type,
         scope: artifact.scope,
         title: artifact.title,

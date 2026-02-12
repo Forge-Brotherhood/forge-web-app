@@ -233,6 +233,7 @@ const INTENT_PATTERNS: Record<Intent, RegExp[]> = {
 
   reflection_wrestling: [
     /i('m| am) (struggling|wrestling|having trouble)/i,
+    /i struggle (with|against)/i, // Simple present tense: "I struggle with anger"
     /this is (hard|difficult|challenging) for me/i,
     /i don't (understand|get) (why|how)/i,
     /how (do|can) i (apply|live out|practice)/i,
@@ -308,6 +309,7 @@ const CONTINUATION_SIGNALS = {
 // Self-disclosure patterns for flags
 const SELF_DISCLOSURE_PATTERNS = [
   /i('m| am) (struggling|wrestling|having trouble)/i,
+  /i struggle (with|against)/i, // Simple present tense
   /i (have|'ve got|got) (a|an)/i,
   /i (feel|felt)/i,
   /i (deal|dealing|coping|living) with/i,

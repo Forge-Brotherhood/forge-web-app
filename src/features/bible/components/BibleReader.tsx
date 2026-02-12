@@ -85,7 +85,7 @@ export function BibleReader({
 
         <TranslationPicker
           value={translation}
-          onChange={setTranslation}
+          onChange={(t) => setTranslation(t as SupportedTranslation)}
           compact
         />
       </div>

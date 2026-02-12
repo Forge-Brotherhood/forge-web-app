@@ -35,30 +35,72 @@ export interface SafetyCheckResult {
 // =============================================================================
 
 /**
- * Patterns that indicate sensitive personal details
- * These are only filtered when combined with personal disclosure (first-person language nearby)
+ * PASTORAL-ALLOWED PATTERNS
+ * These emotional/spiritual struggles are appropriate for a pastoral app to remember.
+ * When users share these while seeking guidance, we WANT to remember for follow-up.
+ *
+ * Examples that should be ALLOWED:
+ * - "I struggle with anger at times"
+ * - "I've been dealing with anxiety"
+ * - "I have a fear of failure"
  */
-const SENSITIVE_PATTERNS: RegExp[] = [
-  // Family/relationships
-  /\b(spouse|husband|wife|partner|marriage|married|divorce|divorced|separated)\b/i,
-  /\b(children|kids|son|daughter|child|baby|pregnant|pregnancy)\b/i,
-  /\b(family|parent|mother|father|mom|dad|sibling|brother|sister)\b/i,
+const PASTORAL_ALLOWED_PATTERNS: RegExp[] = [
+  // Emotional struggles (appropriate for pastoral follow-up)
+  /\b(anger|angry|bitterness|bitter|resentment|resentful)\b/i,
+  /\b(anxiety|anxious|worry|worried|fear|fearful|afraid)\b/i,
+  /\b(depression|depressed|sadness|sad|hopeless|hopelessness)\b/i,
+  /\b(doubt|doubting|unbelief|questioning faith)\b/i,
+  /\b(temptation|tempted|lust|lustful|pornography)\b/i,
+  /\b(pride|prideful|arrogance|arrogant)\b/i,
+  /\b(jealousy|jealous|envy|envious)\b/i,
+  /\b(loneliness|lonely|isolation|isolated)\b/i,
+  /\b(grief|grieving|loss|mourning)\b/i,
+  /\b(forgiveness|forgiving|unforgiveness|unforgiving)\b/i,
+  /\b(patience|impatience|impatient)\b/i,
+  // Seeking help (the act of seeking is pastoral)
+  /\b(therapy|therapist|counselor|counseling)\b/i,
+];
 
-  // Employment/financial
-  /\b(job|work|career|employer|boss|fired|laid off|unemployed)\b/i,
-  /\b(salary|income|money|debt|financial|bankrupt|mortgage)\b/i,
+/**
+ * BLOCKED SENSITIVE PATTERNS
+ * These are truly sensitive and should NOT be stored as memories.
+ * These are only filtered when combined with personal disclosure (first-person language nearby)
+ *
+ * Examples that should be BLOCKED:
+ * - "I was diagnosed with bipolar disorder"
+ * - "I'm on medication for X"
+ * - "I was abused as a child"
+ * - "I'm in debt $50,000"
+ */
+const BLOCKED_SENSITIVE_PATTERNS: RegExp[] = [
+  // Medical diagnoses and treatments (not emotional states)
+  /\b(diagnosis|diagnosed|disorder|bipolar|schizophrenia|ptsd)\b/i,
+  /\b(medication|medicated|prescription|pills|meds)\b/i,
+  /\b(cancer|tumor|hospital|surgery|operation|treatment)\b/i,
+  /\b(sick|illness|disease|chronic)\b/i,
 
-  // Health
-  /\b(sick|illness|disease|diagnosis|cancer|hospital|surgery|doctor)\b/i,
-  /\b(mental health|depression|anxiety|therapy|therapist|counselor)\b/i,
-  /\b(addiction|addict|alcoholic|drug|substance)\b/i,
+  // Substance/addiction specifics
+  /\b(addict|addiction|alcoholic|overdose|rehab|relapse)\b/i,
+  /\b(drug|drugs|substance|narcotics|opioid)\b/i,
 
-  // Trauma
-  /\b(abuse|abused|assault|trauma|traumatic|violence|victim)\b/i,
-  /\b(suicide|suicidal|self-harm|cutting)\b/i,
+  // Trauma disclosures
+  /\b(abuse|abused|abusive|assault|assaulted)\b/i,
+  /\b(trauma|traumatic|ptsd|flashback)\b/i,
+  /\b(violence|violent|victim|rape|raped)\b/i,
 
-  // Legal
+  // Crisis/self-harm
+  /\b(suicide|suicidal|self-harm|cutting|kill myself|end my life)\b/i,
+
+  // Legal issues
   /\b(arrest|arrested|jail|prison|court|lawsuit|legal trouble)\b/i,
+  /\b(criminal|felony|probation|parole)\b/i,
+
+  // Financial specifics
+  /\b(salary|income|debt|bankrupt|bankruptcy|mortgage)\b/i,
+  /\b(\$\d+|credit card|bank account|social security)\b/i,
+
+  // PII patterns
+  /\b(ssn|address:|phone:|account number)\b/i,
 ];
 
 /**
@@ -149,12 +191,40 @@ const SAFE_PHRASE_ALTERNATIVES: Record<string, string> = {
 // =============================================================================
 
 /**
+ * Check if text contains pastoral-appropriate content (spiritual/emotional struggles)
+ * These are OK to remember for pastoral follow-up
+ */
+export function containsPastoralContent(text: string): boolean {
+  for (const pattern of PASTORAL_ALLOWED_PATTERNS) {
+    if (pattern.test(text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Check if a memory contains sensitive personal disclosure
- * Only returns true if sensitive terms appear WITH first-person language nearby
+ * Only returns true if BLOCKED sensitive terms appear WITH first-person language nearby
+ * Pastoral-appropriate content (emotional struggles) is explicitly ALLOWED
  * General/theological discussion of sensitive topics is allowed
  */
 export function containsSensitiveContent(text: string): boolean {
-  for (const pattern of SENSITIVE_PATTERNS) {
+  // First check: if it's pastoral content (emotional/spiritual struggles), allow it
+  // even if it appears to have sensitive terms
+  if (containsPastoralContent(text)) {
+    // But still block if there are truly sensitive patterns alongside
+    // e.g., "I struggle with anger" = OK, "I struggle with anger and was diagnosed with X" = blocked
+    for (const pattern of BLOCKED_SENSITIVE_PATTERNS) {
+      if (pattern.test(text) && hasPersonalDisclosure(text, pattern)) {
+        return true; // Contains both pastoral AND blocked content
+      }
+    }
+    return false; // Pastoral content only, allow it
+  }
+
+  // No pastoral content, check for blocked patterns
+  for (const pattern of BLOCKED_SENSITIVE_PATTERNS) {
     if (pattern.test(text) && hasPersonalDisclosure(text, pattern)) {
       return true; // Sensitive term + personal disclosure = filter
     }
@@ -183,6 +253,7 @@ export function sanitizeMemoryForPrompt(
 
 /**
  * Validate that a prompt doesn't contain prohibited phrasing
+ * Note: Pastoral-allowed patterns (emotional/spiritual struggles) are NOT flagged as issues
  */
 export function validatePromptSafety(prompt: string): SafetyCheckResult {
   const issues: string[] = [];
@@ -194,8 +265,8 @@ export function validatePromptSafety(prompt: string): SafetyCheckResult {
     }
   }
 
-  // Check for sensitive patterns
-  for (const pattern of SENSITIVE_PATTERNS) {
+  // Check for blocked sensitive patterns only (not pastoral-allowed)
+  for (const pattern of BLOCKED_SENSITIVE_PATTERNS) {
     if (pattern.test(prompt)) {
       issues.push(`Contains sensitive topic: ${pattern.source.slice(0, 30)}...`);
     }

@@ -281,7 +281,6 @@ function mapPrismaArtifact(
   return {
     id: artifact.id,
     userId: artifact.userId,
-    groupId: artifact.groupId,
     conversationId: artifact.conversationId,
     sessionId: artifact.sessionId,
     type: artifact.type as Artifact["type"],

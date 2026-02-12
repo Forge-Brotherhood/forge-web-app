@@ -6,8 +6,6 @@
 
 import type {
   User,
-  PrayerGroup,
-  GroupMember,
   PrayerRequest,
   PrayerEntry,
   Attachment,
@@ -18,14 +16,11 @@ import type {
 import {
   PrayerStatus,
   EntryKind,
-  GroupType,
   AttachmentType,
   ResponseType,
 } from './models';
 import type {
   APIProfileResponse,
-  APIGroupResponse,
-  APIGroupMemberResponse,
   APICommunityThread,
   APIThreadEntry,
   APIThreadAttachment,
@@ -73,52 +68,6 @@ export function apiProfileToUser(api: APIProfileResponse): User {
   };
 }
 
-// MARK: - Group Conversion
-
-export function apiGroupToPrayerGroup(api: APIGroupResponse): PrayerGroup {
-  const members = api.members?.map(apiMemberToGroupMember) ?? [];
-  const openCount = api.prayerRequests?.filter((r) => r.status === 'open').length ?? 0;
-  const answeredCount = api.prayerRequests?.filter((r) => r.status === 'answered').length ?? 0;
-
-  return {
-    id: api.id,
-    shortId: api.shortId,
-    name: api.name,
-    description: api.description,
-    groupType: api.groupType as GroupType,
-    createdAt: parseDate(api.createdAt),
-    updatedAt: parseDate(api.updatedAt),
-    openRequestCount: openCount,
-    answeredRequestCount: answeredCount,
-    members,
-  };
-}
-
-export function apiMemberToGroupMember(api: APIGroupMemberResponse): GroupMember {
-  const user: User | undefined = api.user
-    ? {
-        id: api.user.id,
-        clerkId: '',
-        email: '',
-        firstName: api.user.firstName,
-        displayName: api.user.displayName,
-        profileImageUrl: api.user.profileImageUrl,
-        prayerStreak: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-    : undefined;
-
-  return {
-    groupId: api.groupId,
-    userId: api.userId,
-    status: api.status,
-    role: api.role,
-    joinedAt: parseDate(api.joinedAt),
-    user,
-  };
-}
-
 // MARK: - Thread Conversion
 
 export function communityThreadToPrayerRequest(thread: APICommunityThread): PrayerRequest {
@@ -136,27 +85,11 @@ export function communityThreadToPrayerRequest(thread: APICommunityThread): Pray
       }
     : undefined;
 
-  const group: PrayerGroup | undefined = thread.group
-    ? {
-        id: thread.group.id,
-        shortId: thread.group.shortId ?? '',
-        name: thread.group.name,
-        description: thread.group.description,
-        groupType: (thread.group.groupType as GroupType) ?? GroupType.Virtual,
-        createdAt: parseDate(thread.group.createdAt),
-        updatedAt: parseDate(thread.group.updatedAt),
-        openRequestCount: 0,
-        answeredRequestCount: 0,
-        members: [],
-      }
-    : undefined;
-
   const entries = thread.entries.map(threadEntryToPrayerEntry);
 
   return {
     id: thread.id,
     shortId: thread.shortId ?? thread.id,
-    groupId: thread.groupId,
     authorId: thread.authorId ?? '',
     title: thread.title,
     sharedToCommunity: thread.sharedToCommunity,
@@ -169,7 +102,6 @@ export function communityThreadToPrayerRequest(thread: APICommunityThread): Pray
     createdAt: parseDate(thread.createdAt),
     updatedAt: parseDate(thread.updatedAt),
     author,
-    group,
     entries,
   };
 }
@@ -278,8 +210,6 @@ export function communityThreadToFeedItem(
     isInPrayerList,
     hasEncouraged: false,
     updateStatus,
-    groupName: thread.group?.name,
-    groupId: thread.group?.id,
     sharedToCommunity: thread.sharedToCommunity,
   };
 }
@@ -314,30 +244,15 @@ export function prayerListRequestToPrayerRequest(api: APIPrayerListRequest): Pra
       }
     : undefined;
 
-  const group: PrayerGroup | undefined = api.group
-    ? {
-        id: api.group.id,
-        shortId: '',
-        name: api.group.name,
-        groupType: api.group.groupType as GroupType,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        openRequestCount: 0,
-        answeredRequestCount: 0,
-        members: [],
-      }
-    : undefined;
-
   const entries = api.posts?.map(threadEntryToPrayerEntry) ?? [];
 
   return {
     id: api.id,
     shortId: api.shortId ?? '',
-    groupId: api.group?.id,
     authorId: api.author?.id ?? '',
     title: api.title,
-    sharedToCommunity: false,
-    isAnonymous: false,
+    sharedToCommunity: api.sharedToCommunity ?? false,
+    isAnonymous: api.isAnonymous ?? false,
     status: stringToPrayerStatus(api.status),
     lastActivityAt: parseDate(api.lastActivityAt),
     postCount: entries.length,
@@ -346,7 +261,6 @@ export function prayerListRequestToPrayerRequest(api: APIPrayerListRequest): Pra
     createdAt: parseDate(api.createdAt),
     updatedAt: parseDate(api.createdAt),
     author,
-    group,
     entries,
   };
 }
@@ -382,17 +296,6 @@ export function stringToEntryKind(kind: string): EntryKind {
       return EntryKind.System;
     default:
       return EntryKind.Request;
-  }
-}
-
-export function stringToGroupType(type: string): GroupType {
-  switch (type) {
-    case 'core':
-      return GroupType.InPerson;
-    case 'circle':
-      return GroupType.Virtual;
-    default:
-      return GroupType.Virtual;
   }
 }
 

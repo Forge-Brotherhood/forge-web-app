@@ -119,6 +119,17 @@ export interface VerseOfTheDayResponse {
   verseOfTheDay: VerseOfTheDay;
 }
 
+export interface BibleTranslationInfo {
+  code: string;
+  name: string;
+}
+
+export interface BibleTranslationsResponse {
+  translations: BibleTranslationInfo[];
+  provider: string;
+  defaultTranslation: string;
+}
+
 export interface BibleSearchResponse {
   // Search removed. This type is intentionally not used.
   // (Kept out of public exports by removal in hooks/api client.)
@@ -130,14 +141,14 @@ export interface BibleSearchResponse {
 
 // MARK: - Supported Translations
 
-export type SupportedTranslation = 'BSB' | 'KJV' | 'WEB' | 'ASV';
+export type SupportedTranslation = 'BSB' | 'KJV' | 'WEB' | 'ASV' | 'NLT';
 
 export const BIBLE_TRANSLATIONS: Record<SupportedTranslation, { id: string; name: string }> = {
-  // id is the AO Lab translation id (from /api/available_translations.json)
   BSB: { id: 'BSB', name: 'Berean Standard Bible' },
   KJV: { id: 'eng_kjv', name: 'King James Version' },
   WEB: { id: 'ENGWEBP', name: 'World English Bible' },
   ASV: { id: 'eng_asv', name: 'American Standard Version' },
+  NLT: { id: 'NLT', name: 'New Living Translation' },
 };
 
 // BSB is a modern, readable translation - good default

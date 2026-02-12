@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
-import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
 import { CACHE_TTL_SECONDS } from "@/lib/kv";
 
 interface RouteParams {
@@ -14,7 +14,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const { id: chapterId } = await params;
     const { searchParams } = new URL(request.url);
-    const translation = (searchParams.get("translation") || DEFAULT_TRANSLATION).toUpperCase();
+    const providerDefault = getDefaultTranslation(getCurrentProviderType());
+    const translation = (searchParams.get("translation") || providerDefault).toUpperCase();
 
     if (!chapterId) {
       return NextResponse.json(

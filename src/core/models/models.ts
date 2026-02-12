@@ -32,17 +32,19 @@ export enum ActivityType {
   EncouragementReceived = 'encouragementReceived',
 }
 
-/** Group type */
-export enum GroupType {
-  InPerson = 'in_person',
-  Virtual = 'virtual',
+/** Reading plan status */
+export enum ReadingPlanStatus {
+  Scheduled = 'scheduled',
+  Active = 'active',
+  Paused = 'paused',
+  Completed = 'completed',
+  Canceled = 'canceled',
 }
 
-/** Meeting cadence for in-person groups */
-export enum MeetingCadence {
-  Weekly = 'weekly',
-  Biweekly = 'biweekly',
-  Monthly = 'monthly',
+/** Reflection kind */
+export enum ReflectionKind {
+  Reflection = 'reflection',
+  SelfPrayer = 'self_prayer',
 }
 
 /** Attachment type */
@@ -101,148 +103,114 @@ export const UserHelpers = {
   },
 };
 
-// MARK: - Meeting Address
+// MARK: - User Reading Plan
 
-/** Structured address for meeting locations */
-export interface MeetingAddress {
-  locationName?: string;    // Venue name (e.g., "First Baptist Church")
-  streetAddress?: string;   // Street address (e.g., "123 Main St")
-  city?: string;            // City
-  state?: string;           // State/Province
-  postalCode?: string;      // ZIP/Postal code
-  country?: string;         // Country (ISO 3166-1 alpha-2, e.g., "US")
-  latitude?: number;        // Latitude for map display
-  longitude?: number;       // Longitude for map display
-  placeId?: string;         // Google Places ID for linking
-}
-
-/** Helper functions for MeetingAddress */
-export const MeetingAddressHelpers = {
-  /** Format address for display (single line) */
-  formatShort(address?: MeetingAddress): string {
-    if (!address) return '';
-    const parts = [address.city, address.state].filter(Boolean);
-    return parts.join(', ');
-  },
-
-  /** Format full address for display (multi-line capable) */
-  formatFull(address?: MeetingAddress): string {
-    if (!address) return '';
-    const lines: string[] = [];
-    if (address.locationName) lines.push(address.locationName);
-    if (address.streetAddress) lines.push(address.streetAddress);
-    const cityState = [address.city, address.state, address.postalCode].filter(Boolean).join(', ');
-    if (cityState) lines.push(cityState);
-    return lines.join('\n');
-  },
-
-  /** Generate Google Maps URL */
-  getGoogleMapsUrl(address?: MeetingAddress): string | undefined {
-    if (!address) return undefined;
-    // Prefer place ID for most accurate link
-    if (address.placeId) {
-      return `https://www.google.com/maps/place/?q=place_id:${address.placeId}`;
-    }
-    // Fall back to coordinates
-    if (address.latitude && address.longitude) {
-      return `https://www.google.com/maps/search/?api=1&query=${address.latitude},${address.longitude}`;
-    }
-    // Fall back to address string
-    const parts = [address.streetAddress, address.city, address.state, address.postalCode, address.country]
-      .filter(Boolean);
-    if (parts.length > 0) {
-      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(', '))}`;
-    }
-    return undefined;
-  },
-
-  /** Generate Apple Maps URL */
-  getAppleMapsUrl(address?: MeetingAddress): string | undefined {
-    if (!address) return undefined;
-    // Prefer coordinates
-    if (address.latitude && address.longitude) {
-      return `https://maps.apple.com/?ll=${address.latitude},${address.longitude}`;
-    }
-    // Fall back to address string
-    const parts = [address.streetAddress, address.city, address.state, address.postalCode, address.country]
-      .filter(Boolean);
-    if (parts.length > 0) {
-      return `https://maps.apple.com/?address=${encodeURIComponent(parts.join(', '))}`;
-    }
-    return undefined;
-  },
-};
-
-// MARK: - Prayer Group
-
-export interface PrayerGroup {
+export interface UserReadingPlan {
   id: string;
   shortId: string;
-  name?: string;
-  description?: string;
-  groupType: GroupType | string;
-  // Meeting schedule (only applicable for in_person groups)
-  meetingCadence?: MeetingCadence | string;
-  meetingDayOfWeek?: number; // 0-6 (Sunday-Saturday)
-  meetingTime?: string; // e.g., "19:00" (24h format)
-  meetingAddress?: MeetingAddress;
+  status: ReadingPlanStatus;
+  startDate: Date;
+  timezone: string;
+  notifyDaily: boolean;
+  template: ReadingPlanTemplate;
+  progressCount: number;
   createdAt: Date;
-  updatedAt: Date;
-
-  // UI-only fields (not from API directly)
-  openRequestCount: number;
-  answeredRequestCount: number;
-  members: GroupMember[];
 }
 
-/** Helper functions for PrayerGroup */
-export const PrayerGroupHelpers = {
-  getDisplayName(group: PrayerGroup): string {
-    return group.name ?? 'Unnamed Group';
-  },
-
-  isVirtual(group: PrayerGroup): boolean {
-    return group.groupType === GroupType.Virtual || group.groupType === 'virtual';
-  },
-
-  isInPerson(group: PrayerGroup): boolean {
-    return group.groupType === GroupType.InPerson || group.groupType === 'in_person';
-  },
-
-  /** Get formatted meeting location */
-  getMeetingLocationDisplay(group: PrayerGroup): string {
-    return MeetingAddressHelpers.formatShort(group.meetingAddress);
-  },
-
-  /** Get Google Maps URL for meeting location */
-  getMeetingMapsUrl(group: PrayerGroup): string | undefined {
-    return MeetingAddressHelpers.getGoogleMapsUrl(group.meetingAddress);
-  },
-};
-
-// MARK: - Group Member
-
-export interface GroupMember {
-  groupId: string;
-  userId: string;
-  status: string;
-  role: string;
-  joinedAt: Date;
-  user?: User;
+export interface ReadingPlanTemplate {
+  id: string;
+  shortId: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  coverImageUrl?: string;
+  totalDays: number;
+  estimatedMinutesMin: number;
+  estimatedMinutesMax: number;
+  days?: ReadingPlanDay[];
 }
 
-/** Helper functions for GroupMember */
-export const GroupMemberHelpers = {
-  getId(member: GroupMember): string {
-    return `${member.groupId}-${member.userId}`;
+export interface ReadingPlanDay {
+  id: string;
+  dayNumber: number;
+  passageRef: string;
+  bookId?: string;
+  startChapter?: number;
+  startVerse?: number;
+  endChapter?: number;
+  endVerse?: number;
+  title?: string;
+  summary?: string;
+  reflectionPrompt?: string;
+  prayerPrompt?: string;
+  contextIntro?: string;
+}
+
+export interface TodayReading {
+  planId: string;
+  planShortId: string;
+  planStatus: string;
+  planTitle: string;
+  coverImageUrl?: string;
+  totalDays: number;
+  currentDay: number;
+  day: TodayReadingDay;
+  progress: ReadingProgress;
+  reflections: ReadingReflection[];
+}
+
+export interface TodayReadingDay {
+  id: string;
+  dayNumber: number;
+  passageRef: string;
+  bookId?: string;
+  startChapter?: number;
+  startVerse?: number;
+  endChapter?: number;
+  endVerse?: number;
+  title?: string;
+  summary?: string;
+  reflectionPrompt?: string;
+  prayerPrompt?: string;
+  contextIntro?: string;
+  audio?: ReadingDayAudio;
+}
+
+export interface ReadingDayAudio {
+  audioUrl: string;
+  durationMs: number;
+  markers: unknown;
+  translation: string;
+}
+
+export interface ReadingProgress {
+  hasRead: boolean;
+  hasReflected: boolean;
+  hasPrayed: boolean;
+  completedAt?: Date;
+}
+
+export interface ReadingReflection {
+  id: string;
+  kind: ReflectionKind;
+  content?: string;
+  audioUrl?: string;
+  createdAt: Date;
+}
+
+/** Helper functions for UserReadingPlan */
+export const UserReadingPlanHelpers = {
+  isActive(plan: UserReadingPlan): boolean {
+    return plan.status === ReadingPlanStatus.Active;
   },
 
-  isActive(member: GroupMember): boolean {
-    return member.status === 'active';
+  isCompleted(plan: UserReadingPlan): boolean {
+    return plan.status === ReadingPlanStatus.Completed;
   },
 
-  isLeader(member: GroupMember): boolean {
-    return member.role === 'leader';
+  getCompletionPercent(plan: UserReadingPlan): number {
+    if (plan.template.totalDays === 0) return 0;
+    return Math.round((plan.progressCount / plan.template.totalDays) * 100);
   },
 };
 
@@ -251,7 +219,6 @@ export const GroupMemberHelpers = {
 export interface PrayerRequest {
   id: string;
   shortId: string;
-  groupId?: string;
   authorId: string;
   title?: string;
   sharedToCommunity: boolean;
@@ -266,7 +233,6 @@ export interface PrayerRequest {
 
   // UI-only fields
   author?: User;
-  group?: PrayerGroup;
   entries: PrayerEntry[];
 }
 
@@ -348,7 +314,6 @@ export interface ActivityItem {
   date: Date;
   type: ActivityType;
   requestId?: string;
-  groupId?: string;
 }
 
 /** Helper functions for ActivityItem */
@@ -391,8 +356,6 @@ export interface FeedItem {
   isInPrayerList: boolean;
   hasEncouraged: boolean;
   updateStatus?: 'answered' | 'update';
-  groupName?: string;
-  groupId?: string;
   sharedToCommunity: boolean;
 }
 

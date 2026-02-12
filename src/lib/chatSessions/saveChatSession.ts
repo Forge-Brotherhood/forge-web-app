@@ -33,6 +33,7 @@ export type SaveChatSessionResult =
 export const saveChatSessionTranscript = async (args: {
   userId: string;
   kind: ChatSessionKind;
+  openaiConversationId: string | null;
   transcript: ChatSessionTranscriptInput;
 }): Promise<SaveChatSessionResult> => {
   const normalizedMessages = args.transcript.messages
@@ -71,6 +72,7 @@ export const saveChatSessionTranscript = async (args: {
       update: {
         title,
         endedAt,
+        ...(args.openaiConversationId ? { openaiConversationId: args.openaiConversationId } : {}),
       },
       create: {
         userId: args.userId,
@@ -79,6 +81,7 @@ export const saveChatSessionTranscript = async (args: {
         title,
         startedAt,
         endedAt,
+        openaiConversationId: args.openaiConversationId,
       },
       select: { id: true },
     });

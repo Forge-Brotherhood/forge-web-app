@@ -4,15 +4,13 @@ import { useState, useCallback, useRef } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Send, Users, BookOpen, MoreHorizontal, Edit, Trash2, Share, Flag } from "lucide-react";
+import { Send, BookOpen, MoreHorizontal, Trash2 } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { formatDistanceToNow } from "date-fns";
 import { useRouter } from "next/navigation";
@@ -120,7 +118,7 @@ export function ThreadDetailClient({ threadId }: Props) {
       });
 
       // Navigate back after successful deletion
-      router.push("/groups");
+      router.push("/pray");
     } catch (error) {
       console.error("Error deleting thread:", error);
       setIsDeletingThread(false);
@@ -132,7 +130,7 @@ export function ThreadDetailClient({ threadId }: Props) {
       <div className="min-h-screen bg-background">
         <div className="max-w-2xl mx-auto px-4 py-6">
           <div className="mb-6">
-            <BackButton fallbackPath="/groups" />
+            <BackButton fallbackPath="/pray" />
           </div>
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <FeedCardSkeleton />
@@ -148,7 +146,7 @@ export function ThreadDetailClient({ threadId }: Props) {
       <div className="min-h-screen bg-background">
         <div className="max-w-2xl mx-auto px-4 py-6">
           <div className="mb-6">
-            <BackButton fallbackPath="/groups" />
+            <BackButton fallbackPath="/pray" />
           </div>
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <EmptyState
@@ -213,14 +211,7 @@ export function ThreadDetailClient({ threadId }: Props) {
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
-            <BackButton fallbackPath="/groups" />
-            
-            {thread.group && (
-              <Badge variant="secondary" className="bg-blue-500/15 text-blue-600 dark:text-blue-400 rounded-full">
-                <Users className="w-3 h-3 mr-1" />
-                {thread.group.name || `${thread.group.groupType} group`}
-              </Badge>
-            )}
+            <BackButton fallbackPath="/pray" />
           </div>
         </div>
 
@@ -253,8 +244,6 @@ export function ThreadDetailClient({ threadId }: Props) {
                   isInPrayerList: currentPrayerStatus.isInPrayerList,
                   hasEncouraged: false,
                   updateStatus: (thread.status === "answered" || mainPost.kind === "testimony") ? "answered" : null,
-                  groupName: thread.group?.name,
-                  groupId: thread.group?.id,
                   sharedToCommunity: thread.sharedToCommunity,
                 } as FeedCardPrayer}
                 onPrayerListToggle={() => handlePrayerListToggle()}

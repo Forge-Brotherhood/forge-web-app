@@ -35,7 +35,6 @@ export type FeedSource = 'community' | 'core' | 'circle';
 export interface CommunityFeedParams {
   filter?: CommunityFilter;
   source?: FeedSource;
-  groupId?: string;
   status?: 'open' | 'answered' | 'archived';
   limit?: number;
   offset?: number;
@@ -47,7 +46,6 @@ export function buildFeedQueryParams(params: CommunityFeedParams): URLSearchPara
 
   if (params.filter) searchParams.set('filter', params.filter);
   if (params.source) searchParams.set('source', params.source);
-  if (params.groupId) searchParams.set('groupId', params.groupId);
   if (params.status) searchParams.set('status', params.status);
   if (params.limit !== undefined) searchParams.set('limit', params.limit.toString());
   if (params.offset !== undefined) searchParams.set('offset', params.offset.toString());

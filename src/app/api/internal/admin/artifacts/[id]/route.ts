@@ -76,12 +76,6 @@ export async function GET(
             displayName: true,
           },
         },
-        group: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
         embeddings: {
           where: { model: EMBEDDING_MODEL },
           select: { id: true, model: true, dimension: true, createdAt: true },
@@ -125,7 +119,6 @@ export async function GET(
       artifact: {
         id: artifact.id,
         userId: artifact.userId,
-        groupId: artifact.groupId,
         conversationId: artifact.conversationId,
         sessionId: artifact.sessionId,
         type: artifact.type,
@@ -140,7 +133,6 @@ export async function GET(
         createdAt: artifact.createdAt.toISOString(),
         updatedAt: artifact.updatedAt.toISOString(),
         user: artifact.user,
-        group: artifact.group,
         hasEmbedding: artifact.embeddings.length > 0,
         embedding: artifact.embeddings[0] ? {
           model: artifact.embeddings[0].model,
@@ -261,7 +253,6 @@ export async function PATCH(
       artifact: {
         id: updated.id,
         userId: updated.userId,
-        groupId: updated.groupId,
         type: updated.type,
         scope: updated.scope,
         title: updated.title,

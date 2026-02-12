@@ -33,11 +33,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const input = requestSchema.parse(body);
 
+    // Retrieve the OpenAI conversation ID before cleanup so we can preserve it in ChatSession
+    const chatConversation = await prisma.chatConversation.findUnique({
+      where: { conversationId: input.conversationId },
+      select: { openaiConversationId: true },
+    });
+
     const endedAtISO = input.endedAtISO ?? new Date().toISOString();
     const transcriptSave = await saveChatSessionTranscript({
       userId: authResult.userId,
       // Legacy storage still has `kind`; assistant is always Guide, so we store a constant.
       kind: "guide",
+      openaiConversationId: chatConversation?.openaiConversationId ?? null,
       transcript: {
         sessionId: input.sessionId ?? input.conversationId,
         startedAtISO: input.startedAtISO,

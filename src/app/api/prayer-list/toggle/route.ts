@@ -32,24 +32,14 @@ export async function POST(request: NextRequest) {
         OR: [{ id: threadId }, { shortId: threadId }],
         deletedAt: null,
       },
-      include: {
-        group: {
-          include: {
-            members: {
-              where: { userId: user.id, status: "active" },
-            },
-          },
-        },
-      },
     });
 
     if (!requestRecord) {
       return NextResponse.json({ error: "Thread not found" }, { status: 404 });
     }
 
-    // Access control: must be member or community-shared
-    const isMember = requestRecord.group ? requestRecord.group.members.length > 0 : false;
-    if (!isMember && !requestRecord.sharedToCommunity) {
+    // Access control: user must be author or thread must be shared to community
+    if (requestRecord.authorId !== user.id && !requestRecord.sharedToCommunity) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
-import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
 import { CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/books - Get list of Bible books
@@ -8,7 +8,8 @@ import { CACHE_TTL_SECONDS } from "@/lib/kv";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
+    const providerDefault = getDefaultTranslation(getCurrentProviderType());
+    const translation = searchParams.get("translation") || providerDefault;
 
     const books = await bibleService.getBooks(translation);
 

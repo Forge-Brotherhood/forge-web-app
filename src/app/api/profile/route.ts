@@ -30,53 +30,14 @@ export async function GET() {
         displayName: true,
         handle: true,
         email: true,
+        firstName: true,
+        lastName: true,
         profileImageUrl: true,
+        prayerStreak: true,
         createdAt: true,
         role: true,
       },
     });
-
-    // Only load memberships if user exists (separate query for better performance)
-    let memberships: any[] = [];
-    if (user) {
-      memberships = await prisma.groupMember.findMany({
-        where: {
-          userId: authResult.userId,
-          status: "active",
-          group: {
-            deletedAt: null, // Exclude soft-deleted groups
-          },
-        },
-        select: {
-          groupId: true,
-          role: true,
-          group: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              groupType: true,
-              members: {
-                where: { status: "active" },
-                select: {
-                  userId: true,
-                  role: true,
-                  joinedAt: true,
-                  user: {
-                    select: {
-                      id: true,
-                      displayName: true,
-                      firstName: true,
-                      profileImageUrl: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-    }
 
     // If user doesn't exist in database, create them
     if (!user) {
@@ -93,19 +54,17 @@ export async function GET() {
           displayName: true,
           handle: true,
           email: true,
+          firstName: true,
+          lastName: true,
           profileImageUrl: true,
+          prayerStreak: true,
           createdAt: true,
           role: true,
         },
       });
-      // New users have no memberships yet
-      memberships = [];
     }
 
-    return NextResponse.json({
-      ...user,
-      memberships
-    });
+    return NextResponse.json(user);
   } catch (error) {
     console.error("Error fetching profile:", error);
     return NextResponse.json(
@@ -151,45 +110,12 @@ export async function PATCH(req: Request) {
         displayName: true,
         handle: true,
         email: true,
+        firstName: true,
+        lastName: true,
         profileImageUrl: true,
+        prayerStreak: true,
         createdAt: true,
         role: true,
-        memberships: {
-          where: {
-            status: "active",
-            group: {
-              deletedAt: null, // Exclude soft-deleted groups
-            },
-          },
-          select: {
-            groupId: true,
-            role: true,
-            group: {
-              select: {
-                id: true,
-                name: true,
-                description: true,
-                groupType: true,
-                members: {
-                  where: { status: "active" },
-                  select: {
-                    userId: true,
-                    role: true,
-                    joinedAt: true,
-                    user: {
-                      select: {
-                        id: true,
-                        displayName: true,
-                        firstName: true,
-                        profileImageUrl: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
       },
     });
 

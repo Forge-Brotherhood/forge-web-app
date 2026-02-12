@@ -3,10 +3,9 @@ import { z } from "zod";
 import { getAuth } from "@/lib/auth";
 import { getAllowedEvidenceIdsFromContext, getAllowedActionTypesFromContext } from "@/lib/guide/contextCompress";
 import {
-  buildGuideStartContext,
-  guideStartRequestSchema,
-  GuideStartContextError,
-} from "@/lib/guide/start";
+  buildSuggestionsContext,
+  SuggestionsContextError,
+} from "@/lib/context/buildSuggestionsContext";
 import { CONTEXT_SYSTEM_PROMPT_NDJSON, contextGuideEventSchema, type ContextGuideEvent } from "@/lib/guide/contextNdjson";
 import { runContextNdjsonSession } from "@/lib/guide/contextRun";
 import {
@@ -14,6 +13,10 @@ import {
   makeGuideSuggestionsCacheKey,
   setCachedGuideSuggestions,
 } from "@/lib/guide/suggestionsCache";
+
+const suggestionsRequestSchema = z.object({
+  enabledActions: z.array(z.string().min(1).max(64)).max(32).optional(),
+});
 
 export const runtime = "nodejs";
 
@@ -43,7 +46,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const validatedBody = guideStartRequestSchema.parse(body);
+    const validatedBody = suggestionsRequestSchema.parse(body);
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -54,7 +57,7 @@ export async function POST(request: NextRequest) {
     const debugMode = request.headers.get("x-debug-mode") === "true";
     const forceRefresh = debugMode && request.headers.get("x-force-refresh") === "true";
 
-    const { user, contextPayload, validateEvent } = await buildGuideStartContext({
+    const { user, contextPayload, validateEvent } = await buildSuggestionsContext({
       userId: authResult.userId,
       enabledActions,
     });
@@ -143,7 +146,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid request data", details: error.issues }, { status: 400 });
     }
-    if (error instanceof GuideStartContextError) {
+    if (error instanceof SuggestionsContextError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     const message = error instanceof Error ? error.message : String(error);

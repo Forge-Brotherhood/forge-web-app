@@ -113,8 +113,6 @@ export function usePrayerFeed(limit: number = config.defaultPageSize): UseFeedRe
         isInPrayerList: true,
         hasEncouraged: false,
         updateStatus: undefined,
-        groupName: thread?.group?.name,
-        groupId: thread?.group?.id,
         sharedToCommunity: thread?.sharedToCommunity ?? false,
       };
     },

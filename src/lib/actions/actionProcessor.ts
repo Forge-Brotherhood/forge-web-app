@@ -44,7 +44,6 @@ export interface DroppedAction {
 
 export interface ActionContext {
   userId: string;
-  groupIds?: string[];
   // Feature flags, permissions, etc. can be added here
 }
 
@@ -199,25 +198,7 @@ async function authorizeAction(
   context: ActionContext
 ): Promise<AuthResult> {
   // Action-specific authorization rules can be added here
-  switch (type) {
-    case "CREATE_PRAYER_DRAFT":
-      // If visibility is "group", check group membership
-      if (params.visibility === "group" && params.groupId) {
-        const groupId = params.groupId as string;
-        if (context.groupIds && !context.groupIds.includes(groupId)) {
-          return {
-            authorized: false,
-            reason: "User is not a member of the specified group",
-          };
-        }
-      }
-      break;
-
-    case "NAVIGATE_TO_VERSE":
-      // Always allowed
-      break;
-  }
-
+  // Currently all actions are authorized for the user
   return { authorized: true };
 }
 

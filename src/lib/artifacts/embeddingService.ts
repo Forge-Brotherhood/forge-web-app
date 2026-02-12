@@ -177,9 +177,6 @@ export async function searchSimilar(
   if (filters.userId) {
     where.userId = filters.userId;
   }
-  if (filters.groupId) {
-    where.groupId = filters.groupId;
-  }
   if (filters.types && filters.types.length > 0) {
     where.type = { in: filters.types };
   }
@@ -220,7 +217,6 @@ export async function searchSimilar(
       artifact: {
         id: artifact.id,
         userId: artifact.userId,
-        groupId: artifact.groupId,
         conversationId: artifact.conversationId,
         sessionId: artifact.sessionId,
         type: artifact.type as SearchResult["artifact"]["type"],

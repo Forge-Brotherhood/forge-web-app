@@ -5,7 +5,7 @@ import type { ResponsesInputMessage } from "@/lib/openai/responsesClient";
 export type RunMainChatResponseArgs = {
   openaiApiKey: string;
   model: string;
-  previousResponseId: string | null;
+  openaiConversationId: string | null;
   messages: ResponsesInputMessage[];
   tools: ResponsesTool[];
   maxToolIterations: number;
@@ -34,7 +34,7 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
   const result = await streamResponsesWithTools({
     apiKey: args.openaiApiKey,
     model: args.model,
-    previousResponseId: args.previousResponseId,
+    conversationId: args.openaiConversationId,
     input: args.messages,
     tools: args.tools,
     maxToolIterations: args.maxToolIterations,

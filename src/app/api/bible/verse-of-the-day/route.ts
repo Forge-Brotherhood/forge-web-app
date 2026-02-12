@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
 import { getTodaysVerse } from "@/lib/votdList";
-import { DEFAULT_TRANSLATION, type VerseOfTheDay } from "@/core/models/bibleModels";
+import { getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
+import { type VerseOfTheDay } from "@/core/models/bibleModels";
 import { getKVClient, CacheKeys, isCacheFresh, CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/verse-of-the-day - Get verse of the day with caching
@@ -17,7 +18,8 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
+    const providerDefault = getDefaultTranslation(getCurrentProviderType());
+    const translation = searchParams.get("translation") || providerDefault;
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
     const kv = getKVClient();

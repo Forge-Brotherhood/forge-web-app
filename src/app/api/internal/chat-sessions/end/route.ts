@@ -43,11 +43,18 @@ export async function POST(request: NextRequest) {
     });
     if (!user) return NextResponse.json({ error: "Impersonated user not found" }, { status: 404 });
 
+    // Retrieve the OpenAI conversation ID before cleanup so we can preserve it in ChatSession
+    const chatConversation = await prisma.chatConversation.findUnique({
+      where: { conversationId: input.conversationId },
+      select: { openaiConversationId: true },
+    });
+
     // Save transcript (as a "guide" session)
     const endedAtISO = input.endedAtISO ?? new Date().toISOString();
     const saved = await saveChatSessionTranscript({
       userId: user.id,
       kind: "guide",
+      openaiConversationId: chatConversation?.openaiConversationId ?? null,
       transcript: {
         sessionId: input.conversationId,
         startedAtISO: input.startedAtISO,

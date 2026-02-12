@@ -7,12 +7,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ChevronDown } from "lucide-react";
-import { BIBLE_TRANSLATIONS, type SupportedTranslation } from "@/core/models/bibleModels";
+import { ChevronDown, Loader2 } from "lucide-react";
+import { useBibleTranslations } from "../hooks/useBible";
 
 interface TranslationPickerProps {
-  value: SupportedTranslation;
-  onChange: (translation: SupportedTranslation) => void;
+  value: string;
+  onChange: (translation: string) => void;
   compact?: boolean;
 }
 
@@ -21,10 +21,25 @@ export function TranslationPicker({
   onChange,
   compact = false,
 }: TranslationPickerProps) {
-  const translations = Object.entries(BIBLE_TRANSLATIONS) as [
-    SupportedTranslation,
-    { id: string; name: string }
-  ][];
+  const { data, isLoading, error } = useBibleTranslations();
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <Button variant="outline" size={compact ? "sm" : "default"} disabled>
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </Button>
+    );
+  }
+
+  // Fallback if error or no data - includes all supported translations
+  const translations = data?.translations ?? [
+    { code: "NLT", name: "New Living Translation" },
+    { code: "BSB", name: "Berean Standard Bible" },
+    { code: "KJV", name: "King James Version" },
+    { code: "WEB", name: "World English Bible" },
+    { code: "ASV", name: "American Standard Version" },
+  ];
 
   return (
     <DropdownMenu>
@@ -35,13 +50,13 @@ export function TranslationPicker({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {translations.map(([abbr, { name }]) => (
+        {translations.map(({ code, name }) => (
           <DropdownMenuItem
-            key={abbr}
-            onClick={() => onChange(abbr)}
-            className={value === abbr ? "bg-accent" : ""}
+            key={code}
+            onClick={() => onChange(code)}
+            className={value === code ? "bg-accent" : ""}
           >
-            <span className="font-medium mr-2">{abbr}</span>
+            <span className="font-medium mr-2">{code}</span>
             <span className="text-muted-foreground text-sm">{name}</span>
           </DropdownMenuItem>
         ))}

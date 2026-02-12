@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { HandHelping, Users, Bell, User } from "lucide-react";
+import { HandHelping, BookOpen, Bell, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 
@@ -23,10 +23,10 @@ const navItems: NavItem[] = [
     label: "Pray",
   },
   {
-    name: "Groups",
-    href: "/groups",
-    icon: Users,
-    label: "Groups",
+    name: "Read",
+    href: "/read",
+    icon: BookOpen,
+    label: "Read",
   },
   {
     name: "Activity",
@@ -161,11 +161,10 @@ export const Sidebar = () => {
     </nav>
   );
 
-  // Hide sidebar on auth pages and public invite pages
+  // Hide sidebar on auth pages
   const isAuthPage = pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up');
-  const isJoinPage = pathname.startsWith('/join');
 
-  if (isAuthPage || isJoinPage) {
+  if (isAuthPage) {
     return null;
   }
 

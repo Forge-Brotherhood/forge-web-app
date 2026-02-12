@@ -7,7 +7,7 @@ import {
   executeContextToolCall,
   type ContextToolCall as AppContextToolCall,
 } from "@/lib/chat/tools/contextTools";
-import type { ContextToolCall } from "@/lib/openai/responsesClient";
+import { createOpenAIConversation, type ContextToolCall } from "@/lib/openai/responsesClient";
 import { validateInternalApiKey } from "@/app/api/internal/suggestion-debugger/_internalApiKey";
 import { extractUiActionsDeterministic, type AIAction } from "@/lib/openai/structuredActions";
 import { buildChatContextBundle, type ChatEntrypoint, type ChatMode } from "@/lib/chat/chatContextBundle";
@@ -78,8 +78,8 @@ const chatLog = (level: ChatLogLevel, event: string, fields: Record<string, unkn
 const isBibleReaderStart = (args: {
   entrypoint: ChatEntrypoint;
   mode: ChatMode;
-  previousResponseId: string | null;
-}) => args.entrypoint === "bible_reader" && args.mode === "bible" && !args.previousResponseId;
+  isNewConversation: boolean;
+}) => args.entrypoint === "bible_reader" && args.mode === "bible" && args.isNewConversation;
 
 const resolveUserId = async (args: {
   isInternalBypass: boolean;
@@ -103,7 +103,7 @@ const upsertConversation = async (args: {
   userId: string;
   entrypoint: ChatEntrypoint;
   mode: ChatMode;
-}): Promise<{ previousResponseId: string | null }> => {
+}): Promise<{ openaiConversationId: string | null }> => {
   const conversation = await prisma.chatConversation.upsert({
     where: { conversationId: args.conversationId },
     create: {
@@ -111,18 +111,17 @@ const upsertConversation = async (args: {
       userId: args.userId,
       entrypoint: args.entrypoint,
       mode: args.mode,
-      previousResponseId: null,
     },
     update: {
       entrypoint: args.entrypoint,
       mode: args.mode,
       updatedAt: new Date(),
     },
-    select: { userId: true, previousResponseId: true },
+    select: { userId: true, openaiConversationId: true },
   });
 
   if (conversation.userId !== args.userId) throw new Error("Conversation belongs to a different user");
-  return { previousResponseId: conversation.previousResponseId ?? null };
+  return { openaiConversationId: conversation.openaiConversationId ?? null };
 };
 
 export type ChatSurface = "general" | "bible";
@@ -253,7 +252,8 @@ export async function handleChatRequest(args: {
   const mode = (args.force?.mode ?? args.input.mode ?? (args.input.verseReference ? "bible" : "general")) as ChatMode;
 
   stage = "upsert_conversation";
-  let previousResponseId: string | null = null;
+  let openaiConversationId: string | null = null;
+  let isNewConversation = false;
   try {
     const res = await upsertConversation({
       conversationId,
@@ -261,7 +261,36 @@ export async function handleChatRequest(args: {
       entrypoint,
       mode,
     });
-    previousResponseId = res.previousResponseId;
+    openaiConversationId = res.openaiConversationId;
+
+    // If no openaiConversationId in ChatConversation, check if there's a saved ChatSession with one
+    // This handles the case where a user restores a past conversation
+    if (!openaiConversationId) {
+      const existingSession = await prisma.chatSession.findFirst({
+        where: {
+          userId: resolvedUserId,
+          sessionId: conversationId,
+        },
+        select: { openaiConversationId: true },
+      });
+      if (existingSession?.openaiConversationId) {
+        openaiConversationId = existingSession.openaiConversationId;
+        await prisma.chatConversation.update({
+          where: { conversationId },
+          data: { openaiConversationId },
+        });
+      }
+    }
+
+    // Create OpenAI conversation on first message if still none exists
+    if (!openaiConversationId) {
+      isNewConversation = true;
+      openaiConversationId = await createOpenAIConversation(openaiApiKey);
+      await prisma.chatConversation.update({
+        where: { conversationId },
+        data: { openaiConversationId },
+      });
+    }
   } catch (err) {
     chatLog("error", "conversation_upsert_failed", {
       correlationId,
@@ -283,7 +312,8 @@ export async function handleChatRequest(args: {
         conversationId,
         entrypoint,
         mode,
-        previousResponseId,
+        previousResponseId: null,
+        isNewConversation,
         message: args.input.message,
         verseReference: args.input.verseReference,
         verseText: args.input.verseText,
@@ -291,10 +321,12 @@ export async function handleChatRequest(args: {
       });
 
       const tools = buildContextToolsForUser();
+      const toolResults: Array<{ name: string; output: string }> = [];
 
       const shouldGenerateQuestions =
         Boolean(args.input.includeSuggestedQuestions) &&
-        isBibleReaderStart({ entrypoint, mode, previousResponseId }) &&
+        entrypoint === "bible_reader" &&
+        mode === "bible" &&
         typeof args.input.selectionState === "string" &&
         args.input.selectionState.length > 0;
 
@@ -302,11 +334,14 @@ export async function handleChatRequest(args: {
       const mainPromise = runMainChatResponse({
         openaiApiKey,
         model: "gpt-5.1-chat-latest",
-        previousResponseId,
+        openaiConversationId,
         messages: bundle.messages,
         tools,
         maxToolIterations: 3,
         signal: args.request.signal,
+        onToolResult: (call, output) => {
+          toolResults.push({ name: call.name, output });
+        },
         executeToolCall: async (call: ContextToolCall) => {
           return await executeContextToolCall({
             userId: resolvedUserId,
@@ -334,7 +369,7 @@ export async function handleChatRequest(args: {
       await prisma.chatConversation
         .update({
           where: { conversationId },
-          data: { previousResponseId: responseId ?? undefined, updatedAt: new Date() },
+          data: { updatedAt: new Date() },
           select: { id: true },
         })
         .catch(() => {});
@@ -342,6 +377,45 @@ export async function handleChatRequest(args: {
       const actions: AIAction[] = extractUiActionsDeterministic({
         answerText: finalText,
         verseReference: args.input.verseReference,
+      });
+
+      // Extract reading plan actions from tool results (only plans referenced in response)
+      const lowerText = finalText.toLowerCase();
+      for (const result of toolResults) {
+        if (result.name === "search_reading_plans") {
+          try {
+            const parsed = JSON.parse(result.output);
+            for (const plan of parsed.plans ?? []) {
+              if (lowerText.includes(plan.title.toLowerCase())) {
+                actions.push({
+                  id: `NAVIGATE_TO_READING_PLAN:${plan.shortId}`,
+                  type: "NAVIGATE_TO_READING_PLAN",
+                  version: 1,
+                  params: {
+                    planId: plan.shortId,
+                    planTitle: plan.title,
+                    planDescription: plan.description ?? undefined,
+                    planTotalDays: String(plan.totalDays),
+                  },
+                  resolved: null,
+                  confidence: plan.relevanceScore ?? 0.8,
+                  priority: "secondary",
+                  icon: "book.closed.fill",
+                  color: "blue",
+                });
+              }
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+
+      // Sort actions by order of first mention in response
+      actions.sort((a, b) => {
+        const aKey = a.params.reference ?? a.params.planTitle ?? "";
+        const bKey = b.params.reference ?? b.params.planTitle ?? "";
+        const aPos = lowerText.indexOf(aKey.toLowerCase());
+        const bPos = lowerText.indexOf(bKey.toLowerCase());
+        return (aPos === -1 ? Infinity : aPos) - (bPos === -1 ? Infinity : bPos);
       });
 
       const safeSuggestedQuestions = Array.isArray(suggestedQuestions) ? suggestedQuestions : [];
@@ -395,7 +469,7 @@ export async function handleChatRequest(args: {
         userId: redactId(resolvedUserId),
         entrypoint,
         mode,
-        previousResponseId: previousResponseId ? redactId(previousResponseId) : null,
+        openaiConversationId: openaiConversationId ? redactId(openaiConversationId) : null,
       });
 
       try {
@@ -405,7 +479,8 @@ export async function handleChatRequest(args: {
           conversationId,
           entrypoint,
           mode,
-          previousResponseId,
+          previousResponseId: null,
+          isNewConversation,
           message: args.input.message,
           verseReference: args.input.verseReference,
           verseText: args.input.verseText,
@@ -414,7 +489,8 @@ export async function handleChatRequest(args: {
 
         const shouldGenerateQuestions =
           Boolean(args.input.includeSuggestedQuestions) &&
-          isBibleReaderStart({ entrypoint, mode, previousResponseId }) &&
+          entrypoint === "bible_reader" &&
+          mode === "bible" &&
           typeof args.input.selectionState === "string" &&
           args.input.selectionState.length > 0;
 
@@ -440,11 +516,13 @@ export async function handleChatRequest(args: {
 
         const tools = buildContextToolsForUser();
 
+        const toolResults: Array<{ name: string; output: string }> = [];
+
         stage = "run_main_response";
         const { finalText, responseId } = await runMainChatResponse({
           openaiApiKey,
           model: "gpt-5.1-chat-latest",
-          previousResponseId,
+          openaiConversationId,
           messages: bundle.messages,
           tools,
           maxToolIterations: 3,
@@ -457,13 +535,15 @@ export async function handleChatRequest(args: {
               name: call.name,
               argumentsJson: truncateForSse(call.argumentsJson, 20_000),
             }),
-          onToolResult: (call, output) =>
+          onToolResult: (call, output) => {
+            toolResults.push({ name: call.name, output });
             write({
               type: "tool_result",
               callId: call.callId,
               name: call.name,
               output: truncateForSse(output, 40_000),
-            }),
+            });
+          },
           executeToolCall: async (call: ContextToolCall) => {
             return await executeContextToolCall({
               userId: resolvedUserId,
@@ -477,7 +557,7 @@ export async function handleChatRequest(args: {
         await prisma.chatConversation
           .update({
             where: { conversationId },
-            data: { previousResponseId: responseId ?? undefined, updatedAt: new Date() },
+            data: { updatedAt: new Date() },
             select: { id: true },
           })
           .catch(() => {});
@@ -485,6 +565,45 @@ export async function handleChatRequest(args: {
         const actions: AIAction[] = extractUiActionsDeterministic({
           answerText: finalText,
           verseReference: args.input.verseReference,
+        });
+
+        // Extract reading plan actions from tool results (only plans referenced in response)
+        const lowerText = finalText.toLowerCase();
+        for (const result of toolResults) {
+          if (result.name === "search_reading_plans") {
+            try {
+              const parsed = JSON.parse(result.output);
+              for (const plan of parsed.plans ?? []) {
+                if (lowerText.includes(plan.title.toLowerCase())) {
+                  actions.push({
+                    id: `NAVIGATE_TO_READING_PLAN:${plan.shortId}`,
+                    type: "NAVIGATE_TO_READING_PLAN",
+                    version: 1,
+                    params: {
+                      planId: plan.shortId,
+                      planTitle: plan.title,
+                      planDescription: plan.description ?? undefined,
+                      planTotalDays: String(plan.totalDays),
+                    },
+                    resolved: null,
+                    confidence: plan.relevanceScore ?? 0.8,
+                    priority: "secondary",
+                    icon: "book.closed.fill",
+                    color: "blue",
+                  });
+                }
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+
+        // Sort actions by order of first mention in response
+        actions.sort((a, b) => {
+          const aKey = a.params.reference ?? a.params.planTitle ?? "";
+          const bKey = b.params.reference ?? b.params.planTitle ?? "";
+          const aPos = lowerText.indexOf(aKey.toLowerCase());
+          const bPos = lowerText.indexOf(bKey.toLowerCase());
+          return (aPos === -1 ? Infinity : aPos) - (bPos === -1 ? Infinity : bPos);
         });
 
         const suggestedQuestions = await questionsPromise;

@@ -10,7 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { forgeApi } from "@core/api/forgeApiClient";
 import { config } from "@core/services/configService";
-import type { APIProfileResponse, APIGroupMembership } from "@core/models/apiModels";
+import type { APIProfileResponse } from "@core/models/apiModels";
 
 // MARK: - Query Keys
 
@@ -46,35 +46,6 @@ export function useProfile() {
     retry: 2,
   });
 
-  // Utility functions for group membership
-  const getActiveGroups = (): APIGroupMembership[] => profile?.memberships || [];
-
-  const getCoreGroups = () =>
-    getActiveGroups().filter(m => m.group?.groupType === 'core');
-
-  const getCircleGroups = () =>
-    getActiveGroups().filter(m => m.group?.groupType === 'circle');
-
-  const hasActiveGroups = () => getActiveGroups().length > 0;
-
-  const canPostToGroups = () => hasActiveGroups();
-
-  const getPrimaryGroup = () => {
-    const groups = getActiveGroups();
-    // Prefer core group, fallback to first available
-    return getCoreGroups()[0] || groups[0] || null;
-  };
-
-  const getPostingOptions = () => {
-    const hasGroups = hasActiveGroups();
-    return {
-      canPostToGroups: hasGroups,
-      canPostToCommunity: true,
-      communityOnly: !hasGroups,
-      groups: getActiveGroups(),
-    };
-  };
-
   // Prefetch profile for faster navigation
   const prefetchProfile = () => {
     queryClient.prefetchQuery({
@@ -90,13 +61,6 @@ export function useProfile() {
     error: error ? (error as Error).message : null,
     refetch,
     prefetchProfile,
-    getActiveGroups,
-    getCoreGroups,
-    getCircleGroups,
-    hasActiveGroups,
-    canPostToGroups,
-    getPrimaryGroup,
-    getPostingOptions,
   };
 }
 

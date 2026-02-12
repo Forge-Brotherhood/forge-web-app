@@ -47,20 +47,8 @@ export async function GET(
 
     // Verify request exists and user has access
     const thread = await prisma.prayerRequest.findUnique({
-      where: { 
+      where: {
         id: resolved.id,
-      },
-      include: {
-        group: {
-          include: {
-            members: {
-              where: {
-                userId: user.id,
-                status: "active",
-              },
-            },
-          },
-        },
       },
     });
 
@@ -71,8 +59,8 @@ export async function GET(
       );
     }
 
-    const isMember = thread.group ? thread.group.members.length > 0 : false;
-    if (!isMember && !thread.sharedToCommunity) {
+    // Access check: user must be author or thread must be shared to community
+    if (thread.authorId !== user.id && !thread.sharedToCommunity) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }
@@ -167,20 +155,8 @@ export async function POST(
 
     // Verify thread exists and user has access
     const thread = await prisma.prayerRequest.findUnique({
-      where: { 
+      where: {
         id: resolved.id,
-      },
-      include: {
-        group: {
-          include: {
-            members: {
-              where: {
-                userId: user.id,
-                status: "active",
-              },
-            },
-          },
-        },
       },
     });
 
@@ -191,8 +167,8 @@ export async function POST(
       );
     }
 
-    const isMember = thread.group ? thread.group.members.length > 0 : false;
-    if (!isMember && !thread.sharedToCommunity) {
+    // Access check: user must be author or thread must be shared to community
+    if (thread.authorId !== user.id && !thread.sharedToCommunity) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }

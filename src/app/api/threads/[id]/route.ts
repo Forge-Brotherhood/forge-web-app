@@ -52,7 +52,7 @@ export async function GET(
     }
 
     const thread = await prisma.prayerRequest.findUnique({
-      where: { 
+      where: {
         id: resolved.id,
       },
       include: {
@@ -63,25 +63,6 @@ export async function GET(
             firstName: true,
             profileImageUrl: true,
             voiceIntroUrl: true,
-          },
-        },
-        group: {
-          include: {
-            members: {
-              where: {
-                status: "active",
-              },
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    displayName: true,
-                    firstName: true,
-                    profileImageUrl: true,
-                  },
-                },
-              },
-            },
           },
         },
         entries: {
@@ -150,10 +131,8 @@ export async function GET(
     }
 
     // Check if user has access to this thread
-    const isMember = thread.group ? thread.group.members.some(m => m.userId === user.id) : false;
-    const isSharedToCommunity = thread.sharedToCommunity;
-
-    if (!isMember && !isSharedToCommunity) {
+    // Access check: user must be author or thread must be shared to community
+    if (thread.authorId !== user.id && !thread.sharedToCommunity) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }
@@ -284,13 +263,6 @@ export async function PATCH(
             displayName: true,
             firstName: true,
             profileImageUrl: true,
-          },
-        },
-        group: {
-          select: {
-            id: true,
-            name: true,
-            groupType: true,
           },
         },
         _count: {

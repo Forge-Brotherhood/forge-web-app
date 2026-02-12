@@ -22,10 +22,8 @@ import { searchSimilar } from "./embeddingService";
 export interface RetrievalParams {
   query: string;
   userId: string;
-  groupIds?: string[];
   types?: ArtifactType[];
   limit?: number;
-  includeGroupArtifacts?: boolean;
 }
 
 export interface RetrievalResult {
@@ -45,13 +43,10 @@ export interface RetrievalResult {
 export async function retrieveForContext(
   params: RetrievalParams
 ): Promise<RetrievalResult> {
-  const { query, userId, groupIds, types, limit = 5, includeGroupArtifacts = true } = params;
+  const { query, userId, types, limit = 5 } = params;
 
   // Build allowed scopes
-  const allowedScopes: ("private" | "group" | "global")[] = ["private"];
-  if (includeGroupArtifacts && groupIds && groupIds.length > 0) {
-    allowedScopes.push("group");
-  }
+  const allowedScopes: ("private" | "global")[] = ["private", "global"];
 
   // Build filters
   const filters: ArtifactFilters = {
@@ -59,14 +54,13 @@ export async function retrieveForContext(
     types,
     scopes: allowedScopes,
     status: "active",
-    limit: 100, // Fetch more for semantic reranking
   };
 
   // Get semantic search results
   const searchResults = await searchSimilar(query, filters, 20);
 
-  // Filter by group membership for group-scoped artifacts
-  const accessibleResults = await filterByAccess(searchResults, userId, groupIds);
+  // Filter by access control
+  const accessibleResults = filterByAccess(searchResults, userId);
 
   // Take top results
   const topResults = accessibleResults.slice(0, limit);
@@ -175,11 +169,10 @@ export async function retrieveByTimeRange(
 // Access Control
 // =============================================================================
 
-async function filterByAccess(
+function filterByAccess(
   results: SearchResult[],
-  userId: string,
-  groupIds?: string[]
-): Promise<SearchResult[]> {
+  userId: string
+): SearchResult[] {
   const accessible: SearchResult[] = [];
 
   for (const result of results) {
@@ -188,14 +181,6 @@ async function filterByAccess(
     // Private: must be owner
     if (artifact.scope === "private") {
       if (artifact.userId === userId) {
-        accessible.push(result);
-      }
-      continue;
-    }
-
-    // Group: must be member
-    if (artifact.scope === "group") {
-      if (artifact.groupId && groupIds?.includes(artifact.groupId)) {
         accessible.push(result);
       }
       continue;
@@ -275,7 +260,6 @@ function formatTypeLabel(type: ArtifactType): string {
     testimony: "Testimony",
     verse_highlight: "Highlight",
     verse_note: "Note",
-    group_meeting_notes: "Meeting",
     bible_reading_session: "Reading",
   };
 
@@ -292,7 +276,6 @@ function mapPrismaArtifact(
   return {
     id: artifact.id,
     userId: artifact.userId,
-    groupId: artifact.groupId,
     conversationId: artifact.conversationId,
     sessionId: artifact.sessionId,
     type: artifact.type as Artifact["type"],

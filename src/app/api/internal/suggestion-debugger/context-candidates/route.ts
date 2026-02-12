@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { validateInternalApiKey } from "../_internalApiKey";
-import { createRunContext } from "@/lib/pipeline/context";
-import { executeIngressStage } from "@/lib/pipeline/stages/ingress";
-import { executeContextCandidatesStage } from "@/lib/pipeline/stages/contextCandidates";
 import { compactContextCandidatesPayload } from "@/lib/guide/contextCompact";
 import { getAiContextForUser } from "@/lib/ai/userContext";
 import { compressContextBundle } from "@/lib/guide/contextCompress";
+import {
+  fetchLifeContext,
+  fetchBibleReadingSessions,
+  fetchVerseHighlights,
+  fetchVerseNotes,
+  fetchConversationSummaries,
+  dedupeCandidates,
+  groupBySource,
+  type ContextCandidate,
+} from "@/lib/context/fetchers";
 
 const requestSchema = z.object({
   userId: z.string().min(1),
@@ -32,47 +39,69 @@ export async function POST(request: NextRequest) {
       console.warn("[suggestion-debugger/context-candidates] Failed to load aiContext:", error);
     }
 
-    const ctx = createRunContext({
-      traceId: `debugger_${Date.now()}`,
-      userId: input.userId,
-      entrypoint: "chat_start",
-      message: "",
-      mode: "debug",
-      sideEffects: "disabled",
-      writePolicy: "forbid",
-      appVersion: "admin-debugger",
-      platform: "admin",
-      locale: "en",
-      aiContext,
-    });
+    // Fetch all context in parallel with "last_week" temporal range
+    const [
+      lifeContext,
+      bibleReadingSessions,
+      verseHighlights,
+      verseNotes,
+      conversationSummaries,
+    ] = await Promise.all([
+      fetchLifeContext({ userId: input.userId, aiContext }),
+      fetchBibleReadingSessions({
+        userId: input.userId,
+        temporalRange: "last_week",
+        limit: 10,
+      }),
+      fetchVerseHighlights({
+        userId: input.userId,
+        temporalRange: "last_week",
+        limit: 20,
+      }),
+      fetchVerseNotes({
+        userId: input.userId,
+        temporalRange: "last_week",
+        limit: 20,
+      }),
+      fetchConversationSummaries({
+        userId: input.userId,
+        temporalRange: "last_week",
+        limit: 5,
+      }),
+    ]);
 
-    const ingress = await executeIngressStage(ctx);
-    // Debugger-specific: rich-context should focus on the last week (not last month).
-    // We intentionally override the deterministic chat_start plan here, without changing
-    // production chat_start behavior.
-    (ingress.payload.plan as any) = {
-      ...(ingress.payload.plan as any),
-      retrieval: {
-        ...(ingress.payload.plan as any).retrieval,
-        filters: {
-          ...((ingress.payload.plan as any).retrieval?.filters ?? {}),
-          temporal: {
-            ...((ingress.payload.plan as any).retrieval?.filters?.temporal ?? {}),
-            range: "last_week",
+    // Combine all candidates
+    const allCandidates: ContextCandidate[] = [
+      ...lifeContext,
+      ...bibleReadingSessions,
+      ...verseHighlights,
+      ...verseNotes,
+      ...conversationSummaries,
+    ];
+
+    // Deduplicate
+    const dedupedCandidates = dedupeCandidates(allCandidates);
+    const bySourceCounts = groupBySource(dedupedCandidates);
+
+    // Build raw payload (mimics old pipeline structure)
+    const raw = {
+      plan: {
+        response: {
+          responseMode: "coach",
+          lengthTarget: "short",
+        },
+        retrieval: {
+          filters: {
+            temporal: { range: "last_week" },
           },
         },
       },
+      candidates: dedupedCandidates,
+      bySourceCounts,
     };
 
-    const candidates = await executeContextCandidatesStage(ctx, ingress.payload);
-
-    const raw = {
-      plan: candidates.payload.plan,
-      candidates: candidates.payload.candidates,
-      bySourceCounts: candidates.payload.bySourceCounts,
-    };
     const compact = compressContextBundle({
-      raw,
+      raw: raw as Parameters<typeof compressContextBundle>[0]["raw"],
       enabledActions: input.enabledActions,
     });
     const compactedRaw = compactContextCandidatesPayload(raw);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { ReadingPlanVisibility } from "@prisma/client";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 
@@ -49,22 +50,38 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const featured = searchParams.get("featured") === "true";
     const includeUnpublished = searchParams.get("includeUnpublished") === "true";
+    const includeMine = searchParams.get("includeMine") === "true";
 
     // Only admins can see unpublished templates
     const userIsAdmin = await isAdmin(authResult.userId);
+
+    // Build visibility filter
+    let visibilityFilter;
+    if (userIsAdmin && includeUnpublished) {
+      // Admins with includeUnpublished see everything
+      visibilityFilter = {};
+    } else if (includeMine) {
+      // Include public templates AND user's own private templates
+      visibilityFilter = {
+        OR: [
+          { isPublished: true, visibility: ReadingPlanVisibility.public },
+          { visibility: ReadingPlanVisibility.private, createdById: authResult.userId },
+        ],
+      };
+    } else {
+      // Default: only public published templates
+      visibilityFilter = { isPublished: true, visibility: ReadingPlanVisibility.public };
+    }
 
     const templates = await prisma.readingPlanTemplate.findMany({
       where: {
         deletedAt: null,
         ...(featured ? { isFeatured: true } : {}),
-        // Regular users only see published public templates
-        ...(!userIsAdmin || !includeUnpublished
-          ? { isPublished: true, visibility: "public" }
-          : {}),
+        ...visibilityFilter,
       },
       include: {
         _count: {
-          select: { days: true, groupPlans: true },
+          select: { days: true, userPlans: true },
         },
         createdBy: {
           select: {
@@ -95,7 +112,7 @@ export async function GET(request: NextRequest) {
         isPublished: t.isPublished,
         isFeatured: t.isFeatured,
         daysCount: t._count.days,
-        groupPlansCount: t._count.groupPlans,
+        userPlansCount: t._count.userPlans,
         createdBy: t.createdBy
           ? {
               id: t.createdBy.id,

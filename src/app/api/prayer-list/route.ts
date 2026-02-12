@@ -46,13 +46,6 @@ export async function GET(request: NextRequest) {
                 profileImageUrl: true,
               },
             },
-            group: {
-              select: {
-                id: true,
-                name: true,
-                groupType: true,
-              },
-            },
             entries: {
               where: {
                 kind: "request",
@@ -116,7 +109,8 @@ export async function GET(request: NextRequest) {
         lastActivityAt: item.request.lastActivityAt,
         createdAt: item.request.createdAt,
         author: item.request.isAnonymous ? null : item.request.author,
-        group: item.request.group,
+        isAnonymous: item.request.isAnonymous,
+        sharedToCommunity: item.request.sharedToCommunity,
         posts: item.request.entries.map(post => ({
           id: post.id,
           shortId: post.shortId,
@@ -190,18 +184,6 @@ export async function POST(request: NextRequest) {
 
     const thread = await prisma.prayerRequest.findUnique({
       where: { id: resolved.id },
-      include: {
-        group: {
-          include: {
-            members: {
-              where: {
-                userId: user.id,
-                status: "active",
-              },
-            },
-          },
-        },
-      },
     });
 
     if (!thread) {
@@ -211,8 +193,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isMember = thread.group ? thread.group.members.length > 0 : false;
-    if (!isMember && !thread.sharedToCommunity) {
+    // Access check: user must be author or thread must be shared to community
+    if (thread.authorId !== user.id && !thread.sharedToCommunity) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }

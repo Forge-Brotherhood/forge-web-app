@@ -1,23 +1,19 @@
 import { BOOK_NAME_TO_CODE } from "@/lib/bible/bookCodes";
 import { getBookDisplayNameFromCode } from "@/lib/bible/bookCodes";
 
-export type AIActionType = "NAVIGATE_TO_VERSE";
+export type AIActionType = "NAVIGATE_TO_VERSE" | "NAVIGATE_TO_READING_PLAN";
 export type AIActionPriority = "secondary";
 
 export type AIAction = {
   id: string;
   type: AIActionType;
   version: 1;
-  params: {
-    reference: string;
-    reason?: string;
-    translation?: string;
-  };
+  params: Record<string, string | undefined>;
   resolved?: null;
   confidence?: number;
   priority: AIActionPriority;
-  icon: "book.fill";
-  color: "orange";
+  icon: string;
+  color: string;
 };
 
 export type UiActionsPayload = {
@@ -222,13 +218,13 @@ const toChapterReferenceString = (ref: ParsedChapterRef): string => {
   return `${bookName} ${ref.chapter}`;
 };
 
-const makeNavigateToVerseAction = (reference: string, confidence: number): AIAction => {
+const makeNavigateToVerseAction = (reference: string, confidence: number, bookId?: string): AIAction => {
   const id = `NAVIGATE_TO_VERSE:${reference}`;
   return {
     id,
     type: "NAVIGATE_TO_VERSE",
     version: 1,
-    params: { reference },
+    params: { reference, bookId },
     resolved: null,
     confidence,
     priority: "secondary",
@@ -273,10 +269,10 @@ export const extractUiActionsDeterministic = (args: {
       .map((x) => {
         if ("verseStart" in x) {
           const ref = x as ParsedVerseRef;
-          return makeNavigateToVerseAction(toVerseReferenceString(ref), 0.95);
+          return makeNavigateToVerseAction(toVerseReferenceString(ref), 0.95, ref.bookId);
         }
         const ref = x as ParsedChapterRef;
-        return makeNavigateToVerseAction(toChapterReferenceString(ref), 0.95);
+        return makeNavigateToVerseAction(toChapterReferenceString(ref), 0.95, ref.bookId);
       }),
     (a) => a.id
   ).slice(0, 15);

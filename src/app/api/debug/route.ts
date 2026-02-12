@@ -38,210 +38,13 @@ export async function POST(request: NextRequest) {
     const { action, data } = body;
 
     switch (action) {
-      case "joinCoreGroup": {
-        // Create or join a "core" group (maps to GroupType.in_person)
-        const existingMembership = await prisma.groupMember.findFirst({
-          where: {
-            userId: user.id,
-            group: { groupType: "in_person" },
-            status: "active",
-          },
-        });
-
-        if (existingMembership) {
-          return NextResponse.json({
-            message: "Already in a core group",
-            groupId: existingMembership.groupId,
-          });
-        }
-
-        // Find an in_person group with space or create a new one
-        let group = await prisma.group.findFirst({
-          where: {
-            groupType: "in_person",
-            members: {
-              every: { status: "active" },
-            },
-          },
-          include: {
-            _count: {
-              select: { members: { where: { status: "active" } } },
-            },
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        });
-
-        if (!group || group._count.members >= 6) {
-          // Create new in_person group
-          const newGroup = await prisma.group.create({
-            data: {
-              name: `Core Group ${faker.company.buzzNoun()}`,
-              groupType: "in_person",
-              shortId: faker.string.alphanumeric(8),
-            },
-          });
-
-          // Fetch with proper includes to match the type
-          group = await prisma.group.findUnique({
-            where: { id: newGroup.id },
-            include: {
-              _count: {
-                select: { members: { where: { status: "active" } } },
-              },
-            },
-          });
-        }
-
-        if (!group) {
-          throw new Error("Failed to create or find group");
-        }
-
-        // Add user to group
-        await prisma.groupMember.create({
-          data: {
-            groupId: group.id,
-            userId: user.id,
-            role: group._count.members === 0 ? "leader" : "member",
-            status: "active",
-          },
-        });
-
-        // Add some fake members if it's a new group
-        if (group._count.members === 0 && data?.addFakeMembers) {
-          const fakeUsers = await prisma.user.findMany({
-            where: {
-              id: { not: user.id },
-              memberships: {
-                none: {
-                  group: { groupType: "in_person" },
-                  status: "active",
-                },
-              },
-            },
-            take: 4,
-          });
-
-          for (const fakeUser of fakeUsers) {
-            await prisma.groupMember.create({
-              data: {
-                groupId: group.id,
-                userId: fakeUser.id,
-                role: "member",
-                status: "active",
-              },
-            });
-          }
-        }
-
-        return NextResponse.json({
-          message: "Joined core group successfully",
-          groupId: group.id,
-          groupName: group.name,
-        });
-      }
-
-      case "joinCircleGroup": {
-        // Create or join a "circle" group (maps to GroupType.virtual)
-        const existingMembership = await prisma.groupMember.findFirst({
-          where: {
-            userId: user.id,
-            group: { groupType: "virtual" },
-            status: "active",
-          },
-        });
-
-        if (existingMembership) {
-          return NextResponse.json({
-            message: "Already in a prayer circle",
-            groupId: existingMembership.groupId,
-          });
-        }
-
-        // Find or create a virtual group
-        let group = await prisma.group.findFirst({
-          where: {
-            groupType: "virtual",
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-        });
-
-        if (!group) {
-          group = await prisma.group.create({
-            data: {
-              name: `Prayer Circle ${faker.company.buzzAdjective()}`,
-              groupType: "virtual",
-              shortId: faker.string.alphanumeric(8),
-            },
-          });
-        }
-
-        // Add user to group as leader if group was just created
-        const existingMember = await prisma.groupMember.findUnique({
-          where: {
-            groupId_userId: {
-              groupId: group.id,
-              userId: user.id,
-            },
-          },
-        });
-
-        if (!existingMember) {
-          await prisma.groupMember.create({
-            data: {
-              groupId: group.id,
-              userId: user.id,
-              role: "leader",
-              status: "active",
-            },
-          });
-        }
-
-        return NextResponse.json({
-          message: "Joined prayer circle successfully",
-          groupId: group.id,
-          groupName: group.name,
-        });
-      }
-
-      case "leaveAllGroups": {
-        // Remove user from all groups
-        await prisma.groupMember.updateMany({
-          where: { userId: user.id },
-          data: { status: "inactive" },
-        });
-
-        return NextResponse.json({
-          message: "Left all groups successfully",
-        });
-      }
-
       case "createTestThread": {
-        // Create a test thread in user's "core" group (in_person)
-        const membership = await prisma.groupMember.findFirst({
-          where: {
-            userId: user.id,
-            group: { groupType: "in_person" },
-            status: "active",
-          },
-        });
-
-        if (!membership) {
-          return NextResponse.json(
-            { error: "Not in a core group" },
-            { status: 400 }
-          );
-        }
-
+        // Create a test thread shared to community
         const thread = await prisma.prayerRequest.create({
           data: {
             title: data?.title || faker.lorem.sentence(),
-            groupId: membership.groupId,
             authorId: user.id,
-            sharedToCommunity: data?.sharedToCommunity || false,
+            sharedToCommunity: true,
             isAnonymous: data?.isAnonymous || false,
             status: "open",
             shortId: faker.string.alphanumeric(8),
@@ -309,7 +112,7 @@ export async function POST(request: NextRequest) {
         await prisma.prayerEntry.deleteMany({
           where: { authorId: user.id },
         });
-        
+
         await prisma.prayerRequest.deleteMany({
           where: { authorId: user.id },
         });
@@ -324,23 +127,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "generateTestData": {
-        // Generate random test data
-        const group = await prisma.groupMember.findFirst({
-          where: {
-            userId: user.id,
-            group: { groupType: "in_person" },
-            status: "active",
-          },
-          include: { group: true },
-        });
-
-        if (!group) {
-          return NextResponse.json(
-            { error: "Not in a core group" },
-            { status: 400 }
-          );
-        }
-
+        // Generate random test threads
         const numThreads = data?.numThreads || 5;
         const threads = [];
 
@@ -348,9 +135,8 @@ export async function POST(request: NextRequest) {
           const thread = await prisma.prayerRequest.create({
             data: {
               title: faker.lorem.sentence(),
-              groupId: group.groupId,
               authorId: user.id,
-              sharedToCommunity: faker.datatype.boolean(),
+              sharedToCommunity: true,
               isAnonymous: faker.datatype.boolean(),
               status: faker.helpers.arrayElement(["open", "answered", "archived"]),
               shortId: faker.string.alphanumeric(8),
@@ -393,20 +179,6 @@ export async function POST(request: NextRequest) {
         const debugInfo = await prisma.user.findUnique({
           where: { id: user.id },
           include: {
-            memberships: {
-              include: {
-                group: {
-                  include: {
-                    _count: {
-                      select: {
-                        members: true,
-                        prayerRequests: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
             prayerRequestsAuthored: {
               take: 5,
               orderBy: { createdAt: "desc" },
@@ -415,12 +187,20 @@ export async function POST(request: NextRequest) {
               take: 5,
               orderBy: { createdAt: "desc" },
             },
+            userReadingPlans: {
+              take: 5,
+              orderBy: { createdAt: "desc" },
+              include: {
+                template: true,
+              },
+            },
             _count: {
               select: {
                 prayerRequestsAuthored: true,
                 prayerEntriesAuthored: true,
                 prayerActions: true,
                 prayerResponses: true,
+                userReadingPlans: true,
               },
             },
           },

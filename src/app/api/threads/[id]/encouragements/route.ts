@@ -73,17 +73,9 @@ export async function POST(
       );
     }
 
-    // Check if thread exists (include group for notifications)
+    // Check if thread exists
     const thread = await prisma.prayerRequest.findUnique({
       where: { id },
-      include: {
-        group: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
     });
 
     if (!thread) {
@@ -129,18 +121,14 @@ export async function POST(
       },
     });
 
-    // Send push notification to thread author only (fire-and-forget)
-    if (thread.groupId && thread.group) {
-      sendEncouragementNotificationAsync(thread.authorId, {
-        groupId: thread.groupId,
-        groupName: thread.group.name || "Your Group",
-        threadId: thread.id,
-        threadTitle: thread.title || undefined,
-        authorName: user.displayName || user.firstName || undefined,
-        authorProfileImageUrl: user.profileImageUrl || undefined,
-        entryId: encouragement.id, // Scroll to this specific encouragement
-      });
-    }
+    // Send push notification to thread author (fire-and-forget)
+    sendEncouragementNotificationAsync(thread.authorId, {
+      threadId: thread.id,
+      threadTitle: thread.title || undefined,
+      authorName: user.displayName || user.firstName || undefined,
+      authorProfileImageUrl: user.profileImageUrl || undefined,
+      entryId: encouragement.id,
+    });
 
     return NextResponse.json(encouragement, { status: 201 });
   } catch (error) {

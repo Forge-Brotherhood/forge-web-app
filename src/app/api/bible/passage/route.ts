@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { bibleService, BibleServiceError } from "@/lib/bible";
-import { DEFAULT_TRANSLATION } from "@/core/models/bibleModels";
+import { getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
 import { CACHE_TTL_SECONDS } from "@/lib/kv";
 
 // GET /api/bible/passage - Get passage by reference
@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const reference = searchParams.get("reference");
-    const translation = searchParams.get("translation") || DEFAULT_TRANSLATION;
+    const providerDefault = getDefaultTranslation(getCurrentProviderType());
+    const translation = searchParams.get("translation") || providerDefault;
 
     if (!reference) {
       return NextResponse.json(

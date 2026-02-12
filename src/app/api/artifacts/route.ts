@@ -28,7 +28,6 @@ const createArtifactSchema = z.object({
   title: z.string().optional(),
   // Allow metadata-only artifacts (e.g. highlights) to use an empty string
   content: z.string(),
-  groupId: z.string().optional(),
   conversationId: z.string().optional(),
   sessionId: z.string().optional(),
   scriptureRefs: z.array(z.string()).optional(),
@@ -115,21 +114,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validated = createArtifactSchema.parse(body);
 
-    // Validate group scope requires groupId
-    if (validated.scope === "group" && !validated.groupId) {
-      return NextResponse.json(
-        { error: "Group scope requires groupId" },
-        { status: 400 }
-      );
-    }
-
     const artifact = await createArtifact({
       userId: authResult.userId,
       type: validated.type as typeof ARTIFACT_TYPES[number],
       scope: validated.scope as typeof ARTIFACT_SCOPES[number],
       title: validated.title,
       content: validated.content,
-      groupId: validated.groupId,
       conversationId: validated.conversationId,
       sessionId: validated.sessionId,
       scriptureRefs: validated.scriptureRefs,

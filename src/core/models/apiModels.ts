@@ -17,84 +17,138 @@ export interface APIProfileResponse {
   createdAt: string;
   role: string;
   prayerStreak?: number;
-  memberships?: APIGroupMembership[];
 }
 
-export interface APIGroupMembership {
-  groupId: string;
-  role: string;
-  group?: APIGroupBasic;
-}
+// MARK: - User Reading Plans API
 
-export interface APIGroupBasic {
-  id: string;
-  name?: string;
-  description?: string;
-  groupType: string;
-  members?: APIGroupMemberResponse[];
-}
-
-// MARK: - Groups API
-
-export interface APIGroupResponse {
+export interface APIUserReadingPlan {
   id: string;
   shortId: string;
-  name?: string;
-  description?: string;
-  groupType: string;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt?: string;
-  members?: APIGroupMemberResponse[];
-  prayerRequests?: APIGroupPrayerRequest[];
-  _count?: APIGroupCount;
-}
-
-export interface APIGroupMemberResponse {
-  groupId: string;
-  userId: string;
-  status: string;
-  role: string;
-  joinedAt: string;
-  user: APIGroupMemberUser;
-}
-
-export interface APIGroupMemberUser {
-  id: string;
-  displayName?: string;
-  firstName?: string;
-  profileImageUrl?: string;
-}
-
-export interface APIGroupPrayerRequest {
-  id: string;
-  status: string;
+  status: 'scheduled' | 'active' | 'paused' | 'completed' | 'canceled';
+  startDate: string;
+  timezone: string;
+  notifyDaily: boolean;
+  template: APIReadingPlanTemplate;
+  progressCount: number;
   createdAt: string;
 }
 
-export interface APIGroupCount {
-  prayerRequests: number;
-}
-
-// MARK: - Create/Update Group Requests
-
-export interface CreateGroupRequest {
-  name: string;
+export interface APIReadingPlanTemplate {
+  id: string;
+  shortId: string;
+  title: string;
+  subtitle?: string;
   description?: string;
-  groupType?: 'circle' | 'core';
+  coverImageUrl?: string;
+  totalDays: number;
+  estimatedMinutesMin: number;
+  estimatedMinutesMax: number;
+  days?: APIReadingPlanTemplateDay[];
 }
 
-export interface UpdateGroupRequest {
-  name?: string;
-  description?: string;
+export interface APIReadingPlanTemplateDay {
+  id: string;
+  dayNumber: number;
+  passageRef: string;
+  bookId?: string;
+  startChapter?: number;
+  startVerse?: number;
+  endChapter?: number;
+  endVerse?: number;
+  title?: string;
+  summary?: string;
+  reflectionPrompt?: string;
+  prayerPrompt?: string;
+  contextIntro?: string;
 }
 
-export interface JoinGroupRequest {
-  code: string;
+export interface APIUserReadingPlansResponse {
+  success: boolean;
+  plans: APIUserReadingPlan[];
 }
 
-export interface LeaveGroupRequest {
-  groupId: string;
+export interface APITodayReadingResponse {
+  success: boolean;
+  today: APITodayReading | null;
+}
+
+export interface APITodayReading {
+  planId: string;
+  planShortId: string;
+  planStatus: 'scheduled' | 'in_progress' | 'completed';
+  planTitle: string;
+  coverImageUrl?: string;
+  totalDays: number;
+  currentDay: number;
+  day: APITodayReadingDay;
+  progress: APIReadingProgress;
+  reflections: APIReadingReflection[];
+}
+
+export interface APITodayReadingDay {
+  id: string;
+  dayNumber: number;
+  scriptureBlocks: unknown;
+  passageRef: string;
+  bookId?: string;
+  startChapter?: number;
+  startVerse?: number;
+  endChapter?: number;
+  endVerse?: number;
+  title?: string;
+  summary?: string;
+  reflectionPrompt?: string;
+  prayerPrompt?: string;
+  contextIntro?: string;
+  audio?: APIReadingDayAudio;
+}
+
+export interface APIReadingDayAudio {
+  audioUrl: string;
+  durationMs: number;
+  markers: unknown;
+  translation: string;
+}
+
+export interface APIReadingProgress {
+  hasRead: boolean;
+  hasReflected: boolean;
+  hasPrayed: boolean;
+  completedAt: string | null;
+}
+
+export interface APIReadingReflection {
+  id: string;
+  kind: 'reflection' | 'self_prayer';
+  content?: string;
+  audioUrl?: string;
+  createdAt: string;
+}
+
+export interface CreateUserReadingPlanRequest {
+  templateId: string;
+  startDate?: string;
+  timezone?: string;
+  notifyDaily?: boolean;
+}
+
+export interface UpdateUserReadingPlanRequest {
+  status?: 'scheduled' | 'active' | 'paused' | 'completed' | 'canceled';
+  notifyDaily?: boolean;
+}
+
+export interface UpdateReadingProgressRequest {
+  templateDayId: string;
+  hasRead?: boolean;
+  hasReflected?: boolean;
+  hasPrayed?: boolean;
+}
+
+export interface CreateReadingReflectionRequest {
+  templateDayId: string;
+  kind?: 'reflection' | 'self_prayer';
+  content?: string;
+  audioUrl?: string;
 }
 
 // MARK: - Generic Responses
@@ -113,7 +167,6 @@ export interface APIThreadsResponse {
 }
 
 export interface CreateThreadRequest {
-  groupId?: string;
   title?: string;
   content: string;
   postKind?: 'request' | 'update' | 'testimony';
@@ -126,7 +179,6 @@ export interface CreateThreadRequest {
 export interface CreateThreadResponse {
   id: string;
   shortId: string;
-  groupId?: string;
   authorId: string;
   title?: string;
   sharedToCommunity: boolean;
@@ -136,7 +188,6 @@ export interface CreateThreadResponse {
   createdAt: string;
   updatedAt: string;
   author?: APIThreadAuthor;
-  group?: APIThreadGroup;
   entries?: APIThreadEntry[];
 }
 
@@ -153,7 +204,7 @@ export interface UpdateThreadResponse {
   updatedAt: string;
 }
 
-// MARK: - Thread Author/Group
+// MARK: - Thread Author
 
 export interface APIThreadAuthor {
   id: string;
@@ -161,27 +212,6 @@ export interface APIThreadAuthor {
   firstName?: string;
   profileImageUrl?: string;
   voiceIntroUrl?: string;
-}
-
-export interface APIThreadGroup {
-  id: string;
-  shortId?: string;
-  name?: string;
-  description?: string;
-  groupType?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  deletedAt?: string;
-  members?: APIGroupMember[];
-}
-
-export interface APIGroupMember {
-  groupId: string;
-  userId: string;
-  status: string;
-  role: string;
-  joinedAt: string;
-  user: APIThreadAuthor;
 }
 
 // MARK: - Thread Entry
@@ -238,7 +268,6 @@ export interface APIPostCount {
 export interface APICommunityThread {
   id: string;
   shortId?: string;
-  groupId?: string;
   authorId?: string;
   title?: string;
   sharedToCommunity: boolean;
@@ -253,7 +282,6 @@ export interface APICommunityThread {
   updatedAt: string;
   deletedAt?: string;
   author?: APIThreadAuthor;
-  group?: APIThreadGroup;
   entries: APIThreadEntry[];
   savedBy?: APISavedByItem[];
   actions?: APIPrayerAction[];
@@ -306,7 +334,6 @@ export interface APIPrayerListRequest {
   isAnonymous?: boolean;
   sharedToCommunity?: boolean;
   author?: APIPrayerListAuthor;
-  group?: APIPrayerListGroup;
   posts?: APIThreadEntry[];
   _count?: APIPrayerListCount;
 }
@@ -316,12 +343,6 @@ export interface APIPrayerListAuthor {
   displayName?: string;
   firstName?: string;
   profileImageUrl?: string;
-}
-
-export interface APIPrayerListGroup {
-  id: string;
-  name?: string;
-  groupType: string;
 }
 
 export interface APIPrayerListCount {
@@ -409,46 +430,6 @@ export interface PrayerListToggleResponse {
   isSaved: boolean;
   action: 'added' | 'removed';
   savedCount: number;
-}
-
-// MARK: - Group Invites API
-
-export interface CreateShareLinkRequest {
-  expiresInDays?: number;
-}
-
-export interface GroupShareLinkResponse {
-  url: string;
-  token: string;
-  expiresAt: string;
-}
-
-export interface InviteDetailsResponse {
-  valid: boolean;
-  expired: boolean;
-  alreadyMember?: boolean;
-  error?: string;
-  group?: InviteGroupPreview;
-  inviter?: InviteCreator;
-}
-
-export interface InviteGroupPreview {
-  id: string;
-  name?: string;
-  description?: string;
-  memberCount: number;
-  groupType: string;
-}
-
-export interface InviteCreator {
-  displayName?: string;
-  profileImageUrl?: string;
-}
-
-export interface AcceptInviteResponse {
-  success: boolean;
-  alreadyMember?: boolean;
-  group: APIGroupResponse;
 }
 
 // MARK: - Thread Detail API

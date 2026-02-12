@@ -179,6 +179,7 @@ export async function buildChatContextBundle(args: {
   entrypoint: ChatEntrypoint;
   mode: ChatMode;
   previousResponseId: string | null;
+  isNewConversation: boolean;
   message: string;
   verseReference?: string;
   verseText?: string;
@@ -239,7 +240,7 @@ export async function buildChatContextBundle(args: {
     verseText: args.verseText,
   });
 
-  const isBibleReaderStart = args.entrypoint === "bible_reader" && args.mode === "bible" && !args.previousResponseId;
+  const isBibleReaderStart = args.entrypoint === "bible_reader" && args.mode === "bible" && args.isNewConversation;
   const startAddendum = isBibleReaderStart
     ? args.selectionState === "selected"
       ? buildBibleReaderSelectedStartSystemAddendum()

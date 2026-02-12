@@ -16,11 +16,10 @@ export const ARTIFACT_TYPES = [
   "testimony",
   "verse_highlight",
   "verse_note",
-  "group_meeting_notes",
   "bible_reading_session",
 ] as const;
 
-export const ARTIFACT_SCOPES = ["private", "group", "global"] as const;
+export const ARTIFACT_SCOPES = ["private", "global"] as const;
 
 export const ARTIFACT_RELATIONS = [
   "follows_up",
@@ -57,7 +56,6 @@ export const EMBEDDABLE_ARTIFACT_TYPES = [
   "prayer_request",
   "prayer_update",
   "testimony",
-  "group_meeting_notes",
   "bible_reading_session",
 ] as const satisfies readonly ArtifactType[];
 
@@ -76,7 +74,6 @@ export function shouldEmbedArtifactType(type: ArtifactType): boolean {
 export interface Artifact {
   id: string;
   userId: string | null;
-  groupId: string | null;
   conversationId: string | null;
   sessionId: string | null;
 
@@ -119,7 +116,6 @@ export interface ArtifactEmbedding {
 
 export interface CreateArtifactInput {
   userId?: string;
-  groupId?: string;
   conversationId?: string;
   sessionId?: string;
 
@@ -153,7 +149,6 @@ export interface CreateEdgeInput {
 
 export interface ArtifactFilters {
   userId?: string;
-  groupId?: string;
   sessionId?: string;
   conversationId?: string;
 

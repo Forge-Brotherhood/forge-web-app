@@ -46,8 +46,17 @@ export async function GET(
       where: {
         OR: [{ id }, { shortId: id }, { slug: id }],
         deletedAt: null,
-        // Non-admins can only see published public templates
-        ...(!userIsAdmin ? { isPublished: true, visibility: "public" } : {}),
+        // Access control: admins see all, users see public OR their own private templates
+        ...(!userIsAdmin
+          ? {
+              OR: [
+                // Public published templates
+                { isPublished: true, visibility: "public" },
+                // User's own private templates
+                { visibility: "private", createdById: authResult.userId },
+              ],
+            }
+          : {}),
       },
       include: {
         days: {
@@ -59,9 +68,6 @@ export async function GET(
             displayName: true,
             firstName: true,
           },
-        },
-        _count: {
-          select: { groupPlans: true },
         },
       },
     });
@@ -87,7 +93,6 @@ export async function GET(
         visibility: template.visibility,
         isPublished: template.isPublished,
         isFeatured: template.isFeatured,
-        groupPlansCount: template._count.groupPlans,
         createdBy: template.createdBy
           ? {
               id: template.createdBy.id,

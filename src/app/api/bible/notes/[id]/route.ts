@@ -3,7 +3,7 @@ import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { deleteArtifact, updateArtifact } from "@/lib/artifacts/artifactService";
-import { generateSafeNoteSummary } from "@/lib/pipeline/stages/noteSummary";
+import { generateSafeNoteSummary } from "@/lib/ai/noteSummary";
 import type { VerseNoteMetadata } from "@/lib/artifacts/types";
 
 const updateNoteSchema = z.object({

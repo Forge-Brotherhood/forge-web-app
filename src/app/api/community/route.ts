@@ -44,13 +44,6 @@ export async function GET(request: NextRequest) {
               profileImageUrl: true,
             },
           },
-          group: {
-            select: {
-              id: true,
-              name: true,
-              groupType: true,
-            },
-          },
           entries: {
             where: {
               kind: filter === "testimonies" ? "testimony" : "request",

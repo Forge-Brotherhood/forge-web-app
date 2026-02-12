@@ -3,7 +3,7 @@ import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { createArtifact } from "@/lib/artifacts/artifactService";
-import { generateSafeNoteSummary } from "@/lib/pipeline/stages/noteSummary";
+import { generateSafeNoteSummary } from "@/lib/ai/noteSummary";
 import type { VerseNoteMetadata } from "@/lib/artifacts/types";
 import { getBookDisplayNameFromCode } from "@/lib/bible";
 
@@ -47,21 +47,13 @@ function makeScriptureRef(bookName: string, chapter: number, verseStart: number,
 }
 
 // GET /api/bible/notes?bookId=GEN&chapter=1
-// Returns notes for a specific chapter:
-// - All of the user's own notes (private and shared)
-// - Shared notes from users who share at least one group with the requesting user
+// Returns notes for a specific chapter (user's own notes only)
 export async function GET(request: NextRequest) {
   try {
     const authResult = await getAuth();
     if (!authResult) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    // Get user's active group memberships
-    const memberships = await prisma.groupMember.findMany({
-      where: { userId: authResult.userId, status: "active" },
-      select: { groupId: true },
-    });
 
     // Parse query params
     const { searchParams } = new URL(request.url);
@@ -73,36 +65,12 @@ export async function GET(request: NextRequest) {
     const validatedParams = getNotesSchema.parse(params);
     const chapterNumber = parseInt(validatedParams.chapter, 10);
 
-    // Get all group IDs the user is a member of
-    const userGroupIds = memberships.map((m) => m.groupId);
-
-    // Get user IDs of people in the same groups (fellow group members)
-    let fellowMemberIds: string[] = [];
-    if (userGroupIds.length > 0) {
-      const groupMembers = await prisma.groupMember.findMany({
-        where: {
-          groupId: { in: userGroupIds },
-          status: "active",
-        },
-        select: { userId: true },
-      });
-      fellowMemberIds = [...new Set(groupMembers.map((m) => m.userId))];
-    }
-
-    // Get all notes for this chapter where:
-    // 1. Author is the requesting user (show all their notes), OR
-    // 2. Author shares a group with requesting user AND isPrivate = false
+    // Get user's own notes for this chapter
     const notes = await prisma.verseNote.findMany({
       where: {
         bookId: validatedParams.bookId,
         chapter: chapterNumber,
-        OR: [
-          { userId: authResult.userId }, // Always show user's own notes
-          {
-            userId: { in: fellowMemberIds },
-            isPrivate: false,
-          }, // Show shared notes from group members
-        ],
+        userId: authResult.userId,
       },
       include: {
         user: {

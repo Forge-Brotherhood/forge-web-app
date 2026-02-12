@@ -9,13 +9,9 @@
 import { ForgeAPIError } from './apiErrors';
 import type {
   APIProfileResponse,
-  APIGroupResponse,
   APIThreadsResponse,
-  APICommunityThread,
   APIPrayerListResponse,
   ThreadDetailResponse,
-  CreateGroupRequest,
-  UpdateGroupRequest,
   CreateThreadRequest,
   CreateThreadResponse,
   UpdateThreadRequest,
@@ -25,9 +21,6 @@ import type {
   RecordPrayerResponse,
   RemovePrayerResponse,
   PrayerListToggleResponse,
-  GroupShareLinkResponse,
-  InviteDetailsResponse,
-  AcceptInviteResponse,
   SuccessResponse,
   AddReactionRequest,
   AddReactionResponse,
@@ -39,6 +32,7 @@ import type {
   BibleChapterContentResponse,
   BiblePassageResponse,
   VerseOfTheDayResponse,
+  BibleTranslationsResponse,
 } from '../models/bibleModels';
 
 // MARK: - Types
@@ -170,94 +164,6 @@ class ForgeAPIClient {
   }
 
   // ============================================
-  // MARK: - Groups
-  // ============================================
-
-  /**
-   * Get user's groups with optional type filter
-   */
-  async getGroups(type?: 'core' | 'circle'): Promise<APIGroupResponse[]> {
-    const endpoint = type ? `/api/groups?type=${type}` : '/api/groups';
-    return this.request<APIGroupResponse[]>(endpoint);
-  }
-
-  /**
-   * Get basic group info for all user's groups
-   */
-  async getGroupsBasic(): Promise<APIGroupResponse[]> {
-    return this.request<APIGroupResponse[]>('/api/groups/basic');
-  }
-
-  /**
-   * Get a single group by ID
-   */
-  async getGroup(groupId: string): Promise<APIGroupResponse> {
-    return this.request<APIGroupResponse>(`/api/groups/${groupId}`);
-  }
-
-  /**
-   * Create a new group
-   */
-  async createGroup(data: CreateGroupRequest): Promise<APIGroupResponse> {
-    return this.request<APIGroupResponse>('/api/groups', {
-      method: 'POST',
-      body: data,
-    });
-  }
-
-  /**
-   * Update a group (name, description) - leaders only
-   */
-  async updateGroup(groupId: string, data: UpdateGroupRequest): Promise<APIGroupResponse> {
-    return this.request<APIGroupResponse>(`/api/groups/${groupId}`, {
-      method: 'PATCH',
-      body: data,
-    });
-  }
-
-  /**
-   * Delete a group - creator only
-   */
-  async deleteGroup(groupId: string): Promise<SuccessResponse> {
-    return this.request<SuccessResponse>(`/api/groups/${groupId}`, {
-      method: 'DELETE',
-    });
-  }
-
-  /**
-   * Join a group by invite code
-   */
-  async joinGroup(code: string): Promise<APIGroupResponse> {
-    return this.request<APIGroupResponse>('/api/groups/join', {
-      method: 'POST',
-      body: { code },
-    });
-  }
-
-  /**
-   * Leave a group
-   */
-  async leaveGroup(groupId: string): Promise<SuccessResponse> {
-    return this.request<SuccessResponse>('/api/groups/leave', {
-      method: 'POST',
-      body: { groupId },
-    });
-  }
-
-  /**
-   * Create a share link for a group
-   */
-  async createGroupShareLink(
-    groupId: string,
-    expiresInDays = 7
-  ): Promise<GroupShareLinkResponse> {
-    return this.request<GroupShareLinkResponse>(`/api/groups/${groupId}/share`, {
-      method: 'POST',
-      body: { expiresInDays },
-    });
-  }
-
-  // ============================================
   // MARK: - Threads (Prayer Requests)
   // ============================================
 
@@ -265,8 +171,7 @@ class ForgeAPIClient {
    * Get threads with filtering options
    */
   async getThreads(params: {
-    groupId?: string;
-    source?: 'core' | 'circle' | 'community';
+    source?: 'community';
     status?: 'open' | 'answered' | 'archived';
     mine?: boolean;
     limit?: number;
@@ -274,7 +179,6 @@ class ForgeAPIClient {
   }): Promise<APIThreadsResponse> {
     const searchParams = new URLSearchParams();
 
-    if (params.groupId) searchParams.set('groupId', params.groupId);
     if (params.source) searchParams.set('source', params.source);
     if (params.status) searchParams.set('status', params.status);
     if (params.mine) searchParams.set('mine', 'true');
@@ -413,7 +317,6 @@ class ForgeAPIClient {
 
     if (params.filter) searchParams.set('filter', params.filter);
     if (params.source) searchParams.set('source', params.source);
-    if (params.groupId) searchParams.set('groupId', params.groupId);
     if (params.status) searchParams.set('status', params.status);
     if (params.limit !== undefined) searchParams.set('limit', params.limit.toString());
     if (params.offset !== undefined) searchParams.set('offset', params.offset.toString());
@@ -422,26 +325,6 @@ class ForgeAPIClient {
     const endpoint = queryString ? `/api/community?${queryString}` : '/api/community';
 
     return this.request<CommunityFeedResponse>(endpoint);
-  }
-
-  // ============================================
-  // MARK: - Invites
-  // ============================================
-
-  /**
-   * Get invite details by token
-   */
-  async getInviteDetails(token: string): Promise<InviteDetailsResponse> {
-    return this.request<InviteDetailsResponse>(`/api/invites/${token}`);
-  }
-
-  /**
-   * Accept an invite and join the group
-   */
-  async acceptInvite(token: string): Promise<AcceptInviteResponse> {
-    return this.request<AcceptInviteResponse>(`/api/invites/${token}/accept`, {
-      method: 'POST',
-    });
   }
 
   // ============================================
@@ -507,8 +390,11 @@ class ForgeAPIClient {
   }
 
   /**
-   * Search Bible verses (removed)
+   * Get available Bible translations for the current provider
    */
+  async getBibleTranslations(): Promise<BibleTranslationsResponse> {
+    return this.request<BibleTranslationsResponse>('/api/bible/translations');
+  }
 }
 
 // Export singleton instance

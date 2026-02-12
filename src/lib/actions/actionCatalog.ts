@@ -46,10 +46,9 @@ export const ACTION_CATALOG = {
     schema: z.object({
       title: z.string().min(1), // Required - AI should always provide a meaningful title
       body: z.string().min(1),
-      visibility: z.enum(["private", "group"]).default("private"),
-      groupId: z.string().optional(),
+      visibility: z.enum(["private", "community"]).default("private"),
     }),
-    resolve: async (params: { title: string; body: string; visibility?: string; groupId?: string }) => {
+    resolve: async (params: { title: string; body: string; visibility?: string }) => {
       return { ...params };
     },
     icon: "hands.sparkles.fill",

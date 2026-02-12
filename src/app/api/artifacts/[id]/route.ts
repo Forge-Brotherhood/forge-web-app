@@ -50,7 +50,6 @@ export async function GET(
         tags: artifact.tags,
         metadata: artifact.metadata,
         userId: artifact.userId,
-        groupId: artifact.groupId,
         conversationId: artifact.conversationId,
         sessionId: artifact.sessionId,
         createdAt: artifact.createdAt.toISOString(),

@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { searchSimilar } from "@/lib/artifacts/embeddingService";
+import { getActiveLifeContextForAI } from "@/lib/lifeContext";
+import { searchTemplates } from "@/lib/readingPlan/templateEmbeddingService";
 import type { ContextToolCall, ResponsesTool } from "@/lib/openai/responsesClient";
 
 export type { ContextToolCall };
@@ -156,9 +158,42 @@ export const buildContextToolsForUser = (): ResponsesTool[] => [
   },
   {
     type: "function",
+    name: "get_life_context",
+    description:
+      "Get the user's current life context: their season of life, what they're carrying this week, what they're hoping for, prayer topics, and goals. Use this to personalize your responses based on what they've shared about their life.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+  {
+    type: "function",
+    name: "search_reading_plans",
+    description:
+      "Search for Bible reading plan templates by topic or theme. Use this when the user asks about reading plans, wants to start a new plan, or when you want to recommend a plan based on their interests or life situation. Returns public, published reading plan templates that match the query.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["query"],
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Search query describing what kind of reading plan to find. Examples: 'anxiety and peace', 'marriage relationships', 'spiritual growth', 'psalms for comfort', 'new believer basics'.",
+        },
+        limit: {
+          type: "integer",
+          description: "Max plans to return (default 5, max 10)",
+        },
+      },
+    },
+  },
+  {
+    type: "function",
     name: "save_memory_candidate",
     description:
-      "Capture a candidate LONG-TERM memory for later consolidation (not automatically durable truth). Use only for stable, user-stated preferences/routines/goals likely to remain true for months and improve future Bible study guidance. Do NOT store secrets/credentials, addresses/phone/financial details, medical/sexual/political data, anything inferred, or instructions/policies.",
+      "Capture a candidate LONG-TERM memory for later consolidation. Use for: (1) stable preferences/routines/goals, (2) ongoing spiritual or emotional struggles explicitly shared by the user (e.g., 'struggles with lust', 'dealing with anger', 'wrestling with doubt') - these are IMPORTANT for pastoral follow-up, (3) faith journey context. Do NOT store secrets/credentials, addresses/phone/financial details, medical diagnoses/medications, abuse disclosures, or political data.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -167,11 +202,11 @@ export const buildContextToolsForUser = (): ResponsesTool[] => [
         text: {
           type: "string",
           description:
-            "1–2 factual sentences in user-centric wording. No speculation. Example: 'User prefers short (5–10 min) Bible reading sessions in the morning.'",
+            "1–2 factual sentences in user-centric wording. No speculation. Examples: 'User prefers short (5–10 min) Bible reading sessions in the morning.' or 'User has an ongoing struggle with lust/pornography.'",
         },
         category: {
           type: "string",
-          enum: ["preference", "routine", "goal", "bio", "other"],
+          enum: ["preference", "routine", "goal", "bio", "struggle", "other"],
         },
         confidence: {
           type: "string",
@@ -195,7 +230,7 @@ export const buildContextToolsForUser = (): ResponsesTool[] => [
     type: "function",
     name: "save_temporary_memory",
     description:
-      "Save a TEMPORARY note scoped to this conversation that expires after a TTL. Use for short-lived constraints or one-time plans (days/weeks). Do NOT store secrets/credentials or sensitive personal data. Prefer ttlHours over timestamps.",
+      "Save a TEMPORARY note that expires after a TTL. ALWAYS use this when the user mentions: travel plans, upcoming trips, events, conferences, vacations, visits, temporary schedule changes, or time-bound situations. These are IMPORTANT for contextual follow-up. Do NOT store secrets/credentials or sensitive personal data.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -203,11 +238,11 @@ export const buildContextToolsForUser = (): ResponsesTool[] => [
       properties: {
         text: {
           type: "string",
-          description: "1–2 factual sentences. Example: 'User is traveling this week; suggest shorter sessions.'",
+          description: "1–2 factual sentences. Examples: 'User is traveling to Las Vegas next Thursday.' or 'User has a conference next week.'",
         },
         category: {
           type: "string",
-          enum: ["constraint", "plan", "preference", "other"],
+          enum: ["travel", "event", "constraint", "plan", "preference", "other"],
         },
         ttlHours: {
           type: "number",
@@ -259,6 +294,10 @@ export async function executeContextToolCall(args: {
       return JSON.stringify(await getConversationSessionSummaries(args.userId, params));
     case "search_conversation_session_summaries":
       return JSON.stringify(await searchConversationSessionSummaries(args.userId, params));
+    case "get_life_context":
+      return JSON.stringify(await getLifeContext(args.userId));
+    case "search_reading_plans":
+      return JSON.stringify(await searchReadingPlans(params));
     case "save_memory_candidate":
       return JSON.stringify(await saveMemoryCandidate(args.userId, args.conversationId, params));
     case "save_temporary_memory":
@@ -761,6 +800,85 @@ async function searchConversationSessionSummaries(
       title: r.artifact.title ?? null,
       summary: truncate(r.artifact.content ?? "", 500),
       createdAtISO: toIsoOrNull(r.artifact.createdAt),
+    })),
+  };
+}
+
+async function getLifeContext(
+  userId: string
+): Promise<{
+  hasContext: boolean;
+  currentSeason: string | null;
+  seasonNote: string | null;
+  weeklyIntention: {
+    carrying: string | null;
+    hoping: string | null;
+  } | null;
+  prayerTopics: string[];
+  goals: string[];
+  sessionPreference: string | null;
+  encouragementStyle: string;
+}> {
+  const context = await getActiveLifeContextForAI(userId);
+
+  const hasContext = !!(
+    context.currentSeason ||
+    context.weeklyIntention?.carrying ||
+    context.weeklyIntention?.hoping ||
+    (context.prayerTopics && context.prayerTopics.length > 0) ||
+    (context.goals && context.goals.length > 0)
+  );
+
+  return {
+    hasContext,
+    currentSeason: context.currentSeason ?? null,
+    seasonNote: context.seasonNote ?? null,
+    weeklyIntention: context.weeklyIntention
+      ? {
+          carrying: context.weeklyIntention.carrying ?? null,
+          hoping: context.weeklyIntention.hoping ?? null,
+        }
+      : null,
+    prayerTopics: context.prayerTopics ?? [],
+    goals: context.goals ?? [],
+    sessionPreference: context.sessionPreference ?? null,
+    encouragementStyle: context.encouragementStyle,
+  };
+}
+
+async function searchReadingPlans(params: Record<string, unknown>): Promise<{
+  plans: Array<{
+    id: string;
+    shortId: string;
+    title: string;
+    subtitle: string | null;
+    description: string | null;
+    totalDays: number;
+    estimatedMinutes: string;
+    theme: string | null;
+    isFeatured: boolean;
+    relevanceScore: number;
+  }>;
+}> {
+  const query = typeof params.query === "string" ? params.query.trim() : "";
+  if (!query) return { plans: [] };
+
+  const limit = clamp(Number(params.limit ?? 5) || 5, 1, 10);
+
+  const results = await searchTemplates(query, limit);
+
+  return {
+    plans: results.map((r) => ({
+      id: r.template.id,
+      shortId: r.template.shortId,
+      title: r.template.title,
+      subtitle: r.template.subtitle,
+      description: r.template.description ? truncate(r.template.description, 300) : null,
+      totalDays: r.template.totalDays,
+      estimatedMinutes: `${r.template.estimatedMinutesMin}-${r.template.estimatedMinutesMax}`,
+      theme: r.template.theme,
+      isFeatured: r.template.isFeatured,
+      relevanceScore: Math.round(r.score * 100) / 100,
     })),
   };
 }

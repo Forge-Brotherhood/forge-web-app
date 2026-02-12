@@ -12,17 +12,6 @@ datasource db {
 
 // ---------- Enums ----------
 
-enum GroupType {
-  in_person
-  virtual
-}
-
-enum MeetingCadence {
-  weekly
-  biweekly
-  monthly
-}
-
 enum PrayerRequestStatus {
   open
   answered
@@ -68,7 +57,7 @@ enum ReadingPlanVisibility {
   archived
 }
 
-enum GroupReadingPlanStatus {
+enum UserReadingPlanStatus {
   scheduled
   active
   paused
@@ -76,15 +65,9 @@ enum GroupReadingPlanStatus {
   canceled
 }
 
-enum ReadingPlanReflectionVisibility {
-  private
-  group
-}
-
 enum ReadingPlanReflectionKind {
   reflection
   self_prayer
-  group_prayer
 }
 
 // ---------- Core ----------
@@ -106,16 +89,13 @@ model User {
   isSponsor       Boolean  @default(false)
 
   // Relations
-  memberships              GroupMember[]
   prayerRequestsAuthored   PrayerRequest[] @relation("PrayerRequestAuthor")
   prayerEntriesAuthored    PrayerEntry[]   @relation("PrayerEntryAuthor")
   prayerResponses          PrayerResponse[]
   prayerActions            PrayerAction[]
   savedPrayers             SavedPrayer[]
   supports                 Support[]
-  createdInvites           GroupInvite[]
   pushTokens               PushToken[]
-  groupNotificationPrefs   GroupNotificationPreference[]
   bibleHighlights          BibleHighlight[]
   verseNotes               VerseNote[]
   readerSettings           ReaderSettings?
@@ -123,11 +103,9 @@ model User {
 
   // Reading Plans relations
   createdTemplates          ReadingPlanTemplate[]   @relation("ReadingPlanTemplateCreator")
-  createdGroupPlans         GroupReadingPlan[]      @relation("GroupReadingPlanCreator")
+  userReadingPlans          UserReadingPlan[]       @relation("UserReadingPlans")
   readingPlanProgress       ReadingPlanProgress[]   @relation("ReadingPlanProgressUser")
-  prayedForInPlans          ReadingPlanProgress[]   @relation("ReadingPlanPrayerTarget")
   planReflections           ReadingPlanReflection[] @relation("ReadingPlanReflectionAuthor")
-  planReflectionTargets     ReadingPlanReflection[] @relation("ReadingPlanReflectionTarget")
 
   // AI Memory & Preferences
   conversationStates        ConversationState[]
@@ -156,80 +134,11 @@ model User {
   @@index([handle])
 }
 
-model Group {
-  id          String    @id @default(uuid())
-  shortId     String    @unique // NanoID (10–12 chars), generate in app
-  name        String?
-  description String?
-  groupType   GroupType @default(in_person)
-
-  // Meeting schedule (only applicable for in_person groups)
-  meetingCadence   MeetingCadence?  // null for virtual groups
-  meetingDayOfWeek Int?             // 0-6 (Sunday-Saturday), null for virtual
-  meetingTime      String?          // e.g., "19:00" (24h format), null for virtual
-
-  // Meeting location (structured address for in_person groups)
-  meetingLocationName    String?    // Venue name (e.g., "First Baptist Church")
-  meetingStreetAddress   String?    // Street address (e.g., "123 Main St")
-  meetingCity            String?    // City
-  meetingState           String?    // State/Province
-  meetingPostalCode      String?    // ZIP/Postal code
-  meetingCountry         String?    // Country (ISO 3166-1 alpha-2, e.g., "US")
-  meetingLatitude        Float?     // Latitude for map display
-  meetingLongitude       Float?     // Longitude for map display
-  meetingPlaceId         String?    // Google Places ID for linking
-
-  // Relations
-  members              GroupMember[]
-  prayerRequests       PrayerRequest[]
-  invites              GroupInvite[]
-  notificationPrefs    GroupNotificationPreference[]
-  readingPlans         GroupReadingPlan[]
-  artifacts            Artifact[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  deletedAt DateTime?
-
-  @@index([groupType])
-  @@index([shortId])
-}
-
-model GroupMember {
-  groupId  String
-  userId   String
-  status   String   @default("active") // active|pending|left
-  role     String   @default("member") // member|leader
-  joinedAt DateTime @default(now())
-
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
-
-  @@id([groupId, userId])
-  @@index([userId])
-}
-
-model GroupInvite {
-  id        String   @id @default(uuid())
-  token     String   @unique  // NanoID (16 chars) - the share token
-  groupId   String
-  createdBy String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  creator User  @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-
-  @@index([token])
-  @@index([groupId])
-}
-
 // ---------- Prayer Lifecycle ----------
 
 model PrayerRequest {
   id                String               @id @default(uuid())
   shortId           String               @unique // NanoID (10–12 chars), generate in app
-  groupId           String?
   authorId          String
   title             String?
   sharedToCommunity Boolean              @default(false)
@@ -244,7 +153,6 @@ model PrayerRequest {
   reportedCount     Int                  @default(0)
   // moderationState String?             // optional future enum/string
 
-  group  Group? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   author User   @relation("PrayerRequestAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   entries PrayerEntry[]
   actions PrayerAction[]
@@ -254,7 +162,6 @@ model PrayerRequest {
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
-  @@index([groupId, status, lastActivityAt])
   @@index([sharedToCommunity, status, lastActivityAt])
   @@index([authorId, createdAt])
   @@index([shortId])
@@ -404,23 +311,6 @@ model PushToken {
   @@index([token])
 }
 
-model GroupNotificationPreference {
-  id          String  @id @default(uuid())
-  userId      String
-  groupId     String
-  pushEnabled Boolean @default(true)
-
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, groupId])
-  @@index([userId])
-  @@index([groupId])
-}
-
 // ---------- Bible Highlights ----------
 
 model BibleHighlight {
@@ -440,8 +330,8 @@ model BibleHighlight {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Optional linkage to reading plan (highlight made during plan)
-  groupPlanId   String?
-  groupPlan     GroupReadingPlan? @relation(fields: [groupPlanId], references: [id], onDelete: SetNull)
+  userPlanId    String?
+  userPlan      UserReadingPlan? @relation(fields: [userPlanId], references: [id], onDelete: SetNull)
   templateDayId String?
   templateDay   ReadingPlanTemplateDay? @relation(fields: [templateDayId], references: [id], onDelete: SetNull)
 
@@ -450,7 +340,7 @@ model BibleHighlight {
 
   @@unique([userId, bookId, chapter, verseStart, verseEnd])
   @@index([userId, bookId, chapter])
-  @@index([groupPlanId, templateDayId])
+  @@index([userPlanId, templateDayId])
 }
 
 // ---------- Bible Notes ----------
@@ -471,8 +361,8 @@ model VerseNote {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Optional linkage to reading plan (note made during plan)
-  groupPlanId   String?
-  groupPlan     GroupReadingPlan? @relation(fields: [groupPlanId], references: [id], onDelete: SetNull)
+  userPlanId    String?
+  userPlan      UserReadingPlan? @relation(fields: [userPlanId], references: [id], onDelete: SetNull)
   templateDayId String?
   templateDay   ReadingPlanTemplateDay? @relation(fields: [templateDayId], references: [id], onDelete: SetNull)
 
@@ -484,7 +374,7 @@ model VerseNote {
   @@index([userId, bookId, chapter])
   @@index([userId])
   @@index([isPrivate])
-  @@index([groupPlanId, templateDayId])
+  @@index([userPlanId, templateDayId])
 }
 
 // ---------- Reader Settings ----------
@@ -652,7 +542,8 @@ model ReadingPlanTemplate {
   createdBy   User?   @relation("ReadingPlanTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   days        ReadingPlanTemplateDay[]
-  groupPlans  GroupReadingPlan[]
+  userPlans   UserReadingPlan[]
+  embeddings  ReadingPlanTemplateEmbedding[]
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -722,27 +613,23 @@ model ReadingPlanDayAudio {
   @@index([templateDayId])
 }
 
-model GroupReadingPlan {
+model UserReadingPlan {
   id          String @id @default(uuid())
   shortId     String @unique // NanoID (10 chars)
 
-  groupId     String
-  group       Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User   @relation("UserReadingPlans", fields: [userId], references: [id], onDelete: Cascade)
 
   templateId  String
   template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
 
   // Scheduling
   startDate   DateTime  // When Day 1 begins
-  status      GroupReadingPlanStatus @default(scheduled)
+  status      UserReadingPlanStatus @default(scheduled)
 
   // Optional configuration
-  meetingDayOfWeek  Int?     // 0-6 (Sunday-Saturday) for weekly summaries
-  notifyDaily       Boolean  @default(true)
-  timezone          String   @default("America/New_York")
-
-  createdById String
-  createdBy   User   @relation("GroupReadingPlanCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  notifyDaily Boolean  @default(true)
+  timezone    String   @default("America/New_York")
 
   progress    ReadingPlanProgress[]
   reflections ReadingPlanReflection[]
@@ -753,7 +640,7 @@ model GroupReadingPlan {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  @@index([groupId, status])
+  @@index([userId, status])
   @@index([templateId])
   @@index([startDate])
 }
@@ -761,8 +648,8 @@ model GroupReadingPlan {
 model ReadingPlanProgress {
   id              String           @id @default(uuid())
 
-  groupPlanId     String
-  groupPlan       GroupReadingPlan @relation(fields: [groupPlanId], references: [id], onDelete: Cascade)
+  userPlanId      String
+  userPlan        UserReadingPlan @relation(fields: [userPlanId], references: [id], onDelete: Cascade)
 
   templateDayId   String
   templateDay     ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
@@ -776,23 +663,19 @@ model ReadingPlanProgress {
   hasPrayed       Boolean   @default(false)
   completedAt     DateTime?
 
-  // Optional: who they prayed for
-  prayedForUserId String?
-  prayedForUser   User?     @relation("ReadingPlanPrayerTarget", fields: [prayedForUserId], references: [id], onDelete: SetNull)
-
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@unique([groupPlanId, templateDayId, userId])
+  @@unique([userPlanId, templateDayId, userId])
   @@index([userId])
-  @@index([groupPlanId, templateDayId])
+  @@index([userPlanId, templateDayId])
 }
 
 model ReadingPlanReflection {
   id            String @id @default(uuid())
 
-  groupPlanId   String
-  groupPlan     GroupReadingPlan @relation(fields: [groupPlanId], references: [id], onDelete: Cascade)
+  userPlanId    String
+  userPlan      UserReadingPlan @relation(fields: [userPlanId], references: [id], onDelete: Cascade)
 
   templateDayId String
   templateDay   ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
@@ -801,19 +684,14 @@ model ReadingPlanReflection {
   user          User @relation("ReadingPlanReflectionAuthor", fields: [userId], references: [id], onDelete: Cascade)
 
   kind          ReadingPlanReflectionKind @default(reflection)
-  visibility    ReadingPlanReflectionVisibility @default(group)
 
   content       String?   // Text reflection/prayer
   audioUrl      String?   // Future: audio reflections
 
-  // For group_prayer kind
-  targetUserId  String?
-  targetUser    User?     @relation("ReadingPlanReflectionTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
-
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  @@index([groupPlanId, templateDayId])
+  @@index([userPlanId, templateDayId])
   @@index([userId])
 }
 
@@ -894,8 +772,11 @@ model ChatConversation {
   /// Context emphasis for the assistant (e.g. "general" | "bible")
   mode             String   @default("general")
 
-  /// OpenAI Responses API session pointer for chaining across turns
+  /// OpenAI Responses API session pointer for chaining across turns (deprecated, use openaiConversationId)
   previousResponseId String?
+
+  /// OpenAI Conversations API ID for persistent conversation state (e.g. "conv_xxxxx")
+  openaiConversationId String?
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -945,6 +826,9 @@ model ChatSession {
 
   // 3–5 word title for history list
   title      String
+
+  // OpenAI Conversations API ID for restoring conversation context (e.g. "conv_xxxxx")
+  openaiConversationId String?
 
   startedAt  DateTime @default(now())
   endedAt    DateTime
@@ -1033,14 +917,13 @@ model UserLifeContext {
 /// User content artifacts with retrieval and relationship support
 model Artifact {
   id              String    @id @default(cuid())
-  userId          String?   // null for purely group-owned
-  groupId         String?   // if group-scoped
+  userId          String?
   conversationId  String?   // if derived from chat
   sessionId       String?   // if derived from a session
 
   // Classification
-  type            String    // conversation_session_summary | journal_entry | prayer_request | prayer_update | testimony | verse_highlight | verse_note | group_meeting_notes
-  scope           String    // private | group | global
+  type            String    // conversation_session_summary | journal_entry | prayer_request | prayer_update | testimony | verse_highlight | verse_note
+  scope           String    // private | global
   title           String?   // optional display label
   content         String    @db.Text
 
@@ -1054,7 +937,6 @@ model Artifact {
   deletedAt       DateTime?
 
   user            User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group           Group?    @relation(fields: [groupId], references: [id], onDelete: Cascade)
   embeddings      ArtifactEmbedding[]
   edgesFrom       ArtifactEdge[] @relation("EdgeFrom")
   edgesTo         ArtifactEdge[] @relation("EdgeTo")
@@ -1064,7 +946,6 @@ model Artifact {
   updatedAt       DateTime  @updatedAt
 
   @@index([userId, type, createdAt])
-  @@index([groupId, type, createdAt])
   @@index([sessionId])
   @@index([status, createdAt])
 }
@@ -1098,6 +979,22 @@ model ArtifactEmbedding {
   createdAt   DateTime @default(now())
 
   @@unique([artifactId, model])
+  @@index([model])
+}
+
+/// Embeddings for reading plan templates (public plans searchable by Guide)
+model ReadingPlanTemplateEmbedding {
+  id          String   @id @default(cuid())
+  templateId  String
+  model       String   // e.g. "text-embedding-3-small"
+  dimension   Int
+  vector      Bytes    // serialized float array
+
+  template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([templateId, model])
   @@index([model])
 }
 

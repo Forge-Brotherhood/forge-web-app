@@ -7,35 +7,35 @@
 export const CacheKeys = {
   /**
    * Key for list of Bible books for a translation
-   * NOTE: versioned to avoid legacy cached values from previous providers/migrations.
-   * e.g., "bible:books:v2:BSB"
+   * NOTE: versioned (v3) includes provider to prevent stale data when switching providers.
+   * e.g., "bible:books:v3:aolab:BSB"
    */
-  bibleBooks: (translation: string): string =>
-    `bible:books:v2:${translation.toUpperCase()}`,
+  bibleBooks: (translation: string, provider: string): string =>
+    `bible:books:v3:${provider}:${translation.toUpperCase()}`,
 
   /**
    * Key for chapters of a book in a translation
-   * NOTE: versioned to avoid legacy cached values from previous providers/migrations.
-   * e.g., "bible:chapters:v2:BSB:GEN"
+   * NOTE: versioned (v3) includes provider to prevent stale data when switching providers.
+   * e.g., "bible:chapters:v3:aolab:BSB:GEN"
    */
-  bibleChapters: (translation: string, bookId: string): string =>
-    `bible:chapters:v2:${translation.toUpperCase()}:${bookId.toUpperCase()}`,
+  bibleChapters: (translation: string, bookId: string, provider: string): string =>
+    `bible:chapters:v3:${provider}:${translation.toUpperCase()}:${bookId.toUpperCase()}`,
 
   /**
    * Key for chapter content (structured JSON)
-   * NOTE: versioned to avoid legacy cached HTML payloads under the old key.
-   * e.g., "bible:content:v3:BSB:GEN.1"
+   * NOTE: versioned (v4) includes provider to prevent stale data when switching providers.
+   * e.g., "bible:content:v4:aolab:BSB:GEN.1"
    */
-  chapterContent: (translation: string, chapterId: string): string =>
-    `bible:content:v3:${translation.toUpperCase()}:${chapterId}`,
+  chapterContent: (translation: string, chapterId: string, provider: string): string =>
+    `bible:content:v4:${provider}:${translation.toUpperCase()}:${chapterId}`,
 
   /**
    * Key for a passage by reference
-   * NOTE: versioned to avoid legacy cached HTML payloads under the old key.
-   * e.g., "bible:passage:v3:BSB:john 3:16"
+   * NOTE: versioned (v4) includes provider to prevent stale data when switching providers.
+   * e.g., "bible:passage:v4:aolab:BSB:john 3:16"
    */
-  passage: (translation: string, reference: string): string =>
-    `bible:passage:v3:${translation.toUpperCase()}:${reference.trim().toLowerCase()}`,
+  passage: (translation: string, reference: string, provider: string): string =>
+    `bible:passage:v4:${provider}:${translation.toUpperCase()}:${reference.trim().toLowerCase()}`,
 
   /**
    * Key for verse of the day

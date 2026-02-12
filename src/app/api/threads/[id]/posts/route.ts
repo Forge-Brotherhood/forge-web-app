@@ -3,7 +3,7 @@ import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { sendGroupNotificationAsync } from "@/lib/notifications";
+import { sendUserNotificationAsync } from "@/lib/notifications";
 
 const createPostSchema = z.object({
   kind: z.enum(["request", "update", "testimony", "encouragement", "verse", "system"]),
@@ -68,20 +68,8 @@ export async function GET(
 
     // Verify request exists and user has access
     const thread = await prisma.prayerRequest.findUnique({
-      where: { 
+      where: {
         id: resolved.id,
-      },
-      include: {
-        group: {
-          include: {
-            members: {
-              where: {
-                userId: user.id,
-                status: "active",
-              },
-            },
-          },
-        },
       },
     });
 
@@ -92,8 +80,8 @@ export async function GET(
       );
     }
 
-    const isMember = thread.group ? thread.group.members.length > 0 : false;
-    if (!isMember && !thread.sharedToCommunity) {
+    // Access check: user must be author or thread must be shared to community
+    if (thread.authorId !== user.id && !thread.sharedToCommunity) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }
@@ -195,20 +183,8 @@ export async function POST(
 
     // Verify request exists and user has access
     const thread = await prisma.prayerRequest.findUnique({
-      where: { 
+      where: {
         id: resolved.id,
-      },
-      include: {
-        group: {
-          include: {
-            members: {
-              where: {
-                userId: user.id,
-                status: "active",
-              },
-            },
-          },
-        },
       },
     });
 
@@ -219,8 +195,8 @@ export async function POST(
       );
     }
 
-    const isMember = thread.group ? thread.group.members.length > 0 : false;
-    if (!isMember && !thread.sharedToCommunity) {
+    // Access check: user must be author or thread must be shared to community
+    if (thread.authorId !== user.id && !thread.sharedToCommunity) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }
@@ -360,12 +336,9 @@ export async function POST(
       author: thread.isAnonymous && post.authorId === thread.authorId ? null : post.author,
     };
 
-    // Send push notification to group members for updates/testimonies (fire-and-forget)
-    if (
-      thread.groupId &&
-      thread.group &&
-      (validatedData.kind === "update" || validatedData.kind === "testimony")
-    ) {
+    // Send push notification to users who have saved this thread to their prayer list (fire-and-forget)
+    // For updates/testimonies, notify users who saved it
+    if (validatedData.kind === "update" || validatedData.kind === "testimony") {
       const isAnonymousAuthor = thread.isAnonymous && post.authorId === thread.authorId;
       const authorName = isAnonymousAuthor
         ? undefined
@@ -374,19 +347,29 @@ export async function POST(
         ? undefined
         : post.author?.profileImageUrl || undefined;
 
-      sendGroupNotificationAsync(
-        validatedData.kind === "testimony" ? "testimony" : "prayer_update",
-        {
-          groupId: thread.groupId,
-          groupName: thread.group.name || "Your Group",
-          threadId: thread.id,
-          threadTitle: thread.title || validatedData.content.substring(0, 50),
-          authorName,
-          authorProfileImageUrl,
-          excludeUserId: user.id, // Don't notify the author
-          entryId: post.id, // Scroll to this specific post
-        }
-      );
+      // Get users who saved this thread to their prayer list (excluding the post author)
+      const savedByUsers = await prisma.savedPrayer.findMany({
+        where: {
+          requestId: thread.id,
+          userId: { not: user.id },
+        },
+        select: { userId: true },
+      });
+
+      // Send notification to each user who saved this thread
+      for (const savedByUser of savedByUsers) {
+        sendUserNotificationAsync(
+          savedByUser.userId,
+          validatedData.kind === "testimony" ? "testimony" : "prayer_update",
+          {
+            threadId: thread.id,
+            threadTitle: thread.title || validatedData.content.substring(0, 50),
+            authorName,
+            authorProfileImageUrl,
+            entryId: post.id,
+          }
+        );
+      }
     }
 
     return NextResponse.json(sanitizedPost, { status: 201 });

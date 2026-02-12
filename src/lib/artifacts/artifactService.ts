@@ -35,15 +35,14 @@ export async function createArtifact(
     throw new Error(`Invalid artifact scope: ${data.scope}`);
   }
 
-  // Require userId or groupId
-  if (!data.userId && !data.groupId) {
-    throw new Error("Artifact must have either userId or groupId");
+  // Require userId
+  if (!data.userId) {
+    throw new Error("Artifact must have a userId");
   }
 
   const artifact = await prisma.artifact.create({
     data: {
-      userId: data.userId ?? null,
-      groupId: data.groupId ?? null,
+      userId: data.userId,
       conversationId: data.conversationId ?? null,
       sessionId: data.sessionId ?? null,
       type: data.type,
@@ -81,15 +80,6 @@ export async function getArtifact(
 ): Promise<Artifact | null> {
   const artifact = await prisma.artifact.findUnique({
     where: { id },
-    include: {
-      group: {
-        include: {
-          members: {
-            where: { userId: requesterId, status: "active" },
-          },
-        },
-      },
-    },
   });
 
   if (!artifact) {
@@ -97,7 +87,7 @@ export async function getArtifact(
   }
 
   // Access control
-  const canAccess = await checkAccess(artifact, requesterId);
+  const canAccess = checkAccess(artifact, requesterId);
   if (!canAccess) {
     return null;
   }
@@ -111,12 +101,9 @@ export async function listArtifacts(
   const where: NonNullable<Parameters<typeof prisma.artifact.findMany>[0]>["where"] =
     {};
 
-  // User/Group filters
+  // User filters
   if (filters.userId) {
     where.userId = filters.userId;
-  }
-  if (filters.groupId) {
-    where.groupId = filters.groupId;
   }
   if (filters.sessionId) {
     where.sessionId = filters.sessionId;
@@ -272,7 +259,7 @@ export async function getArtifactsBySession(
     where: {
       sessionId,
       status: "active",
-      OR: [{ userId: requesterId }, { scope: "group" }, { scope: "global" }],
+      OR: [{ userId: requesterId }, { scope: "global" }],
     },
     orderBy: { createdAt: "asc" },
   });
@@ -299,14 +286,13 @@ export async function countArtifacts(filters: ArtifactFilters): Promise<number> 
 // Helpers
 // =============================================================================
 
-async function checkAccess(
+function checkAccess(
   artifact: {
     userId: string | null;
     scope: string;
-    group?: { members: { userId: string }[] } | null;
   },
   requesterId: string
-): Promise<boolean> {
+): boolean {
   // Owner always has access
   if (artifact.userId === requesterId) {
     return true;
@@ -316,13 +302,6 @@ async function checkAccess(
   switch (artifact.scope) {
     case "private":
       return artifact.userId === requesterId;
-
-    case "group":
-      // Check group membership
-      if (artifact.group?.members) {
-        return artifact.group.members.some((m) => m.userId === requesterId);
-      }
-      return false;
 
     case "global":
       return true;
@@ -338,7 +317,6 @@ function mapPrismaArtifact(
   return {
     id: artifact.id,
     userId: artifact.userId,
-    groupId: artifact.groupId,
     conversationId: artifact.conversationId,
     sessionId: artifact.sessionId,
     type: artifact.type as Artifact["type"],

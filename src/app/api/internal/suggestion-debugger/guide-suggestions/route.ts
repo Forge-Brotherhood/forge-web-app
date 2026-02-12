@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { validateInternalApiKey } from "../_internalApiKey";
-import { buildGuideStartContext } from "@/lib/guide/start";
+import { buildSuggestionsContext } from "@/lib/context/buildSuggestionsContext";
 import { CONTEXT_SYSTEM_PROMPT_NDJSON, type ContextGuideEvent } from "@/lib/guide/contextNdjson";
 import { runContextNdjsonSession } from "@/lib/guide/contextRun";
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
             "open_conversation_summary",
           ];
 
-    const { user, contextPayload, validateEvent } = await buildGuideStartContext({
+    const { user, contextPayload, validateEvent } = await buildSuggestionsContext({
       userId: input.userId,
       enabledActions,
     });

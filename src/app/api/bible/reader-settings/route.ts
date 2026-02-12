@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { getCurrentProviderType, getDefaultTranslation, getAvailableTranslations } from "@/lib/bible/providers";
 
 // Valid enum values
 const VALID_FONT_TYPES = ["serifA", "serifB", "sansSerif", "serif"] as const;
 const VALID_LINE_SPACINGS = ["compact", "normal", "relaxed"] as const;
 const VALID_THEMES = ["light", "sepia", "dark"] as const;
 const VALID_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
-const VALID_TRANSLATIONS = ["BSB", "KJV", "WEB", "ASV"] as const;
+const VALID_TRANSLATIONS = ["BSB", "KJV", "WEB", "ASV", "NLT"] as const;
 
 // Validation schema for PATCH (all fields optional for partial updates)
 const updateSettingsSchema = z.object({
@@ -23,18 +24,22 @@ const updateSettingsSchema = z.object({
   hiddenNoteGroups: z.array(z.string().uuid()).optional(),
 });
 
-// Default settings
-const DEFAULT_SETTINGS = {
-  fontSize: 19,
-  fontType: "serifA",
-  lineSpacing: "normal",
-  theme: "light",
-  showWordsOfJesusInRed: true,
-  lastHighlightColor: "yellow",
-  highlightColorOrder: ["yellow", "green", "blue", "pink", "orange"],
-  selectedTranslation: "BSB",
-  hiddenNoteGroups: [] as string[],
-};
+// Get default settings with provider-aware default translation
+function getDefaultSettings() {
+  const providerType = getCurrentProviderType();
+  const defaultTranslation = getDefaultTranslation(providerType);
+  return {
+    fontSize: 19,
+    fontType: "serifA",
+    lineSpacing: "normal",
+    theme: "light",
+    showWordsOfJesusInRed: true,
+    lastHighlightColor: "yellow",
+    highlightColorOrder: ["yellow", "green", "blue", "pink", "orange"],
+    selectedTranslation: defaultTranslation,
+    hiddenNoteGroups: [] as string[],
+  };
+}
 
 // GET /api/bible/reader-settings
 // Returns user's reader settings (or defaults if none exist)
@@ -48,6 +53,8 @@ export async function GET() {
       );
     }
 
+    const defaultSettings = getDefaultSettings();
+
     // Get settings or return defaults
     const settings = await prisma.readerSettings.findUnique({
       where: { userId: authResult.userId },
@@ -56,18 +63,21 @@ export async function GET() {
     if (!settings) {
       return NextResponse.json({
         success: true,
-        settings: DEFAULT_SETTINGS,
+        settings: defaultSettings,
       });
     }
 
-    const safeTranslation = VALID_TRANSLATIONS.includes(settings.selectedTranslation as any)
+    // If user's saved translation is not available on current provider, use provider default
+    const providerType = getCurrentProviderType();
+    const availableTranslations = getAvailableTranslations(providerType);
+    const safeTranslation = availableTranslations.includes(settings.selectedTranslation as any)
       ? settings.selectedTranslation
-      : DEFAULT_SETTINGS.selectedTranslation;
+      : defaultSettings.selectedTranslation;
 
     const rawFontType = settings.fontType;
     const safeFontType = VALID_FONT_TYPES.includes(rawFontType as any)
       ? (rawFontType === "serif" ? "serifA" : rawFontType)
-      : DEFAULT_SETTINGS.fontType;
+      : defaultSettings.fontType;
 
     return NextResponse.json({
       success: true,
@@ -108,6 +118,7 @@ export async function PATCH(request: NextRequest) {
     const validatedData = updateSettingsSchema.parse(body);
     const normalizedFontType =
       validatedData.fontType === "serif" ? "serifA" : validatedData.fontType;
+    const defaultSettings = getDefaultSettings();
 
     // Upsert settings (create if doesn't exist, update if exists)
     const settings = await prisma.readerSettings.upsert({
@@ -115,7 +126,7 @@ export async function PATCH(request: NextRequest) {
       update: { ...validatedData, ...(normalizedFontType ? { fontType: normalizedFontType } : {}) },
       create: {
         userId: authResult.userId,
-        ...DEFAULT_SETTINGS,
+        ...defaultSettings,
         ...validatedData,
         ...(normalizedFontType ? { fontType: normalizedFontType } : {}),
       },

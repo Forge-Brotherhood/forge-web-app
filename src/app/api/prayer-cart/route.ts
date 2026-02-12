@@ -14,17 +14,10 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const source = searchParams.get("source") || "all"; // all | core | circle | community (core/circle are legacy labels)
+    const source = searchParams.get("source") || "all"; // all | mine | community | saved
 
     const user = await prisma.user.findUnique({
       where: { clerkId: userId },
-      include: {
-        memberships: {
-          include: {
-            group: true,
-          },
-        },
-      },
     });
 
     if (!user) {
@@ -40,29 +33,23 @@ export async function GET(request: NextRequest) {
       deletedAt: null,
     };
 
-    if (source === "core") {
-      const coreGroup = user.memberships.find(m => m.group.groupType === "in_person");
-      if (!coreGroup) {
-        return NextResponse.json({ threads: [], stats: { totalInCart: 0, prayedToday: 0 } });
-      }
-      whereClause.groupId = coreGroup.groupId;
-    } else if (source === "circle") {
-      const circleGroupIds = user.memberships
-        .filter(m => m.group.groupType === "virtual")
-        .map(m => m.groupId);
-      whereClause.groupId = { in: circleGroupIds };
+    if (source === "mine") {
+      // User's own threads
+      whereClause.authorId = user.id;
+    } else if (source === "saved") {
+      // Get threads from user's prayer list
+      const savedPrayers = await prisma.savedPrayer.findMany({
+        where: { userId: user.id },
+        select: { requestId: true },
+      });
+      const savedThreadIds = savedPrayers.map(sp => sp.requestId);
+      whereClause.id = { in: savedThreadIds };
     } else if (source === "community") {
+      // Community threads only
       whereClause.sharedToCommunity = true;
     } else {
-      // All: core + circle + community threads
-      const allGroupIds = user.memberships.map(m => m.groupId);
-      whereClause = {
-        ...whereClause,
-        OR: [
-          { groupId: { in: allGroupIds } },
-          { sharedToCommunity: true },
-        ],
-      };
+      // All: community threads (including user's own)
+      whereClause.sharedToCommunity = true;
     }
 
     // Get threads that haven't been prayed for by this user today
@@ -90,13 +77,6 @@ export async function GET(request: NextRequest) {
             displayName: true,
             firstName: true,
             profileImageUrl: true,
-          },
-        },
-        group: {
-          select: {
-            id: true,
-            name: true,
-            groupType: true,
           },
         },
         entries: {

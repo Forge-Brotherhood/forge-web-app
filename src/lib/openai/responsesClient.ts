@@ -26,7 +26,7 @@ type StreamArgs = {
   apiKey: string;
   model: string;
   input: unknown;
-  previousResponseId: string | null;
+  conversationId: string | null;
   tools: ResponsesTool[];
   maxToolIterations: number;
   signal?: AbortSignal;
@@ -139,7 +139,7 @@ async function runSingleResponsesStream(args: {
   model: string;
   input: unknown;
   tools: ResponsesTool[];
-  previousResponseId: string | null;
+  conversationId: string | null;
   signal?: AbortSignal;
   onTextDelta: (delta: string) => void;
 }): Promise<{ responseId: string | null; completed: ResponseCompletedEvent | null }> {
@@ -154,7 +154,7 @@ async function runSingleResponsesStream(args: {
       model: args.model,
       input: args.input,
       tools: args.tools,
-      ...(args.previousResponseId ? { previous_response_id: args.previousResponseId } : {}),
+      ...(args.conversationId ? { conversation: args.conversationId } : {}),
       stream: true,
     }),
   });
@@ -219,8 +219,26 @@ async function runSingleResponsesStream(args: {
   return { responseId: lastResponseId, completed: completedEvent };
 }
 
+export async function createOpenAIConversation(apiKey: string): Promise<string> {
+  const response = await fetch("https://api.openai.com/v1/conversations", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Failed to create OpenAI conversation: ${response.status} - ${text}`);
+  }
+
+  const data = (await response.json()) as { id: string };
+  return data.id;
+}
+
 export async function streamResponsesWithTools(args: StreamArgs): Promise<ResponsesStreamResult> {
-  let previousResponseId = args.previousResponseId;
   let lastResponseId: string | null = null;
   let input: unknown = args.input;
   let streamedAnyText = false;
@@ -231,7 +249,7 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
       model: args.model,
       input,
       tools: args.tools,
-      previousResponseId,
+      conversationId: args.conversationId,
       signal: args.signal,
       onTextDelta: (delta) => {
         if (delta) streamedAnyText = true;
@@ -240,7 +258,6 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
     });
 
     lastResponseId = res.responseId ?? lastResponseId;
-    previousResponseId = lastResponseId;
 
     // Fallback: if no deltas were streamed for this segment, try to extract the final text
     // from the completed response output.

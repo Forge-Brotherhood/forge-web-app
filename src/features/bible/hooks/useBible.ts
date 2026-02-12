@@ -13,12 +13,14 @@ import type {
   BibleChapterContentResponse,
   BiblePassageResponse,
   VerseOfTheDayResponse,
+  BibleTranslationsResponse,
 } from "@/core/models/bibleModels";
 
 // MARK: - Query Keys
 
 export const bibleKeys = {
   all: ["bible"] as const,
+  translations: () => [...bibleKeys.all, "translations"] as const,
   books: (translation: string) => [...bibleKeys.all, "books", translation] as const,
   chapters: (bookId: string, translation: string) =>
     [...bibleKeys.all, "chapters", bookId, translation] as const,
@@ -31,6 +33,18 @@ export const bibleKeys = {
 };
 
 // MARK: - Hooks
+
+/**
+ * Fetch available Bible translations for the current provider
+ */
+export function useBibleTranslations() {
+  return useQuery<BibleTranslationsResponse>({
+    queryKey: bibleKeys.translations(),
+    queryFn: () => forgeApi.getBibleTranslations(),
+    staleTime: 60 * 60 * 1000, // 1 hour - translations don't change often
+    gcTime: 24 * 60 * 60 * 1000, // 24 hours cache
+  });
+}
 
 /**
  * Fetch list of Bible books for a translation

@@ -311,10 +311,12 @@ Environment:
     // Local mode - use bibleService directly
     const { bibleService } = await import("../src/lib/bible");
     const { getKVClient, CacheKeys } = await import("../src/lib/kv");
+    const { getCurrentProviderType } = await import("../src/lib/bible/providers");
+    const provider = getCurrentProviderType();
 
     async function isChapterCached(chapterId: string, translation: string): Promise<boolean> {
       const kv = getKVClient();
-      const key = CacheKeys.chapterContent(translation, chapterId);
+      const key = CacheKeys.chapterContent(translation, chapterId, provider);
       const cached = await kv.get(key);
       return cached !== null;
     }
