@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const segments = await prisma.bibleReadingSessionSegment.findMany({
       where: { userId: authResult.userId },
       orderBy: { endedAt: "desc" },
-      distinct: ["bookId", "chapter"],
+      distinct: ["bookId"],
       take: limit,
       select: {
         bookId: true,
