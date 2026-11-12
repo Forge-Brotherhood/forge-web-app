@@ -31,8 +31,8 @@ export class VercelKVClient implements KVClient {
         await kv.set(key, wrapped);
       }
     } catch (error) {
+      // Cache write failures must not fail the request; callers already have the value.
       console.error(`[Vercel KV] Error setting key "${key}":`, error);
-      throw error;
     }
   }
 
