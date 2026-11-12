@@ -333,7 +333,7 @@ export async function handleChatRequest(args: {
       stage = "run_main_response";
       const mainPromise = runMainChatResponse({
         openaiApiKey,
-        model: "gpt-5.1-chat-latest",
+        model: "gpt-5.5",
         openaiConversationId,
         messages: bundle.messages,
         tools,
@@ -521,7 +521,7 @@ export async function handleChatRequest(args: {
         stage = "run_main_response";
         const { finalText, responseId } = await runMainChatResponse({
           openaiApiKey,
-          model: "gpt-5.1-chat-latest",
+          model: "gpt-5.5",
           openaiConversationId,
           messages: bundle.messages,
           tools,
