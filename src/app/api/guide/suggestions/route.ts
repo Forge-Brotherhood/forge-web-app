@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
             userFirstName: user.firstName,
             contextPayload,
             validateEvent: validate,
-            modelConfig: { model: "gpt-5.1-chat-latest", maxCompletionTokens: 900 },
+            modelConfig: { model: "gpt-5.5", maxCompletionTokens: 900 },
             onEvent: enqueue,
             onDebugSummary: debugMode ? (s) => enqueue(s as unknown as ContextGuideEvent) : undefined,
             debugScope: "guide_start",

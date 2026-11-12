@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       allowedActionTypes: allowedActionTypes ?? undefined,
     });
 
-    const model = input.providerOverrides?.model ?? "gpt-5.1-chat-latest";
+    const model = input.providerOverrides?.model ?? "gpt-5.5";
     const parsedEvents: ContextGuideEvent[] = [];
     const { rawModelText, parsed } = await runContextNdjsonSession({
       apiKey,

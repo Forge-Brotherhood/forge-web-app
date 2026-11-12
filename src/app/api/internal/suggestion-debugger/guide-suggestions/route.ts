@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       userFirstName: input.userFirstName?.trim() ? input.userFirstName.trim() : user.firstName,
       contextPayload,
       validateEvent,
-      modelConfig: { model: "gpt-5.1-chat-latest", maxCompletionTokens: 900 },
+      modelConfig: { model: "gpt-5.5", maxCompletionTokens: 900 },
       onEvent: (evt) => parsedEvents.push(evt),
       debugScope: "guide_start",
     });
