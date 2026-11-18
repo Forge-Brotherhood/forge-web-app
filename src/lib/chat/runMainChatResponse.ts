@@ -10,6 +10,7 @@ export type RunMainChatResponseArgs = {
   tools: ResponsesTool[];
   maxToolIterations: number;
   signal?: AbortSignal;
+  reasoningEffort?: "low" | "medium" | "high";
   executeToolCall: (call: ContextToolCall) => Promise<string>;
   isFinalToolCall?: (call: ContextToolCall) => boolean;
   onTextDelta?: (delta: string) => void;
@@ -40,6 +41,7 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
     tools: args.tools,
     maxToolIterations: args.maxToolIterations,
     signal: args.signal,
+    reasoningEffort: args.reasoningEffort,
     isFinalToolCall: args.isFinalToolCall,
     onTextDelta: (delta) => {
       if (!delta) return;

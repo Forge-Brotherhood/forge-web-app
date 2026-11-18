@@ -369,6 +369,8 @@ export async function handleChatRequest(args: {
       const mainPromise = runWithFreshThreadOnDanglingCall((threadId) => runMainChatResponse({
         openaiApiKey,
         model: "gpt-5.5",
+        // Low effort cuts time to first text by more than half; answers are short single paragraphs.
+        reasoningEffort: "low",
         openaiConversationId: threadId,
         messages: bundle.messages,
         tools,
@@ -598,6 +600,8 @@ export async function handleChatRequest(args: {
         const { finalText, responseId } = await runWithFreshThreadOnDanglingCall((threadId) => runMainChatResponse({
           openaiApiKey,
           model: "gpt-5.5",
+          // Low effort cuts time to first text by more than half; answers are short single paragraphs.
+          reasoningEffort: "low",
           openaiConversationId: threadId,
           messages,
           tools,

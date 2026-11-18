@@ -30,6 +30,8 @@ type StreamArgs = {
   tools: ResponsesTool[];
   maxToolIterations: number;
   signal?: AbortSignal;
+  /** Omitted: the model's default. */
+  reasoningEffort?: "low" | "medium" | "high";
   onTextDelta: (delta: string) => void;
   onToolCall: (call: ContextToolCall) => Promise<string>;
   /**
@@ -146,6 +148,7 @@ async function runSingleResponsesStream(args: {
   tools: ResponsesTool[];
   conversationId: string | null;
   signal?: AbortSignal;
+  reasoningEffort?: "low" | "medium" | "high";
   onTextDelta: (delta: string) => void;
 }): Promise<{ responseId: string | null; completed: ResponseCompletedEvent | null }> {
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -160,6 +163,7 @@ async function runSingleResponsesStream(args: {
       input: args.input,
       tools: args.tools,
       ...(args.conversationId ? { conversation: args.conversationId } : {}),
+      ...(args.reasoningEffort ? { reasoning: { effort: args.reasoningEffort } } : {}),
       stream: true,
     }),
   });
@@ -272,6 +276,7 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
       tools: args.tools,
       conversationId: args.conversationId,
       signal: args.signal,
+      reasoningEffort: args.reasoningEffort,
       onTextDelta: (delta) => {
         if (delta) streamedAnyText = true;
         args.onTextDelta(delta);
