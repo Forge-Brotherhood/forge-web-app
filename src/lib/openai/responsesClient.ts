@@ -271,7 +271,13 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
 
     const outputs = await Promise.all(
       toolCalls.map(async (call) => {
-        const output = await args.onToolCall(call);
+        // Every call must get an output: a call left unanswered breaks the conversation for good
+        // ("No tool output found for function call").
+        const output = await args.onToolCall(call).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[Responses] Tool ${call.name} failed:`, message);
+          return `Error: the ${call.name} tool failed. Continue without it.`;
+        });
         return {
           type: "function_call_output",
           call_id: call.callId,

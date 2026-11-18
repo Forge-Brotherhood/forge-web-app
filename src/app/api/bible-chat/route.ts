@@ -13,6 +13,8 @@ const requestSchema = z.object({
   // Required for start, optional for follow-ups.
   selectionState: z.enum(["selected", "visible"]).optional(),
   includeSuggestedQuestions: z.boolean().optional(),
+  // Inline UI block kinds the client can render (streaming only).
+  uiBlocks: z.array(z.string().max(40)).max(20).optional(),
 }).superRefine((val, ctx) => {
   const isStart = val.message.trim() === "BIBLE_CHAT_START";
   if (isStart && !val.selectionState) {
@@ -40,6 +42,7 @@ export async function POST(request: NextRequest) {
         verseText: input.verseText,
         selectionState: input.selectionState,
         includeSuggestedQuestions: input.includeSuggestedQuestions ?? true,
+        uiBlocks: input.uiBlocks,
       },
       force: { entrypoint: "bible_reader", mode: "bible" },
     });

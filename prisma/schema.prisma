@@ -1117,3 +1117,32 @@ model UserRollup {
   @@index([userId, windowEndUtc(sort: Desc)])
   @@index([userId, schema])
 }
+// Bible places for guide maps. Imported from OpenBible.info Bible Geocoding Data (CC BY 4.0)
+// by scripts/import-bible-places.ts; points sourced from OpenStreetMap (ODbL) are excluded.
+model BiblePlace {
+  id          String          @id // OpenBible ancient place id, e.g. "a112427"
+  slug        String          @unique
+  name        String // e.g. "Antioch"
+  label       String // unambiguous display name, e.g. "Antioch in Pisidia"
+  types       String[]
+  kind        String          @default("point") // "point" (a town, mountain…) or "region" (an area)
+  lat         Float // for regions: a representative point, used for the label
+  lon         Float
+  boundary    Json? // regions only: outer ring as [[lat, lon], …]
+  confidence  Int // OpenBible identification score, 0-1000
+  modernName  String?
+  coordSource String?
+  refs        BiblePlaceRef[]
+}
+
+model BiblePlaceRef {
+  id      String     @id @default(uuid())
+  placeId String
+  place   BiblePlace @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  bookId  String // app book code, e.g. "MAT"
+  chapter Int
+  verse   Int
+
+  @@unique([placeId, bookId, chapter, verse])
+  @@index([bookId, chapter])
+}
