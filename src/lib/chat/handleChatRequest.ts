@@ -13,6 +13,16 @@ import { extractUiActionsDeterministic, type AIAction } from "@/lib/openai/struc
 import { buildChatContextBundle, type ChatEntrypoint, type ChatMode } from "@/lib/chat/chatContextBundle";
 import { runMainChatResponse } from "@/lib/chat/runMainChatResponse";
 import { runSuggestedQuestions } from "@/lib/chat/runSuggestedQuestions";
+import {
+  SHOW_BLOCK_TOOL_NAME,
+  blockReferences,
+  buildShowBlockTool,
+  buildUiBlocksSystemPrompt,
+  parseClientBlockKinds,
+  resolveShowBlockCall,
+  type GuideBlock,
+} from "@/lib/guide/uiBlocks";
+import { buildChapterGreetingMap, getPassagePlaces } from "@/lib/guide/places";
 
 type SSEEvent =
   | { type: "delta"; text: string }
@@ -20,6 +30,7 @@ type SSEEvent =
   | { type: "tool_result"; callId: string; name: string; output: string }
   | { type: "injection"; blockText: string; globalCount: number; sessionCount: number }
   | { type: "actions"; actions: AIAction[] }
+  | { type: "block"; block: GuideBlock }
   | { type: "suggested_questions"; questions: string[] }
   | { type: "done"; conversationId: string }
   | { type: "error"; message: string };
@@ -74,6 +85,10 @@ const chatLog = (level: ChatLogLevel, event: string, fields: Record<string, unkn
   else if (level === "warn") console.warn(JSON.stringify(payload));
   else console.info(JSON.stringify(payload));
 };
+
+/** OpenAI rejects every request on a conversation that holds a tool call without a result. */
+const isDanglingToolCallError = (err: unknown) =>
+  err instanceof Error && err.message.includes("No tool output found for function call");
 
 const isBibleReaderStart = (args: {
   entrypoint: ChatEntrypoint;
@@ -135,6 +150,8 @@ export type HandleChatInput = {
   verseText?: string;
   selectionState?: "selected" | "visible";
   includeSuggestedQuestions?: boolean;
+  /** Inline UI block kinds the client can render. Only honored when streaming. */
+  uiBlocks?: string[];
 };
 
 export async function handleChatRequest(args: {
@@ -304,6 +321,22 @@ export async function handleChatRequest(args: {
     throw err;
   }
 
+  /** Runs a response; if the OpenAI thread is broken, starts a fresh thread and tries once more. */
+  const runWithFreshThreadOnDanglingCall = async <T>(
+    run: (openaiConversationId: string | null) => Promise<T>,
+    canRetry: () => boolean = () => true
+  ): Promise<T> => {
+    try {
+      return await run(openaiConversationId);
+    } catch (err) {
+      if (!isDanglingToolCallError(err) || !canRetry()) throw err;
+      chatLog("warn", "openai_conversation_reset", { correlationId, conversationId });
+      openaiConversationId = await createOpenAIConversation(openaiApiKey);
+      await prisma.chatConversation.update({ where: { conversationId }, data: { openaiConversationId } });
+      return await run(openaiConversationId);
+    }
+  };
+
   if (!wantsStream) {
     try {
       stage = "build_context_bundle";
@@ -331,10 +364,10 @@ export async function handleChatRequest(args: {
         args.input.selectionState.length > 0;
 
       stage = "run_main_response";
-      const mainPromise = runMainChatResponse({
+      const mainPromise = runWithFreshThreadOnDanglingCall((threadId) => runMainChatResponse({
         openaiApiKey,
         model: "gpt-5.5",
-        openaiConversationId,
+        openaiConversationId: threadId,
         messages: bundle.messages,
         tools,
         maxToolIterations: 3,
@@ -349,7 +382,7 @@ export async function handleChatRequest(args: {
             toolCall: call as unknown as AppContextToolCall,
           });
         },
-      });
+      }));
 
       stage = "run_suggested_questions";
       const questionsPromise = shouldGenerateQuestions
@@ -514,20 +547,53 @@ export async function handleChatRequest(args: {
           });
         }
 
-        const tools = buildContextToolsForUser();
+        const blockKinds = parseClientBlockKinds(args.input.uiBlocks);
+        // The greeting gets no model-chosen cards; at most a rule-based chapter map after its text.
+        // A reopened guide reuses its conversation, so detect the greeting by its start message.
+        const isGreeting = entrypoint === "bible_reader" && args.input.message.trim() === "BIBLE_CHAT_START";
+        const modelBlockKinds = isGreeting ? [] : blockKinds;
+        const passagePlaces =
+          blockKinds.includes("map_card") && entrypoint === "bible_reader"
+            ? await getPassagePlaces(args.input.verseReference, args.input.selectionState).catch(() => null)
+            : null;
+        const blocks: GuideBlock[] = [];
+        let blockCount = 0;
+        // Keep prose first: a block requested before any answer text is held and emitted
+        // after the text that follows it, never above the lead-in.
+        let answerTextStarted = false;
+        const heldBlocks: GuideBlock[] = [];
+        const flushHeldBlocks = () => {
+          for (const block of heldBlocks.splice(0)) write({ type: "block", block });
+        };
+
+        const tools = modelBlockKinds.length
+          ? [...buildContextToolsForUser(), buildShowBlockTool(modelBlockKinds)]
+          : buildContextToolsForUser();
+        const messages = modelBlockKinds.length
+          ? [
+              bundle.messages[0],
+              { role: "system" as const, content: buildUiBlocksSystemPrompt(modelBlockKinds, passagePlaces) },
+              ...bundle.messages.slice(1),
+            ]
+          : bundle.messages;
 
         const toolResults: Array<{ name: string; output: string }> = [];
 
         stage = "run_main_response";
-        const { finalText, responseId } = await runMainChatResponse({
+        // Retry on a fresh thread only before anything was streamed, so the answer isn't duplicated.
+        const { finalText, responseId } = await runWithFreshThreadOnDanglingCall((threadId) => runMainChatResponse({
           openaiApiKey,
           model: "gpt-5.5",
-          openaiConversationId,
-          messages: bundle.messages,
+          openaiConversationId: threadId,
+          messages,
           tools,
-          maxToolIterations: 3,
+          // A shown block costs one tool round trip, so allow one more when blocks are on.
+          maxToolIterations: modelBlockKinds.length ? 4 : 3,
           signal: args.request.signal,
-          onTextDelta: (delta) => write({ type: "delta", text: delta }),
+          onTextDelta: (delta) => {
+            if (delta.trim()) answerTextStarted = true;
+            write({ type: "delta", text: delta });
+          },
           onToolCall: (call) =>
             write({
               type: "tool_call",
@@ -545,13 +611,47 @@ export async function handleChatRequest(args: {
             });
           },
           executeToolCall: async (call: ContextToolCall) => {
+            if (call.name === SHOW_BLOCK_TOOL_NAME) {
+              // A card that fails to build is dropped; it must never fail the whole answer.
+              const result = await resolveShowBlockCall({
+                argumentsJson: call.argumentsJson,
+                allowedKinds: modelBlockKinds,
+                userId: resolvedUserId,
+                blockId: `block-${++blockCount}`,
+                passage: passagePlaces,
+              }).catch((err): Awaited<ReturnType<typeof resolveShowBlockCall>> => {
+                chatLog("error", "ui_block_failed", { correlationId, conversationId, error: safeErrorDetails(err) });
+                return { ok: false, reason: "the card could not be built" };
+              });
+              const unresolvedPlaces = result.ok ? result.unresolvedPlaces : result.unresolved;
+              if (unresolvedPlaces?.length) {
+                chatLog("warn", "map_place_unresolved", {
+                  correlationId,
+                  conversationId,
+                  names: unresolvedPlaces,
+                  passage: passagePlaces?.chapterReference ?? null,
+                });
+              }
+              if (!result.ok) {
+                chatLog("warn", "ui_block_rejected", { correlationId, conversationId, reason: result.reason });
+                return `Rejected: ${result.reason}`;
+              }
+              blocks.push(result.block);
+              if (answerTextStarted) {
+                flushHeldBlocks();
+                write({ type: "block", block: result.block });
+              } else {
+                heldBlocks.push(result.block);
+              }
+              return "Shown to the user. Continue your reply without repeating the card's content.";
+            }
             return await executeContextToolCall({
               userId: resolvedUserId,
               conversationId,
               toolCall: call as unknown as AppContextToolCall,
             });
           },
-        });
+        }), () => !answerTextStarted && blocks.length === 0);
 
         stage = "persist_previous_response";
         await prisma.chatConversation
@@ -562,10 +662,12 @@ export async function handleChatRequest(args: {
           })
           .catch(() => {});
 
+        // Drop verse chips for references a block already shows.
+        const shownReferences = blockReferences(blocks);
         const actions: AIAction[] = extractUiActionsDeterministic({
           answerText: finalText,
           verseReference: args.input.verseReference,
-        });
+        }).filter((a) => !(a.params.reference && shownReferences.has(a.params.reference)));
 
         // Extract reading plan actions from tool results (only plans referenced in response)
         const lowerText = finalText.toLowerCase();
@@ -606,6 +708,16 @@ export async function handleChatRequest(args: {
           return (aPos === -1 ? Infinity : aPos) - (bPos === -1 ? Infinity : bPos);
         });
 
+        flushHeldBlocks();
+
+        if (isGreeting && blockKinds.includes("map_card") && args.input.selectionState === "visible") {
+          const greetingMap = buildChapterGreetingMap(passagePlaces, `block-${++blockCount}`);
+          if (greetingMap) {
+            blocks.push(greetingMap);
+            write({ type: "block", block: greetingMap });
+          }
+        }
+
         const suggestedQuestions = await questionsPromise;
         if (Array.isArray(suggestedQuestions) && suggestedQuestions.length) {
           write({ type: "suggested_questions", questions: suggestedQuestions });
@@ -622,6 +734,8 @@ export async function handleChatRequest(args: {
           mode,
           responseId: responseId ? redactId(responseId) : null,
           answerLen: finalText.length,
+          uiBlocks: blocks.length,
+          mapPlaces: blocks.reduce((n, b) => n + (b.kind === "map_card" ? b.places.length : 0), 0),
           latencyMs: Date.now() - requestStartTime,
         });
         controller.close();
