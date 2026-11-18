@@ -18,6 +18,8 @@ import {
   blockReferences,
   buildShowBlockTool,
   buildUiBlocksSystemPrompt,
+  closingChoiceOptions,
+  isQuickRepliesCall,
   parseClientBlockKinds,
   resolveShowBlockCall,
   type GuideBlock,
@@ -602,6 +604,7 @@ export async function handleChatRequest(args: {
           // A shown block costs one tool round trip, so allow one more when blocks are on.
           maxToolIterations: modelBlockKinds.length ? 4 : 3,
           signal: args.request.signal,
+          isFinalToolCall: isQuickRepliesCall,
           onTextDelta: (delta) => {
             if (awaitingRoundText && delta.trim()) {
               awaitingRoundText = false;
@@ -680,6 +683,20 @@ export async function handleChatRequest(args: {
         }), () => !answerTextStarted && blocks.length === 0);
         markStage("model_done");
 
+        // The model sometimes ends on a question listing its own choices without offering them.
+        const closingOptions =
+          !quickReplies && modelBlockKinds.includes("quick_replies") ? closingChoiceOptions(finalText) : null;
+        if (closingOptions) {
+          quickReplies = {
+            id: `block-${++blockCount}`,
+            kind: "quick_replies",
+            v: 1,
+            options: closingOptions,
+            fallback_text: `(Reply options: ${closingOptions.join(" / ")})`,
+          };
+          blocks.push(quickReplies);
+          chatLog("info", "quick_replies_fallback", { correlationId, conversationId, options: closingOptions.length });
+        }
 
         stage = "persist_previous_response";
         await prisma.chatConversation

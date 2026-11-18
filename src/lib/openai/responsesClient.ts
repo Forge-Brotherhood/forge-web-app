@@ -32,6 +32,11 @@ type StreamArgs = {
   signal?: AbortSignal;
   onTextDelta: (delta: string) => void;
   onToolCall: (call: ContextToolCall) => Promise<string>;
+  /**
+   * Calls that end the reply. When every call in a round is one of these, their outputs are saved
+   * to the conversation instead of asking the model to continue (which costs a full round trip).
+   */
+  isFinalToolCall?: (call: ContextToolCall) => boolean;
 };
 
 type ResponseCompletedEvent = {
@@ -238,6 +243,22 @@ export async function createOpenAIConversation(apiKey: string): Promise<string> 
   return data.id;
 }
 
+/** Adds items to a conversation without running the model. */
+async function addConversationItems(apiKey: string, conversationId: string, items: unknown[]): Promise<void> {
+  const response = await fetch(`https://api.openai.com/v1/conversations/${conversationId}/items`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ items }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Failed to add conversation items: ${response.status} - ${text}`);
+  }
+}
+
 export async function streamResponsesWithTools(args: StreamArgs): Promise<ResponsesStreamResult> {
   let lastResponseId: string | null = null;
   let input: unknown = args.input;
@@ -285,6 +306,19 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
         };
       })
     );
+
+    // The reply is finished: record the outputs so the conversation stays valid, and stop.
+    // If that fails, fall through and let the model answer them as usual.
+    if (args.conversationId && args.isFinalToolCall && toolCalls.every(args.isFinalToolCall)) {
+      const saved = await addConversationItems(args.apiKey, args.conversationId, outputs).then(
+        () => true,
+        (err: unknown) => {
+          console.error("[Responses] Saving final tool outputs failed:", err instanceof Error ? err.message : err);
+          return false;
+        }
+      );
+      if (saved) break;
+    }
 
     // Next loop uses tool outputs as the new input, continuing the response chain.
     // We keep tools enabled so the model can call additional tools if needed.
