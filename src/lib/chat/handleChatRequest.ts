@@ -565,6 +565,8 @@ export async function handleChatRequest(args: {
         const flushHeldBlocks = () => {
           for (const block of heldBlocks.splice(0)) write({ type: "block", block });
         };
+        // Quick replies answer the guide's closing question, so they always go out after all text.
+        let quickReplies: GuideBlock | null = null;
 
         const tools = modelBlockKinds.length
           ? [...buildContextToolsForUser(), buildShowBlockTool(modelBlockKinds)]
@@ -635,6 +637,12 @@ export async function handleChatRequest(args: {
               if (!result.ok) {
                 chatLog("warn", "ui_block_rejected", { correlationId, conversationId, reason: result.reason });
                 return `Rejected: ${result.reason}`;
+              }
+              if (result.block.kind === "quick_replies") {
+                if (quickReplies) return "Rejected: only one set of quick_replies per reply";
+                quickReplies = result.block;
+                blocks.push(result.block);
+                return "Shown under your question. Do not write anything more.";
               }
               blocks.push(result.block);
               if (answerTextStarted) {
@@ -709,6 +717,7 @@ export async function handleChatRequest(args: {
         });
 
         flushHeldBlocks();
+        if (quickReplies) write({ type: "block", block: quickReplies });
 
         if (isGreeting && blockKinds.includes("map_card") && args.input.selectionState === "visible") {
           const greetingMap = buildChapterGreetingMap(passagePlaces, `block-${++blockCount}`);

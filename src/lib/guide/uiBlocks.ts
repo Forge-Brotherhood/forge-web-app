@@ -14,7 +14,7 @@ import { buildMapBlockFromModel, describePassagePlaces, type MapCardBlock, type 
  * point in the answer. Clients opt in by sending the kinds they can render.
  */
 
-export const GUIDE_BLOCK_KINDS = ["passage_card", "prayer_card", "cross_refs", "map_card"] as const;
+export const GUIDE_BLOCK_KINDS = ["passage_card", "prayer_card", "cross_refs", "map_card", "quick_replies"] as const;
 export type GuideBlockKind = (typeof GUIDE_BLOCK_KINDS)[number];
 
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
@@ -44,6 +44,14 @@ export type GuideBlock =
       fallback_text: string;
       title?: string;
       body: string;
+    }
+  | {
+      id: string;
+      kind: "quick_replies";
+      v: 1;
+      fallback_text: string;
+      /** Short answers to the guide's closing question, in the user's voice. Always sent last. */
+      options: string[];
     }
   | {
       id: string;
@@ -102,6 +110,14 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
     caption: optionalText(200),
     places: z.array(z.string().trim().min(1)).min(1).max(8),
   }),
+  z.object({
+    kind: z.literal("quick_replies"),
+    options: z
+      .array(z.string().trim().min(1).max(60))
+      .min(2)
+      .max(4)
+      .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, "options must be distinct"),
+  }),
 ]);
 
 export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
@@ -127,6 +143,12 @@ export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
         items: { type: "string" },
       },
       body: { type: "string", description: "prayer_card only: the prayer, in the first person, that the user can pray." },
+      options: {
+        type: "array",
+        description:
+          "quick_replies only: 2 to 4 distinct short answers to your closing question, written as the user would say them (first person, under 8 words each).",
+        items: { type: "string" },
+      },
       items: {
         type: "array",
         description: "cross_refs only: 2 to 6 related passages.",
@@ -154,6 +176,8 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
       "- cross_refs: when pointing the user to 2 to 6 other passages on the same theme, each with a short reason. Use this instead of listing those references in your prose.",
     map_card:
       "- map_card: when the user asks where something happened, how far apart places are, or about travel, or when seeing the places genuinely helps. Pass the places that matter to the answer (not every place mentioned), by id from the places list when one is given. The app draws the map from its own place data; do not give coordinates.",
+    quick_replies:
+      "- quick_replies: only when your reply ends with a direct question to the user that has 2 to 4 natural short answers (for example which part of life this touches, or whether to go deeper or move on). Ask the question in your prose, then call quick_replies as the very last thing, with each option written as the user's own answer (first person, under 8 words). Write nothing after it; the app shows the options under your question and the user can still type their own answer. It does not count toward the card limit. Skip it for open, personal reflection questions where a canned answer would cheapen the response.",
   };
   const placesList = kinds.includes("map_card") ? describePassagePlaces(passage) : "";
   return [
@@ -245,6 +269,19 @@ export async function resolveShowBlockCall(args: {
       passage: args.passage ?? null,
     });
     return result.ok ? { ok: true, block: result.block, unresolvedPlaces: result.unresolved } : result;
+  }
+
+  if (input.kind === "quick_replies") {
+    return {
+      ok: true,
+      block: {
+        id: args.blockId,
+        kind: "quick_replies",
+        v: 1,
+        options: input.options,
+        fallback_text: `(Reply options: ${input.options.join(" / ")})`,
+      },
+    };
   }
 
   if (input.kind === "prayer_card") {
