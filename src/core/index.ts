@@ -10,7 +10,6 @@ export { ForgeAPIError, ForgeAPIErrorCode, isForgeAPIError, getErrorMessage } fr
 // MARK: - Models
 export * from './models/models';
 export * from './models/apiModels';
-export * from './models/communityModels';
 export * from './models/modelExtensions';
 
 // MARK: - Services
@@ -37,6 +36,4 @@ export {
   useUpdateProfileMutation,
   useUploadAvatarMutation,
   profileKeys,
-  useFeedQuery,
 } from './hooks';
-export type { FeedItem, UseFeedResult, FetchPage, MapItem } from './hooks';

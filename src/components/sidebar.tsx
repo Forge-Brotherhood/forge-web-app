@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { HandHelping, BookOpen, Bell, User } from "lucide-react";
+import { BookOpen, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 
@@ -17,22 +17,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    name: "Pray",
-    href: "/pray",
-    icon: HandHelping,
-    label: "Pray",
-  },
-  {
     name: "Read",
     href: "/read",
     icon: BookOpen,
     label: "Read",
-  },
-  {
-    name: "Activity",
-    href: "/activity",
-    icon: Bell,
-    label: "Activity",
   },
   {
     name: "Me",
@@ -95,8 +83,7 @@ export const Sidebar = () => {
         {/* Navigation items centered in viewport */}
         <div className="flex flex-col items-center justify-center w-full h-full space-y-8">
           {navItems.map((item) => {
-          const isActive = pathname === item.href ||
-                          (item.href === "/pray" && pathname === "/");
+          const isActive = pathname === item.href;
           return (
             <Link
               key={item.name}
@@ -132,10 +119,9 @@ export const Sidebar = () => {
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border shadow-[0_-2px_4px_rgba(0,0,0,0.05)] dark:shadow-none px-3 pt-3 md:hidden" style={{
       paddingBottom: `calc(12px + env(safe-area-inset-bottom, 0px))`,
     }}>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {navItems.map((item) => {
-          const isActive = pathname === item.href ||
-                          (item.href === "/pray" && pathname === "/");
+          const isActive = pathname === item.href;
           return (
             <Link
               key={item.name}
