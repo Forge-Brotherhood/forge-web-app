@@ -1,4 +1,4 @@
-import { streamResponsesWithTools, type ContextToolCall } from "@/lib/openai/responsesClient";
+import { streamResponsesWithTools, type ContextToolCall, type ToolCallStart } from "@/lib/openai/responsesClient";
 import type { ResponsesTool } from "@/lib/openai/responsesClient";
 import type { ResponsesInputMessage } from "@/lib/openai/responsesClient";
 
@@ -16,6 +16,8 @@ export type RunMainChatResponseArgs = {
   onTextDelta?: (delta: string) => void;
   onToolCall?: (call: ContextToolCall) => void;
   onToolResult?: (call: ContextToolCall, output: string) => void;
+  onToolCallStarted?: (call: ToolCallStart) => void;
+  onToolCallArgumentsDelta?: (itemId: string, delta: string) => void;
 };
 
 export async function runMainChatResponse(args: RunMainChatResponseArgs): Promise<{
@@ -43,6 +45,8 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
     signal: args.signal,
     reasoningEffort: args.reasoningEffort,
     isFinalToolCall: args.isFinalToolCall,
+    onToolCallStarted: args.onToolCallStarted,
+    onToolCallArgumentsDelta: args.onToolCallArgumentsDelta,
     onTextDelta: (delta) => {
       if (!delta) return;
       const next = normalizeAssistantDelta(delta);

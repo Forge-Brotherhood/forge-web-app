@@ -4,6 +4,7 @@ import { bibleService, getBookDisplayNameFromCode } from "@/lib/bible";
 import type { BibleContentElement, BibleInline } from "@/core/models/bibleModels";
 import type { ResponsesTool } from "@/lib/openai/responsesClient";
 import { buildMapBlockFromModel, describePassagePlaces, type MapCardBlock, type PassagePlaces } from "@/lib/guide/places";
+import { getAvailableTranslations, getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
 
 /**
  * Inline UI blocks for the Bible guide ("adaptive UI").
@@ -14,12 +15,60 @@ import { buildMapBlockFromModel, describePassagePlaces, type MapCardBlock, type 
  * point in the answer. Clients opt in by sending the kinds they can render.
  */
 
-export const GUIDE_BLOCK_KINDS = ["passage_card", "prayer_card", "cross_refs", "map_card", "quick_replies"] as const;
+export const GUIDE_BLOCK_KINDS = [
+  "passage_card",
+  "prayer_card",
+  "cross_refs",
+  "map_card",
+  "quick_replies",
+  "context_callout",
+  "word_study",
+  "compare_translations",
+] as const;
 export type GuideBlockKind = (typeof GUIDE_BLOCK_KINDS)[number];
 
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 const MAX_PASSAGE_VERSES = 6;
+const MAX_COMPARE_VERSES = 3;
+const MAX_COMPARE_TRANSLATIONS = 3;
+
+const CONTEXT_CATEGORIES = ["historical", "cultural", "literary", "geographic"] as const;
+type ContextCategory = (typeof CONTEXT_CATEGORIES)[number];
+const CONTEXT_CATEGORY_LABEL: Record<ContextCategory, string> = {
+  historical: "Historical",
+  cultural: "Cultural",
+  literary: "Literary",
+  geographic: "Geographic",
+};
+
+const WORD_LANGUAGES = ["hebrew", "aramaic", "greek"] as const;
+type WordLanguage = (typeof WORD_LANGUAGES)[number];
+const WORD_LANGUAGE_LABEL: Record<WordLanguage, string> = { hebrew: "Hebrew", aramaic: "Aramaic", greek: "Greek" };
+
+/**
+ * How each translation renders the text, so a comparison can explain why wording differs.
+ * `dynamic` marks thought-for-thought translations, used to pick contrasting ones.
+ */
+const TRANSLATION_INFO: Record<string, { name: string; approach: string; dynamic: boolean }> = {
+  BSB: { name: "Berean Standard Bible", approach: "Word-for-word · modern", dynamic: false },
+  KJV: { name: "King James Version", approach: "Word-for-word · 1611", dynamic: false },
+  ASV: { name: "American Standard Version", approach: "Word-for-word · 1901", dynamic: false },
+  WEB: { name: "World English Bible", approach: "Word-for-word · modern", dynamic: false },
+  NLT: { name: "New Living Translation", approach: "Thought-for-thought · modern", dynamic: true },
+};
+// Preferred extra translations, most useful contrast first.
+const COMPARE_PREFERENCE = ["NLT", "KJV", "BSB", "WEB", "ASV"];
+
+/** A tappable reference inside a card. */
+type RefLink = {
+  ref_key: string;
+  book_id: string;
+  chapter: number;
+  verse_start?: number;
+  verse_end?: number;
+  reference: string;
+};
 
 export type GuideBlock =
   | {
@@ -68,6 +117,56 @@ export type GuideBlock =
         reference: string;
         reason: string;
       }>;
+    }
+  | {
+      id: string;
+      kind: "context_callout";
+      v: 1;
+      fallback_text: string;
+      category: ContextCategory;
+      title: string;
+      body: string;
+      /** The verse this background explains, if any. */
+      anchor?: RefLink;
+    }
+  | {
+      id: string;
+      kind: "word_study";
+      v: 1;
+      fallback_text: string;
+      /** The English word or phrase as it appears in the verse. */
+      term: string;
+      language: WordLanguage;
+      /** The original word in its own script (validated to be Hebrew or Greek script). */
+      original: string;
+      transliteration: string;
+      gloss: string;
+      explanation: string;
+      anchor?: RefLink;
+      /** Other places the same original word appears. */
+      related: Array<RefLink & { note: string }>;
+    }
+  | {
+      id: string;
+      kind: "compare_translations";
+      v: 1;
+      fallback_text: string;
+      ref_key: string;
+      book_id: string;
+      chapter: number;
+      verse_start: number;
+      verse_end: number;
+      reference: string;
+      /** The reader's own translation, always the first rendering when it loads. */
+      user_translation: string;
+      renderings: Array<{
+        translation: string;
+        name: string;
+        approach: string;
+        verses: Array<{ n: number; text: string }>;
+      }>;
+      /** What to notice across the wordings. */
+      note?: string;
     }
   | MapCardBlock;
 
@@ -118,6 +217,33 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
       .max(4)
       .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, "options must be distinct"),
   }),
+  z.object({
+    kind: z.literal("context_callout"),
+    category: z.enum(CONTEXT_CATEGORIES),
+    title: z.string().trim().min(1).max(60),
+    body: z.string().trim().min(40).max(420),
+    ref_key: optionalText(20),
+  }),
+  z.object({
+    kind: z.literal("word_study"),
+    term: z.string().trim().min(1).max(40),
+    language: z.enum(WORD_LANGUAGES),
+    original: z.string().trim().min(1).max(40),
+    transliteration: z.string().trim().min(1).max(40),
+    gloss: z.string().trim().min(1).max(80),
+    explanation: z.string().trim().min(40).max(420),
+    ref_key: optionalText(20),
+    related: z
+      .array(z.object({ ref_key: z.string().trim().min(1), note: z.string().trim().min(1).max(80) }))
+      .max(3)
+      .nullish(),
+  }),
+  z.object({
+    kind: z.literal("compare_translations"),
+    ref_key: z.string().trim().min(1),
+    translations: z.array(z.string().trim().min(2).max(8)).max(3).nullish(),
+    note: optionalText(200),
+  }),
 ]);
 
 /** quick_replies always ends the reply, so the model need not be asked to continue after it. */
@@ -142,17 +268,56 @@ export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
       ref_key: {
         type: "string",
         description:
-          "passage_card only: BOOK:CHAPTER:VERSE or BOOK:CHAPTER:VERSE-VERSE with a three-letter book code, at most 6 verses (e.g. ROM:8:28, PSA:23:1-4, 1CO:13:4-7).",
+          "passage_card and compare_translations: BOOK:CHAPTER:VERSE or BOOK:CHAPTER:VERSE-VERSE with a three-letter book code (e.g. ROM:8:28, PSA:23:1-4, 1CO:13:4-7); at most 6 verses for passage_card, 3 for compare_translations. context_callout and word_study, optional: the verse the card is about.",
       },
-      note: { type: "string", description: "passage_card only, optional: one short sentence on why this passage matters here." },
-      title: { type: "string", description: "prayer_card, cross_refs or map_card, optional: a short title." },
+      note: {
+        type: "string",
+        description:
+          "passage_card, optional: one short sentence on why this passage matters here. compare_translations, optional: one sentence on what to notice across the wordings.",
+      },
+      title: {
+        type: "string",
+        description: "context_callout (required, under 60 characters) or prayer_card, cross_refs, map_card (optional): a short title.",
+      },
+      category: {
+        type: "string",
+        enum: [...CONTEXT_CATEGORIES],
+        description: "context_callout only: the kind of background.",
+      },
+      term: { type: "string", description: "word_study only: the English word or phrase exactly as it appears in the verse." },
+      language: { type: "string", enum: [...WORD_LANGUAGES], description: "word_study only: the original language." },
+      original: { type: "string", description: "word_study only: the original word in its own script (Hebrew or Greek letters)." },
+      transliteration: { type: "string", description: "word_study only: the original word in Latin letters, e.g. hesed, agapē." },
+      gloss: { type: "string", description: "word_study only: a short dictionary-style meaning, under 80 characters." },
+      explanation: { type: "string", description: "word_study only: 2 to 3 sentences on what the word means in this verse and why it matters." },
+      related: {
+        type: "array",
+        description: "word_study only, optional: up to 3 other verses where the same original word appears.",
+        items: {
+          type: "object",
+          properties: {
+            ref_key: { type: "string", description: "BOOK:CHAPTER:VERSE, e.g. PSA:136:1" },
+            note: { type: "string", description: "A short phrase on how the word is used there." },
+          },
+          required: ["ref_key", "note"],
+        },
+      },
+      translations: {
+        type: "array",
+        description: "compare_translations only, optional: up to 2 translation codes to include besides the user's own.",
+        items: { type: "string" },
+      },
       caption: { type: "string", description: "map_card only, optional: one short sentence on what the map shows." },
       places: {
         type: "array",
         description: "map_card only: 1 to 8 place ids from the places list (or exact place names), most important first.",
         items: { type: "string" },
       },
-      body: { type: "string", description: "prayer_card only: the prayer, in the first person, that the user can pray." },
+      body: {
+        type: "string",
+        description:
+          "prayer_card: the prayer, in the first person, that the user can pray. context_callout: 2 to 3 sentences of background.",
+      },
       options: {
         type: "array",
         description:
@@ -188,6 +353,11 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
       "- map_card: when the user asks where something happened, how far apart places are, or about travel, or when seeing the places genuinely helps. Pass the places that matter to the answer (not every place mentioned), by id from the places list when one is given. The app draws the map from its own place data; do not give coordinates.",
     quick_replies:
       "- quick_replies: the app can show answer buttons under your closing question. Call quick_replies whenever your reply ends with a question that offers the user choices (\"integrity, courage, or patience?\", \"go deeper or move on?\", \"which of these...?\") or that has 2 to 4 obvious short answers (for example which part of life this touches, or whether to go deeper or move on). This is required, not optional: if your question names its choices, the user must get them as buttons. When you offer choices, offer at most 4, and make each option one of the choices you named, written as the user's own answer (first person, under 8 words). Ask the question in your prose, then call quick_replies as the very last thing and write nothing after it; the user can still type their own answer. It does not count toward the card limit. Skip it only for open reflection questions that ask the user to put something personal in their own words (for example \"What is one thing you sense God asking of you?\"); a canned answer would cheapen that. A personal topic is not a reason to skip it when your question itself offers choices.",
+    context_callout:
+      "- context_callout: when historical, cultural, literary or geographic background genuinely changes how the passage reads (customs, rulers and empires, genre, setting). Give a category, a short title and 2 to 3 sentences of well-established background; where scholars differ, say so plainly instead of picking a side. Use it instead of a long background digression in your prose, not for theology or application.",
+    word_study:
+      "- word_study: when the user asks what a word means, or when one key word's original Hebrew, Aramaic or Greek meaning genuinely opens up the verse. Give the English term exactly as it appears in the verse, the language, the original word in its own script, a transliteration, a short gloss, and 2 to 3 sentences on what it means here. Add up to 3 related verses where the same original word appears only if you are sure of them. Only include words and meanings you are confident of; never give Strong's numbers. The app labels the card as an AI study note.",
+    compare_translations: `- compare_translations: when the way different Bible translations word a verse sheds light on its meaning (for example the user asks why their Bible says something, or a key phrase is rendered very differently). Give ref_key (1 to 3 verses) and a note on what to notice. The app shows the user's own translation first, adds contrasting ones, and fetches the exact text, so do not quote the translations yourself. Available translations: ${availableCompareTranslations().join(", ")}.`,
   };
   const placesList = kinds.includes("map_card") ? describePassagePlaces(passage) : "";
   return [
@@ -226,6 +396,22 @@ const displayReference = (ref: ParsedRefKey): string => {
   return `${book} ${ref.chapter}:${range}`;
 };
 
+/**
+ * What a show_block call will show, read from its arguments while the model is still writing
+ * them: the kind as soon as it is written, then the reference once ref_key is complete.
+ * Null until the kind is known, and for kinds that are not shown as a card (quick_replies).
+ */
+export const pendingBlockLabel = (
+  partialArgs: string,
+  allowedKinds: GuideBlockKind[]
+): { kind: GuideBlockKind; reference: string | null } | null => {
+  const kind = partialArgs.match(/"kind"\s*:\s*"([a-z_]+)"/)?.[1] as GuideBlockKind | undefined;
+  if (!kind || kind === "quick_replies" || !allowedKinds.includes(kind)) return null;
+  const refKey = partialArgs.match(/"ref_key"\s*:\s*"([^"]+)"/)?.[1];
+  const ref = refKey ? parseRefKey(refKey) : null;
+  return { kind, reference: ref ? displayReference(ref) : null };
+};
+
 const canonicalRefKey = (ref: ParsedRefKey): string => {
   if (ref.verseStart === undefined) return `${ref.bookId}:${ref.chapter}`;
   const range = ref.verseEnd === ref.verseStart ? `${ref.verseStart}` : `${ref.verseStart}-${ref.verseEnd}`;
@@ -234,13 +420,85 @@ const canonicalRefKey = (ref: ParsedRefKey): string => {
 
 const inlineToText = (inline: BibleInline[]): string =>
   inline
-    .map((i) => (i.type === "text" || i.type === "formatted_text" ? i.text : i.type === "inline_line_break" ? " " : ""))
+    .map((i) => {
+      if (i.type === "inline_line_break") return " ";
+      if (i.type === "text") return i.text;
+      // Each poetry line is its own piece with no separator, so start it with a space.
+      if (i.type === "formatted_text") return i.poem ? ` ${i.text}` : i.text;
+      return "";
+    })
     .join("")
+    // Some providers mark paragraphs with a pilcrow (e.g. KJV "¶ For God so loved…").
+    .replace(/¶/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
 const truncate = (text: string, maxLen: number): string =>
   text.length > maxLen ? `${text.slice(0, Math.max(0, maxLen - 1))}…` : text;
+
+const toRefLink = (refKey: string | undefined): RefLink | undefined => {
+  const ref = refKey ? parseRefKey(refKey) : null;
+  if (!ref) return undefined;
+  return {
+    ref_key: canonicalRefKey(ref),
+    book_id: ref.bookId,
+    chapter: ref.chapter,
+    verse_start: ref.verseStart,
+    verse_end: ref.verseEnd,
+    reference: displayReference(ref),
+  };
+};
+
+/** Translations the current provider really serves. Others fall back silently to a different text. */
+const availableCompareTranslations = (): string[] =>
+  getAvailableTranslations(getCurrentProviderType()).filter((t) => TRANSLATION_INFO[t]);
+
+/** The reader's translation, or the provider's default when the provider can't serve it. */
+const readerTranslation = async (userId: string): Promise<string> => {
+  const settings = await prisma.readerSettings.findUnique({
+    where: { userId },
+    select: { selectedTranslation: true },
+  });
+  const chosen = settings?.selectedTranslation?.trim().toUpperCase() ?? "";
+  const provider = getCurrentProviderType();
+  return getAvailableTranslations(provider).includes(chosen) ? chosen : getDefaultTranslation(provider);
+};
+
+const loadVerses = async (
+  range: { bookId: string; chapter: number; verseStart: number; verseEnd: number },
+  translation: string
+): Promise<Array<{ n: number; text: string }>> => {
+  const chapter = await bibleService.getChapterContent(`${range.bookId}.${range.chapter}`, translation);
+  return chapter.elements
+    .filter(
+      (el): el is Extract<BibleContentElement, { type: "verse" }> =>
+        el.type === "verse" && el.number >= range.verseStart && el.number <= range.verseEnd
+    )
+    .map((el) => ({ n: el.number, text: inlineToText(el.inline) }))
+    .filter((v) => v.text.length > 0);
+};
+
+/** The reader's translation first, then any the model asked for, then the strongest contrasts. */
+const pickCompareTranslations = (own: string, requested: string[]): string[] => {
+  const available = availableCompareTranslations();
+  const picked = available.includes(own) ? [own] : [];
+  for (const raw of requested) {
+    const code = raw.trim().toUpperCase();
+    if (available.includes(code) && !picked.includes(code)) picked.push(code);
+  }
+  // Prefer a different approach (word-for-word vs thought-for-thought) to the reader's own.
+  const ownDynamic = TRANSLATION_INFO[own]?.dynamic ?? false;
+  const rest = COMPARE_PREFERENCE.filter((t) => available.includes(t) && !picked.includes(t)).sort(
+    (a, b) => Number(TRANSLATION_INFO[a].dynamic === ownDynamic) - Number(TRANSLATION_INFO[b].dynamic === ownDynamic)
+  );
+  return [...picked, ...rest].slice(0, MAX_COMPARE_TRANSLATIONS);
+};
+
+// Sanity checks so a garbled or invented original word is rejected rather than shown.
+const HEBREW_SCRIPT = /[֐-׿]/;
+const GREEK_SCRIPT = /[Ͱ-Ͽἀ-῿]/;
+const LATIN_LETTER = /[A-Za-z]/;
+const TRANSLITERATION = /^[A-Za-zÀ-ɏḀ-ỿ̀-ͯ\s'’ʼʾʿ.-]+$/;
 
 export type ShowBlockResult =
   | { ok: true; block: GuideBlock; unresolvedPlaces?: string[] }
@@ -290,6 +548,110 @@ export async function resolveShowBlockCall(args: {
         v: 1,
         options: input.options,
         fallback_text: `(Reply options: ${input.options.join(" / ")})`,
+      },
+    };
+  }
+
+  if (input.kind === "context_callout") {
+    return {
+      ok: true,
+      block: {
+        id: args.blockId,
+        kind: "context_callout",
+        v: 1,
+        category: input.category,
+        title: input.title,
+        body: input.body,
+        // An unreadable anchor is dropped; the background itself is still useful.
+        anchor: toRefLink(input.ref_key),
+        fallback_text: `${CONTEXT_CATEGORY_LABEL[input.category]} background: ${input.title}. ${input.body}`,
+      },
+    };
+  }
+
+  if (input.kind === "word_study") {
+    const isGreek = input.language === "greek";
+    if (!(isGreek ? GREEK_SCRIPT : HEBREW_SCRIPT).test(input.original) || LATIN_LETTER.test(input.original)) {
+      return { ok: false, reason: `original must be written in ${isGreek ? "Greek" : "Hebrew"} script` };
+    }
+    if (!TRANSLITERATION.test(input.transliteration)) {
+      return { ok: false, reason: "transliteration must use Latin letters" };
+    }
+    const related: Extract<GuideBlock, { kind: "word_study" }>["related"] = [];
+    for (const item of input.related ?? []) {
+      const link = toRefLink(item.ref_key);
+      // Skip a bad or repeated reference rather than losing the whole card.
+      if (!link || related.some((r) => r.ref_key === link.ref_key)) continue;
+      related.push({ ...link, note: item.note });
+    }
+    const language = WORD_LANGUAGE_LABEL[input.language];
+    return {
+      ok: true,
+      block: {
+        id: args.blockId,
+        kind: "word_study",
+        v: 1,
+        term: input.term,
+        language: input.language,
+        original: input.original,
+        transliteration: input.transliteration,
+        gloss: input.gloss,
+        explanation: input.explanation,
+        anchor: toRefLink(input.ref_key),
+        related,
+        fallback_text: truncate(
+          `Word study: "${input.term}" translates the ${language} ${input.original} (${input.transliteration}), "${input.gloss}". ${input.explanation} (AI study note)`,
+          2000
+        ),
+      },
+    };
+  }
+
+  if (input.kind === "compare_translations") {
+    // Scripture text always comes from the Bible service, never from the model.
+    const ref = parseRefKey(input.ref_key);
+    if (!ref || ref.verseStart === undefined || ref.verseEnd === undefined) {
+      return { ok: false, reason: "ref_key must be BOOK:CHAPTER:VERSE or BOOK:CHAPTER:VERSE-VERSE" };
+    }
+    if (ref.verseEnd - ref.verseStart + 1 > MAX_COMPARE_VERSES) {
+      return { ok: false, reason: `compare at most ${MAX_COMPARE_VERSES} verses` };
+    }
+    const range = { bookId: ref.bookId, chapter: ref.chapter, verseStart: ref.verseStart, verseEnd: ref.verseEnd };
+    const own = await readerTranslation(args.userId);
+    const codes = pickCompareTranslations(own, input.translations ?? []);
+    const loaded = await Promise.all(
+      codes.map(async (code) => ({ code, verses: await loadVerses(range, code).catch(() => []) }))
+    );
+    const renderings = loaded
+      .filter((r) => r.verses.length > 0)
+      .map((r) => ({
+        translation: r.code,
+        name: TRANSLATION_INFO[r.code].name,
+        approach: TRANSLATION_INFO[r.code].approach,
+        verses: r.verses,
+      }));
+    if (renderings.length < 2) return { ok: false, reason: "fewer than two translations could be loaded" };
+
+    const first = renderings[0].verses;
+    const resolvedRef = { ...ref, verseStart: first[0].n, verseEnd: first[first.length - 1].n };
+    const reference = displayReference(resolvedRef);
+    const lines = renderings.map((r) => `${r.translation}: "${r.verses.map((v) => v.text).join(" ")}"`).join(" ");
+    return {
+      ok: true,
+      block: {
+        id: args.blockId,
+        kind: "compare_translations",
+        v: 1,
+        ref_key: canonicalRefKey(resolvedRef),
+        book_id: ref.bookId,
+        chapter: ref.chapter,
+        verse_start: resolvedRef.verseStart,
+        verse_end: resolvedRef.verseEnd,
+        reference,
+        user_translation: own,
+        renderings,
+        note: input.note,
+        fallback_text: truncate(`${reference} in ${renderings.length} translations: ${lines}${input.note ? ` ${input.note}` : ""}`, 2000),
       },
     };
   }
@@ -346,23 +708,14 @@ export async function resolveShowBlockCall(args: {
     return { ok: false, reason: `passage is longer than ${MAX_PASSAGE_VERSES} verses` };
   }
 
-  const settings = await prisma.readerSettings.findUnique({
-    where: { userId: args.userId },
-    select: { selectedTranslation: true },
-  });
-
   let verses: Array<{ n: number; text: string }>;
   let translation: string;
   try {
-    const chapter = await bibleService.getChapterContent(`${ref.bookId}.${ref.chapter}`, settings?.selectedTranslation);
-    translation = chapter.translation;
-    verses = chapter.elements
-      .filter(
-        (el): el is Extract<BibleContentElement, { type: "verse" }> =>
-          el.type === "verse" && el.number >= ref.verseStart! && el.number <= ref.verseEnd!
-      )
-      .map((el) => ({ n: el.number, text: inlineToText(el.inline) }))
-      .filter((v) => v.text.length > 0);
+    translation = await readerTranslation(args.userId);
+    verses = await loadVerses(
+      { bookId: ref.bookId, chapter: ref.chapter, verseStart: ref.verseStart, verseEnd: ref.verseEnd },
+      translation
+    );
   } catch {
     return { ok: false, reason: "passage could not be loaded" };
   }
@@ -423,6 +776,9 @@ export const blockReferences = (blocks: GuideBlock[]): Set<string> => {
   for (const b of blocks) {
     if (b.kind === "passage_card") refs.add(b.reference);
     if (b.kind === "cross_refs") b.items.forEach((i) => refs.add(i.reference));
+    if (b.kind === "compare_translations") refs.add(b.reference);
+    if (b.kind === "word_study") b.related.forEach((r) => refs.add(r.reference));
+    if ((b.kind === "word_study" || b.kind === "context_callout") && b.anchor) refs.add(b.anchor.reference);
   }
   return refs;
 };

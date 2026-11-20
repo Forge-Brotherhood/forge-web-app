@@ -34,11 +34,22 @@ type StreamArgs = {
   reasoningEffort?: "low" | "medium" | "high";
   onTextDelta: (delta: string) => void;
   onToolCall: (call: ContextToolCall) => Promise<string>;
+  /** A tool call has started streaming; its arguments follow. */
+  onToolCallStarted?: (call: ToolCallStart) => void;
+  /** A piece of a started call's arguments, as the model writes them. */
+  onToolCallArgumentsDelta?: (itemId: string, delta: string) => void;
   /**
    * Calls that end the reply. When every call in a round is one of these, their outputs are saved
    * to the conversation instead of asking the model to continue (which costs a full round trip).
    */
   isFinalToolCall?: (call: ContextToolCall) => boolean;
+};
+
+export type ToolCallStart = {
+  /** Identifies the call in the argument deltas that follow. */
+  itemId: string;
+  callId: string;
+  name: string;
 };
 
 type ResponseCompletedEvent = {
@@ -150,6 +161,8 @@ async function runSingleResponsesStream(args: {
   signal?: AbortSignal;
   reasoningEffort?: "low" | "medium" | "high";
   onTextDelta: (delta: string) => void;
+  onToolCallStarted?: (call: ToolCallStart) => void;
+  onToolCallArgumentsDelta?: (itemId: string, delta: string) => void;
 }): Promise<{ responseId: string | null; completed: ResponseCompletedEvent | null }> {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -205,6 +218,24 @@ async function runSingleResponsesStream(args: {
         if (type === "response.created") {
           const created = evt as unknown as ResponseCreatedEvent;
           if (created?.response?.id) lastResponseId = created.response.id;
+        }
+
+        // Tool calls are run once the response completes, but announced as they start, so a
+        // caller can show what is coming while the model is still writing the arguments.
+        if (type === "response.output_item.added") {
+          const item = evt["item"];
+          if (isRecord(item) && item["type"] === "function_call" && typeof item["name"] === "string") {
+            args.onToolCallStarted?.({
+              itemId: String(item["id"] ?? ""),
+              callId: String(item["call_id"] ?? ""),
+              name: String(item["name"]),
+            });
+          }
+          continue;
+        }
+        if (type === "response.function_call_arguments.delta" && typeof evt["delta"] === "string") {
+          args.onToolCallArgumentsDelta?.(String(evt["item_id"] ?? ""), String(evt["delta"]));
+          continue;
         }
 
         // Text deltas: handle a few common variants. We only stream user-facing text.
@@ -281,6 +312,8 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
         if (delta) streamedAnyText = true;
         args.onTextDelta(delta);
       },
+      onToolCallStarted: args.onToolCallStarted,
+      onToolCallArgumentsDelta: args.onToolCallArgumentsDelta,
     });
 
     lastResponseId = res.responseId ?? lastResponseId;

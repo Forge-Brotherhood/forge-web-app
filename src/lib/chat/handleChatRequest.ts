@@ -21,6 +21,7 @@ import {
   closingChoiceOptions,
   isQuickRepliesCall,
   parseClientBlockKinds,
+  pendingBlockLabel,
   resolveShowBlockCall,
   type GuideBlock,
 } from "@/lib/guide/uiBlocks";
@@ -33,6 +34,9 @@ type SSEEvent =
   | { type: "injection"; blockText: string; globalCount: number; sessionCount: number }
   | { type: "actions"; actions: AIAction[] }
   | { type: "block"; block: GuideBlock }
+  /** A card the model has started: the app shows it forging until its block (or a cancel) arrives. */
+  | { type: "block_pending"; kind: string; reference: string | null }
+  | { type: "block_pending_cancel" }
   | { type: "suggested_questions"; questions: string[] }
   | { type: "done"; conversationId: string }
   | { type: "error"; message: string };
@@ -576,6 +580,10 @@ export async function handleChatRequest(args: {
         // after the text that follows it, never above the lead-in.
         let answerTextStarted = false;
         const heldBlocks: GuideBlock[] = [];
+        // show_block calls the model has started, by item id. Writing a call's arguments (a note,
+        // a list of places) takes the model a second or two, so the card is announced as soon as
+        // its kind is written; the app shows it forging until the block or a cancel arrives.
+        const startedBlockCalls = new Map<string, { callId: string; args: string; announced: string | null }>();
         const flushHeldBlocks = () => {
           for (const block of heldBlocks.splice(0)) write({ type: "block", block });
         };
@@ -609,6 +617,26 @@ export async function handleChatRequest(args: {
           maxToolIterations: modelBlockKinds.length ? 4 : 3,
           signal: args.request.signal,
           isFinalToolCall: isQuickRepliesCall,
+          onToolCallStarted: (call) => {
+            if (call.name !== SHOW_BLOCK_TOOL_NAME) return;
+            markStage("show_block_start");
+            startedBlockCalls.set(call.itemId, { callId: call.callId, args: "", announced: null });
+          },
+          onToolCallArgumentsDelta: (itemId, delta) => {
+            const started = startedBlockCalls.get(itemId);
+            if (!started) return;
+            started.args += delta;
+            // Before the answer text starts, blocks are held back (see heldBlocks); so is this.
+            if (!answerTextStarted) return;
+            const label = pendingBlockLabel(started.args, modelBlockKinds);
+            if (!label) return;
+            // Announce once the kind is known, and again when the reference completes.
+            const key = `${label.kind}|${label.reference ?? ""}`;
+            if (started.announced === key) return;
+            if (started.announced === null) markStage("block_pending");
+            started.announced = key;
+            write({ type: "block_pending", kind: label.kind, reference: label.reference });
+          },
           onTextDelta: (delta) => {
             if (awaitingRoundText && delta.trim()) {
               awaitingRoundText = false;
@@ -659,8 +687,10 @@ export async function handleChatRequest(args: {
                   passage: passagePlaces?.chapterReference ?? null,
                 });
               }
+              const announced = [...startedBlockCalls.values()].some((c) => c.callId === call.callId && c.announced);
               if (!result.ok) {
                 chatLog("warn", "ui_block_rejected", { correlationId, conversationId, reason: result.reason });
+                if (announced) write({ type: "block_pending_cancel" });
                 return `Rejected: ${result.reason}`;
               }
               if (result.block.kind === "quick_replies") {
