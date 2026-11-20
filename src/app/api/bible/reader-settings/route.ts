@@ -7,7 +7,7 @@ import { getCurrentProviderType, getDefaultTranslation, getAvailableTranslations
 // Valid enum values
 const VALID_FONT_TYPES = ["serifA", "serifB", "sansSerif", "serif"] as const;
 const VALID_LINE_SPACINGS = ["compact", "normal", "relaxed"] as const;
-const VALID_THEMES = ["light", "sepia", "dark"] as const;
+const VALID_THEMES = ["light", "sepia", "dark", "vigil"] as const;
 const VALID_COLORS = ["yellow", "green", "blue", "pink", "orange"] as const;
 const VALID_TRANSLATIONS = ["BSB", "KJV", "WEB", "ASV", "NLT"] as const;
 
