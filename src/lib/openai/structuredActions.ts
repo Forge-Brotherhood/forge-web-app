@@ -155,11 +155,32 @@ const findBookVerseRefs = (text: string): string[] => {
   return matches.map((m) => m.trim());
 };
 
-const findBareChapterVerseRefs = (text: string): string[] => {
+// A sentence ends somewhere in the text between two references.
+const SENTENCE_BREAK = /[.!?]["')\]]*\s+[A-Z]|\n/;
+
+const findBareChapterVerseRefs = (text: string, context: { bookId: string } | null): ParsedVerseRef[] => {
   // Match chapter:verse without a book (e.g., "8:5-11"), commonly used after a book was mentioned.
-  const re = /\b\d{1,3}:\d{1,3}(?:\s*[-–]\s*\d{1,3})?\b/g;
-  const matches = text.match(re) ?? [];
-  return matches.map((m) => m.trim());
+  // It belongs to the last book named earlier in the same sentence ("Isaiah 40:3 and 40:5"),
+  // otherwise to the book being read. References that name their book are matched here too, so
+  // they are skipped rather than counted again as bare ones ("Isaiah 40:3" as "Matthew 40:3").
+  const re = new RegExp(
+    `\\b(?:(${BOOK_ALT})\\.?\\s*)?(\\d{1,3}:\\d{1,3}(?:\\s*[-–]\\s*\\d{1,3})?)\\b`,
+    "gi"
+  );
+  const out: ParsedVerseRef[] = [];
+  let sentenceBook: { bookId: string } | null = null;
+  let previousEnd = 0;
+  for (const m of text.matchAll(re)) {
+    if (SENTENCE_BREAK.test(text.slice(previousEnd, m.index))) sentenceBook = null;
+    previousEnd = m.index + m[0].length;
+    if (m[1]) {
+      sentenceBook = parseVerseRef(m[0]);
+      continue;
+    }
+    const parsed = parseBareChapterVerseRef(m[2], sentenceBook ?? context);
+    if (parsed) out.push(parsed);
+  }
+  return out;
 };
 
 const parseBareChapterVerseRef = (
@@ -247,7 +268,7 @@ export const extractUiActionsDeterministic = (args: {
       : null;
 
   const refs = [...findBookVerseRefs(answer)];
-  const bareRefs = findBareChapterVerseRefs(answer);
+  const bareRefs = findBareChapterVerseRefs(answer, contextParsed ? { bookId: contextParsed.bookId } : null);
   const chapterRefs = (() => {
     const re = new RegExp(`\\b(?:${BOOK_ALT})\\.?\\s+\\d{1,3}\\b(?!\\s*:)`, "gi");
     return (answer.match(re) ?? []).map((m) => m.trim());
@@ -258,9 +279,7 @@ export const extractUiActionsDeterministic = (args: {
       ...refs
         .map((r) => parseVerseRef(r))
         .filter((x): x is ParsedVerseRef => Boolean(x)),
-      ...bareRefs
-        .map((r) => parseBareChapterVerseRef(r, contextParsed ? { bookId: contextParsed.bookId } : null))
-        .filter((x): x is ParsedVerseRef => Boolean(x)),
+      ...bareRefs,
       ...(contextParsed ? [contextParsed] : []),
       ...chapterRefs
         .map((r) => parseChapterRef(r))
