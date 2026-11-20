@@ -9,6 +9,7 @@ const updateUserPlanSchema = z.object({
     .enum(["scheduled", "active", "paused", "completed", "canceled"])
     .optional(),
   notifyDaily: z.boolean().optional(),
+  startDate: z.string().datetime().optional(),
 });
 
 // Helper to get user's plan with ownership check
@@ -163,10 +164,14 @@ export async function PATCH(
 
     const body = await request.json();
     const validatedData = updateUserPlanSchema.parse(body);
+    const { startDate: startDateStr, ...rest } = validatedData;
 
     const userPlan = await prisma.userReadingPlan.update({
       where: { id: existingPlan.id },
-      data: validatedData,
+      data: {
+        ...rest,
+        ...(startDateStr ? { startDate: new Date(startDateStr) } : {}),
+      },
     });
 
     return NextResponse.json({
