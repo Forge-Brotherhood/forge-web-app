@@ -23,8 +23,6 @@ import {
   Loader2,
   ChevronRight,
   Pencil,
-  Flame,
-  Heart,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useClerk, useUser } from "@clerk/nextjs";
@@ -37,10 +35,6 @@ export default function MePage() {
   const { signOut } = useClerk();
   const { user: clerkUser } = useUser();
   const [mounted, setMounted] = useState(false);
-  const [userStats, setUserStats] = useState({
-    prayerCount: 0,
-    encouragementCount: 0,
-  });
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -58,19 +52,12 @@ export default function MePage() {
     }
   }, [clerkUser]);
 
-  // Fetch user statistics and avatar from API
+  // Fetch user avatar from API
   useEffect(() => {
     const fetchUserData = async () => {
       if (!clerkUser) return;
 
       try {
-        // Fetch user stats
-        const statsResponse = await fetch(`/api/users/${clerkUser.id}/stats`);
-        if (statsResponse.ok) {
-          const stats = await statsResponse.json();
-          setUserStats(stats);
-        }
-
         // Fetch user profile with avatar from database
         const profileResponse = await fetch(`/api/profile`);
         if (profileResponse.ok) {
@@ -257,32 +244,6 @@ export default function MePage() {
           <p className="text-muted-foreground mb-4">
             {clerkUser.primaryEmailAddress?.emailAddress}
           </p>
-
-          {/* Stats */}
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                <Flame className="w-4 h-4 text-primary" />
-              </div>
-              <div className="text-left">
-                <p className="text-lg font-semibold text-foreground">
-                  {userStats.prayerCount}
-                </p>
-                <p className="text-xs text-muted-foreground">Prayers</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-pink-500/10 flex items-center justify-center">
-                <Heart className="w-4 h-4 text-pink-500" />
-              </div>
-              <div className="text-left">
-                <p className="text-lg font-semibold text-foreground">
-                  {userStats.encouragementCount}
-                </p>
-                <p className="text-xs text-muted-foreground">Encouraged</p>
-              </div>
-            </div>
-          </div>
 
           {/* Edit Profile Button */}
           <Button
