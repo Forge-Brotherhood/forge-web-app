@@ -18,7 +18,7 @@ export async function runSuggestedQuestions(args: {
     "Rules:",
     '- Output JSON only: {"questions":["..."]}',
     "- Return 2–3 questions (prefer 3 when possible).",
-    "- Each question <= 90 characters.",
+    "- Each question <= 45 characters (about 4-8 words); they are shown as one-line buttons.",
     "- Avoid personal application questions.",
     "- Avoid yes/no questions.",
     "- Avoid speculation beyond the text.",
