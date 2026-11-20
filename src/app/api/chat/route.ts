@@ -17,6 +17,8 @@ const requestSchema = z.object({
   verseText: z.string().min(1).max(8000).optional(),
   selectionState: z.enum(["selected", "visible"]).optional(),
   includeSuggestedQuestions: z.boolean().optional(),
+  // Inline UI block kinds the client can render (streaming only).
+  uiBlocks: z.array(z.string().max(40)).max(20).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -35,6 +37,7 @@ export async function POST(request: NextRequest) {
         verseText?: string;
         selectionState?: "selected" | "visible";
         includeSuggestedQuestions?: boolean;
+        uiBlocks?: string[];
       },
       force: { mode: "general" },
     });

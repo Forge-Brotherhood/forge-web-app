@@ -14,7 +14,7 @@ import { buildMapBlockFromModel, describePassagePlaces, type MapCardBlock, type 
  * point in the answer. Clients opt in by sending the kinds they can render.
  */
 
-export const GUIDE_BLOCK_KINDS = ["passage_card", "prayer_card", "cross_refs", "map_card"] as const;
+export const GUIDE_BLOCK_KINDS = ["passage_card", "prayer_card", "cross_refs", "map_card", "quick_replies"] as const;
 export type GuideBlockKind = (typeof GUIDE_BLOCK_KINDS)[number];
 
 export const SHOW_BLOCK_TOOL_NAME = "show_block";
@@ -44,6 +44,14 @@ export type GuideBlock =
       fallback_text: string;
       title?: string;
       body: string;
+    }
+  | {
+      id: string;
+      kind: "quick_replies";
+      v: 1;
+      fallback_text: string;
+      /** Short answers to the guide's closing question, in the user's voice. Always sent last. */
+      options: string[];
     }
   | {
       id: string;
@@ -102,7 +110,25 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
     caption: optionalText(200),
     places: z.array(z.string().trim().min(1)).min(1).max(8),
   }),
+  z.object({
+    kind: z.literal("quick_replies"),
+    options: z
+      .array(z.string().trim().min(1).max(60))
+      .min(2)
+      .max(4)
+      .refine((o) => new Set(o.map((s) => s.toLowerCase())).size === o.length, "options must be distinct"),
+  }),
 ]);
+
+/** quick_replies always ends the reply, so the model need not be asked to continue after it. */
+export const isQuickRepliesCall = (call: { name: string; argumentsJson: string }): boolean => {
+  if (call.name !== SHOW_BLOCK_TOOL_NAME) return false;
+  try {
+    return (JSON.parse(call.argumentsJson) as { kind?: unknown })?.kind === "quick_replies";
+  } catch {
+    return false;
+  }
+};
 
 export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
   type: "function",
@@ -127,6 +153,12 @@ export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
         items: { type: "string" },
       },
       body: { type: "string", description: "prayer_card only: the prayer, in the first person, that the user can pray." },
+      options: {
+        type: "array",
+        description:
+          "quick_replies only: 2 to 4 distinct short answers to your closing question, written as the user would say them (first person, under 8 words each).",
+        items: { type: "string" },
+      },
       items: {
         type: "array",
         description: "cross_refs only: 2 to 6 related passages.",
@@ -154,6 +186,8 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
       "- cross_refs: when pointing the user to 2 to 6 other passages on the same theme, each with a short reason. Use this instead of listing those references in your prose.",
     map_card:
       "- map_card: when the user asks where something happened, how far apart places are, or about travel, or when seeing the places genuinely helps. Pass the places that matter to the answer (not every place mentioned), by id from the places list when one is given. The app draws the map from its own place data; do not give coordinates.",
+    quick_replies:
+      "- quick_replies: the app can show answer buttons under your closing question. Call quick_replies whenever your reply ends with a question that offers the user choices (\"integrity, courage, or patience?\", \"go deeper or move on?\", \"which of these...?\") or that has 2 to 4 obvious short answers (for example which part of life this touches, or whether to go deeper or move on). This is required, not optional: if your question names its choices, the user must get them as buttons. When you offer choices, offer at most 4, and make each option one of the choices you named, written as the user's own answer (first person, under 8 words). Ask the question in your prose, then call quick_replies as the very last thing and write nothing after it; the user can still type their own answer. It does not count toward the card limit. Skip it only for open reflection questions that ask the user to put something personal in their own words (for example \"What is one thing you sense God asking of you?\"); a canned answer would cheapen that. A personal topic is not a reason to skip it when your question itself offers choices.",
   };
   const placesList = kinds.includes("map_card") ? describePassagePlaces(passage) : "";
   return [
@@ -245,6 +279,19 @@ export async function resolveShowBlockCall(args: {
       passage: args.passage ?? null,
     });
     return result.ok ? { ok: true, block: result.block, unresolvedPlaces: result.unresolved } : result;
+  }
+
+  if (input.kind === "quick_replies") {
+    return {
+      ok: true,
+      block: {
+        id: args.blockId,
+        kind: "quick_replies",
+        v: 1,
+        options: input.options,
+        fallback_text: `(Reply options: ${input.options.join(" / ")})`,
+      },
+    };
   }
 
   if (input.kind === "prayer_card") {
@@ -344,6 +391,31 @@ export async function resolveShowBlockCall(args: {
     },
   };
 }
+
+const OPEN_QUESTION_START = /^(who|what|when|where|why|how|which|is|are|do|does|did|will|would|can|could|should)\b/i;
+
+/**
+ * Fallback for when the model ends on a question that lists its own choices after a colon
+ * ("Where do you feel it most: pressure, compromise, or fear?") but did not call quick_replies.
+ * Returns those choices as reply options, or null when the ending isn't such a list.
+ */
+export const closingChoiceOptions = (answerText: string): string[] | null => {
+  const text = answerText.trim();
+  if (!text.endsWith("?")) return null;
+  const colon = text.lastIndexOf(": ");
+  // The colon must be in the closing sentence.
+  if (colon === -1 || /[.!?]\s/.test(text.slice(colon))) return null;
+  const list = text.slice(colon + 2, -1).trim();
+  if (OPEN_QUESTION_START.test(list)) return null;
+  const items = list
+    .split(/,\s*|\s+or\s+/)
+    .map((i) => i.replace(/^(?:or|and)\s+/i, "").trim())
+    .filter((i) => i && !/^(?:something|anything) else$/i.test(i));
+  if (items.length < 2 || items.length > 5) return null;
+  if (items.some((i) => i.length > 40 || i.split(/\s+/).length > 6)) return null;
+  const options = items.map((i) => i.charAt(0).toUpperCase() + i.slice(1));
+  return new Set(options.map((o) => o.toLowerCase())).size === options.length ? options : null;
+};
 
 /** References shown in blocks, so matching NAVIGATE_TO_VERSE chips can be dropped. */
 export const blockReferences = (blocks: GuideBlock[]): Set<string> => {

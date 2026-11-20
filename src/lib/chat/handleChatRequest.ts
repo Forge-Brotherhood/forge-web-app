@@ -18,6 +18,8 @@ import {
   blockReferences,
   buildShowBlockTool,
   buildUiBlocksSystemPrompt,
+  closingChoiceOptions,
+  isQuickRepliesCall,
   parseClientBlockKinds,
   resolveShowBlockCall,
   type GuideBlock,
@@ -367,6 +369,8 @@ export async function handleChatRequest(args: {
       const mainPromise = runWithFreshThreadOnDanglingCall((threadId) => runMainChatResponse({
         openaiApiKey,
         model: "gpt-5.5",
+        // Low effort cuts time to first text by more than half; answers are short single paragraphs.
+        reasoningEffort: "low",
         openaiConversationId: threadId,
         messages: bundle.messages,
         tools,
@@ -494,8 +498,14 @@ export async function handleChatRequest(args: {
   const stream = new ReadableStream<Uint8Array>({
     start: async (controller) => {
       const write = (evt: SSEEvent) => controller.enqueue(encoder.encode(sseEncode(evt)));
+      // "label@ms since request start" for each stage, logged with stream_success.
+      const stageMarks: string[] = [];
+      const markStage = (label: string) => stageMarks.push(`${label}@${Date.now() - requestStartTime}`);
+      // True until the first text of each model round (the first round, and each round after a tool).
+      let awaitingRoundText = true;
 
       stage = "stream_start";
+      markStage("stream_start");
       chatLog("info", "stream_start", {
         correlationId,
         conversationId,
@@ -519,6 +529,7 @@ export async function handleChatRequest(args: {
           verseText: args.input.verseText,
           selectionState: args.input.selectionState,
         });
+        markStage("bundle");
 
         const shouldGenerateQuestions =
           Boolean(args.input.includeSuggestedQuestions) &&
@@ -535,7 +546,9 @@ export async function handleChatRequest(args: {
               verseReference: args.input.verseReference,
               verseText: args.input.verseText,
               injectedInstructions: bundle.injectedInstructions,
-            }).catch(() => [])
+            })
+              .catch(() => [])
+              .finally(() => markStage("questions"))
           : Promise.resolve([] as string[]);
 
         if (isInternalBypass) {
@@ -556,6 +569,7 @@ export async function handleChatRequest(args: {
           blockKinds.includes("map_card") && entrypoint === "bible_reader"
             ? await getPassagePlaces(args.input.verseReference, args.input.selectionState).catch(() => null)
             : null;
+        markStage("places");
         const blocks: GuideBlock[] = [];
         let blockCount = 0;
         // Keep prose first: a block requested before any answer text is held and emitted
@@ -565,6 +579,8 @@ export async function handleChatRequest(args: {
         const flushHeldBlocks = () => {
           for (const block of heldBlocks.splice(0)) write({ type: "block", block });
         };
+        // Quick replies answer the guide's closing question, so they always go out after all text.
+        let quickReplies: GuideBlock | null = null;
 
         const tools = modelBlockKinds.length
           ? [...buildContextToolsForUser(), buildShowBlockTool(modelBlockKinds)]
@@ -584,24 +600,35 @@ export async function handleChatRequest(args: {
         const { finalText, responseId } = await runWithFreshThreadOnDanglingCall((threadId) => runMainChatResponse({
           openaiApiKey,
           model: "gpt-5.5",
+          // Low effort cuts time to first text by more than half; answers are short single paragraphs.
+          reasoningEffort: "low",
           openaiConversationId: threadId,
           messages,
           tools,
           // A shown block costs one tool round trip, so allow one more when blocks are on.
           maxToolIterations: modelBlockKinds.length ? 4 : 3,
           signal: args.request.signal,
+          isFinalToolCall: isQuickRepliesCall,
           onTextDelta: (delta) => {
+            if (awaitingRoundText && delta.trim()) {
+              awaitingRoundText = false;
+              markStage("text");
+            }
             if (delta.trim()) answerTextStarted = true;
             write({ type: "delta", text: delta });
           },
-          onToolCall: (call) =>
+          onToolCall: (call) => {
+            markStage(call.name);
             write({
               type: "tool_call",
               callId: call.callId,
               name: call.name,
               argumentsJson: truncateForSse(call.argumentsJson, 20_000),
-            }),
+            });
+          },
           onToolResult: (call, output) => {
+            markStage(`${call.name}_done`);
+            awaitingRoundText = true;
             toolResults.push({ name: call.name, output });
             write({
               type: "tool_result",
@@ -636,6 +663,12 @@ export async function handleChatRequest(args: {
                 chatLog("warn", "ui_block_rejected", { correlationId, conversationId, reason: result.reason });
                 return `Rejected: ${result.reason}`;
               }
+              if (result.block.kind === "quick_replies") {
+                if (quickReplies) return "Rejected: only one set of quick_replies per reply";
+                quickReplies = result.block;
+                blocks.push(result.block);
+                return "Shown under your question. Do not write anything more.";
+              }
               blocks.push(result.block);
               if (answerTextStarted) {
                 flushHeldBlocks();
@@ -652,6 +685,22 @@ export async function handleChatRequest(args: {
             });
           },
         }), () => !answerTextStarted && blocks.length === 0);
+        markStage("model_done");
+
+        // The model sometimes ends on a question listing its own choices without offering them.
+        const closingOptions =
+          !quickReplies && modelBlockKinds.includes("quick_replies") ? closingChoiceOptions(finalText) : null;
+        if (closingOptions) {
+          quickReplies = {
+            id: `block-${++blockCount}`,
+            kind: "quick_replies",
+            v: 1,
+            options: closingOptions,
+            fallback_text: `(Reply options: ${closingOptions.join(" / ")})`,
+          };
+          blocks.push(quickReplies);
+          chatLog("info", "quick_replies_fallback", { correlationId, conversationId, options: closingOptions.length });
+        }
 
         stage = "persist_previous_response";
         await prisma.chatConversation
@@ -709,6 +758,7 @@ export async function handleChatRequest(args: {
         });
 
         flushHeldBlocks();
+        if (quickReplies) write({ type: "block", block: quickReplies });
 
         if (isGreeting && blockKinds.includes("map_card") && args.input.selectionState === "visible") {
           const greetingMap = buildChapterGreetingMap(passagePlaces, `block-${++blockCount}`);
@@ -737,6 +787,7 @@ export async function handleChatRequest(args: {
           uiBlocks: blocks.length,
           mapPlaces: blocks.reduce((n, b) => n + (b.kind === "map_card" ? b.places.length : 0), 0),
           latencyMs: Date.now() - requestStartTime,
+          stages: stageMarks.join(" "),
         });
         controller.close();
       } catch (err) {
