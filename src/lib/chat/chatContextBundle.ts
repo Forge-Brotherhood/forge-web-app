@@ -126,7 +126,6 @@ const buildPassageUnderDiscussionMessage = (args: {
 const buildBibleReaderVisibleStartSystemAddendum = (): string => {
   return [
     "BIBLE READER START: OPENING ORIENTATION (Prompt A)",
-    "You are Guide, a warm, attentive Bible companion inside a Scripture reading app.",
     "The user has opened this chat while reading Scripture.",
     "Passage focus: Visible verses. Treat the provided passage as the sole focus of the response.",
     "",
@@ -162,7 +161,6 @@ const buildBibleReaderVisibleStartSystemAddendum = (): string => {
 const buildBibleReaderSelectedStartSystemAddendum = (): string => {
   return [
     "BIBLE READER START: SELECTED VERSES (Explain start)",
-    "You are Guide, a careful Bible teacher inside a Scripture reading app.",
     "The user has selected one or more verses. Treat the selected passage as the sole focus.",
     "",
     "Write an explanation immediately. Do not include a greeting.",
