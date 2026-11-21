@@ -158,7 +158,10 @@ const findBookVerseRefs = (text: string): string[] => {
 // A sentence ends somewhere in the text between two references.
 const SENTENCE_BREAK = /[.!?]["')\]]*\s+[A-Z]|\n/;
 
-const findBareChapterVerseRefs = (text: string, context: { bookId: string } | null): ParsedVerseRef[] => {
+const findBareChapterVerseRefs = (
+  text: string,
+  context: { bookId: string } | null
+): Array<{ ref: ParsedVerseRef; mention: string }> => {
   // Match chapter:verse without a book (e.g., "8:5-11"), commonly used after a book was mentioned.
   // It belongs to the last book named earlier in the same sentence ("Isaiah 40:3 and 40:5"),
   // otherwise to the book being read. References that name their book are matched here too, so
@@ -167,7 +170,7 @@ const findBareChapterVerseRefs = (text: string, context: { bookId: string } | nu
     `\\b(?:(${BOOK_ALT})\\.?\\s*)?(\\d{1,3}:\\d{1,3}(?:\\s*[-–]\\s*\\d{1,3})?)\\b`,
     "gi"
   );
-  const out: ParsedVerseRef[] = [];
+  const out: Array<{ ref: ParsedVerseRef; mention: string }> = [];
   let sentenceBook: { bookId: string } | null = null;
   let previousEnd = 0;
   for (const m of text.matchAll(re)) {
@@ -178,7 +181,7 @@ const findBareChapterVerseRefs = (text: string, context: { bookId: string } | nu
       continue;
     }
     const parsed = parseBareChapterVerseRef(m[2], sentenceBook ?? context);
-    if (parsed) out.push(parsed);
+    if (parsed) out.push({ ref: parsed, mention: m[2] });
   }
   return out;
 };
@@ -239,13 +242,19 @@ const toChapterReferenceString = (ref: ParsedChapterRef): string => {
   return `${bookName} ${ref.chapter}`;
 };
 
-const makeNavigateToVerseAction = (reference: string, confidence: number, bookId?: string): AIAction => {
+/** `mention` is the reference as the answer wrote it, so the app can link that text. */
+const makeNavigateToVerseAction = (
+  reference: string,
+  confidence: number,
+  bookId?: string,
+  mention?: string
+): AIAction => {
   const id = `NAVIGATE_TO_VERSE:${reference}`;
   return {
     id,
     type: "NAVIGATE_TO_VERSE",
     version: 1,
-    params: { reference, bookId },
+    params: { reference, bookId, mention },
     resolved: null,
     confidence,
     priority: "secondary",
@@ -261,14 +270,18 @@ export const extractUiActionsDeterministic = (args: {
   const answer = args.answerText.trim();
   if (!answer) return [];
 
-  // Permissive deterministic extraction: every verse/chapter reference gets an action.
-  const contextParsed =
+  // Permissive deterministic extraction: every verse/chapter reference gets an action, except
+  // references into the chapter being read ("Matthew 13" or "Matthew 13:29-30"): the reader is
+  // already there. Its book also resolves references written without one ("8:5").
+  const context =
     typeof args.verseReference === "string" && args.verseReference.trim()
-      ? parseVerseRef(args.verseReference.trim())
+      ? parseChapterRef(args.verseReference.trim().split(":")[0])
       : null;
+  const isContextChapter = (ref: ParsedChapterRef) =>
+    context !== null && ref.bookId === context.bookId && ref.chapter === context.chapter;
 
   const refs = [...findBookVerseRefs(answer)];
-  const bareRefs = findBareChapterVerseRefs(answer, contextParsed ? { bookId: contextParsed.bookId } : null);
+  const bareRefs = findBareChapterVerseRefs(answer, context ? { bookId: context.bookId } : null);
   const chapterRefs = (() => {
     const re = new RegExp(`\\b(?:${BOOK_ALT})\\.?\\s+\\d{1,3}\\b(?!\\s*:)`, "gi");
     return (answer.match(re) ?? []).map((m) => m.trim());
@@ -276,23 +289,21 @@ export const extractUiActionsDeterministic = (args: {
 
   return uniqueByKey(
     [
-      ...refs
-        .map((r) => parseVerseRef(r))
-        .filter((x): x is ParsedVerseRef => Boolean(x)),
+      ...refs.map((r) => ({ ref: parseVerseRef(r), mention: r })),
       ...bareRefs,
-      ...(contextParsed ? [contextParsed] : []),
-      ...chapterRefs
-        .map((r) => parseChapterRef(r))
-        .filter((x): x is ParsedChapterRef => Boolean(x)),
+      ...chapterRefs.map((r) => ({ ref: parseChapterRef(r), mention: r })),
     ]
-      .map((x) => {
-        if ("verseStart" in x) {
-          const ref = x as ParsedVerseRef;
-          return makeNavigateToVerseAction(toVerseReferenceString(ref), 0.95, ref.bookId);
-        }
-        const ref = x as ParsedChapterRef;
-        return makeNavigateToVerseAction(toChapterReferenceString(ref), 0.95, ref.bookId);
-      }),
+      .filter((x): x is { ref: ParsedVerseRef | ParsedChapterRef; mention: string } =>
+        x.ref !== null && !isContextChapter(x.ref)
+      )
+      .map(({ ref, mention }) =>
+        makeNavigateToVerseAction(
+          "verseStart" in ref ? toVerseReferenceString(ref) : toChapterReferenceString(ref),
+          0.95,
+          ref.bookId,
+          mention
+        )
+      ),
     (a) => a.id
   ).slice(0, 15);
 };
