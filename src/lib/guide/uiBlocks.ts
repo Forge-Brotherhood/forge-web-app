@@ -221,7 +221,8 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
     kind: z.literal("context_callout"),
     category: z.enum(CONTEXT_CATEGORIES),
     title: z.string().trim().min(1).max(60),
-    body: z.string().trim().min(40).max(420),
+    // Room for the 2 to 3 sentences the prompt asks for; 420 rejected real answers.
+    body: z.string().trim().min(40).max(700),
     ref_key: optionalText(20),
   }),
   z.object({
