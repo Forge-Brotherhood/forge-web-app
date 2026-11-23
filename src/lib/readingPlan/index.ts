@@ -11,9 +11,6 @@ export * from "./planGenerationTypes";
 // Prompts
 export { buildSystemPrompt, buildUserPrompt, buildUserContextBlock } from "./planGenerationPrompts";
 
-// User Context
-export { gatherUserContextForGeneration } from "./gatherUserContext";
-
 // Generation
 export { generateReadingPlan, generatePassageRef } from "./generatePlan";
 export type { GeneratePlanResult, GeneratePlanError } from "./generatePlan";

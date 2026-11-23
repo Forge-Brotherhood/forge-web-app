@@ -97,7 +97,6 @@ export type GeneratedPlan = z.infer<typeof generatedPlanSchema>;
 export const generatePlanRequestSchema = z.object({
   topic: z.string().min(3, "Topic must be at least 3 characters").max(500),
   durationDays: z.number().int().min(3).max(30).optional().default(7),
-  includeContext: z.boolean().optional().default(true),
 });
 
 export type GeneratePlanRequest = z.infer<typeof generatePlanRequestSchema>;
@@ -169,7 +168,6 @@ export type PlanOutline = z.infer<typeof planOutlineSchema>;
 export const generateOutlineRequestSchema = z.object({
   topic: z.string().min(3, "Topic must be at least 3 characters").max(500),
   durationDays: z.number().int().min(3).max(30).optional().default(7),
-  includeContext: z.boolean().optional().default(true),
 });
 
 export type GenerateOutlineRequest = z.infer<typeof generateOutlineRequestSchema>;

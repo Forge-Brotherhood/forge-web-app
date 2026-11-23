@@ -130,16 +130,6 @@ export async function GET(
       },
     });
 
-    // Get user's reflections for today
-    const reflections = await prisma.readingPlanReflection.findMany({
-      where: {
-        userPlanId: userPlan.id,
-        templateDayId: templateDay.id,
-        userId: authResult.userId,
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
     return NextResponse.json({
       success: true,
       today: {
@@ -221,13 +211,6 @@ export async function GET(
               hasPrayed: false,
               completedAt: null,
             },
-        reflections: reflections.map((r) => ({
-          id: r.id,
-          kind: r.kind,
-          content: r.content,
-          audioUrl: r.audioUrl,
-          createdAt: r.createdAt.toISOString(),
-        })),
       },
     });
   } catch (error) {

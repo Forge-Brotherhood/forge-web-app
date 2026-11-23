@@ -5,7 +5,6 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 
 import { generateFullFromOutlineRequestSchema } from "@/lib/readingPlan/planGenerationTypes";
-import { gatherUserContextForGeneration } from "@/lib/readingPlan/gatherUserContext";
 import { generateFullPlanFromOutline, generatePassageRef } from "@/lib/readingPlan/generatePlan";
 import type { ScriptureBlock } from "@/lib/readingPlan/planGenerationTypes";
 
@@ -44,9 +43,6 @@ export async function POST(request: NextRequest) {
 
     const { outline, modifications } = validationResult.data;
 
-    // Gather user context for personalized content
-    const userContext = await gatherUserContextForGeneration(authResult.userId);
-
     // Generate full plan from outline
     const generationResult = await generateFullPlanFromOutline(
       outline,
@@ -54,7 +50,6 @@ export async function POST(request: NextRequest) {
         topic: outline.template.title, // Use outline title as topic
         durationDays: outline.template.totalDays,
         mode: "user",
-        userContext,
       },
       modifications
     );

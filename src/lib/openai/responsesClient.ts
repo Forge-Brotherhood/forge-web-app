@@ -14,6 +14,12 @@ export type ResponsesInputMessage = {
 
 export type ResponsesStreamResult = {
   responseId: string | null;
+  /** Everything this request added (its input, the model's output, tool outputs), to append to `history`. */
+  items: unknown[];
+  /** Calls only the client can answer. When there are any, the reply is not finished. */
+  pendingToolCalls: ContextToolCall[];
+  /** Token usage of each model round, as OpenAI reports it. */
+  usage: unknown[];
 };
 
 export type ContextToolCall = {
@@ -25,8 +31,15 @@ export type ContextToolCall = {
 type StreamArgs = {
   apiKey: string;
   model: string;
-  input: unknown;
-  conversationId: string | null;
+  /** System messages for this request. Sent first; not part of the conversation's history. */
+  instructions: ResponsesInputMessage[];
+  /**
+   * The conversation so far: every earlier request's `ResponsesStreamResult.items`, in order.
+   * Nothing is stored at OpenAI, so the whole conversation is replayed on each request.
+   */
+  history: unknown[];
+  /** What this request adds: the user's message, or the outputs of pending tool calls. */
+  input: unknown[];
   tools: ResponsesTool[];
   maxToolIterations: number;
   signal?: AbortSignal;
@@ -34,13 +47,15 @@ type StreamArgs = {
   reasoningEffort?: "low" | "medium" | "high";
   onTextDelta: (delta: string) => void;
   onToolCall: (call: ContextToolCall) => Promise<string>;
+  /** Calls the server cannot answer (they read data only the client holds). They are left pending. */
+  isClientToolCall?: (call: ContextToolCall) => boolean;
   /** A tool call has started streaming; its arguments follow. */
   onToolCallStarted?: (call: ToolCallStart) => void;
   /** A piece of a started call's arguments, as the model writes them. */
   onToolCallArgumentsDelta?: (itemId: string, delta: string) => void;
   /**
-   * Calls that end the reply. When every call in a round is one of these, their outputs are saved
-   * to the conversation instead of asking the model to continue (which costs a full round trip).
+   * Calls that end the reply. When every call in a round is one of these, their outputs are
+   * recorded and the model is not asked to continue (which costs a full round trip).
    */
   isFinalToolCall?: (call: ContextToolCall) => boolean;
 };
@@ -57,6 +72,7 @@ type ResponseCompletedEvent = {
   response: {
     id: string;
     output?: unknown[];
+    usage?: unknown;
   };
 };
 
@@ -157,7 +173,6 @@ async function runSingleResponsesStream(args: {
   model: string;
   input: unknown;
   tools: ResponsesTool[];
-  conversationId: string | null;
   signal?: AbortSignal;
   reasoningEffort?: "low" | "medium" | "high";
   onTextDelta: (delta: string) => void;
@@ -175,7 +190,10 @@ async function runSingleResponsesStream(args: {
       model: args.model,
       input: args.input,
       tools: args.tools,
-      ...(args.conversationId ? { conversation: args.conversationId } : {}),
+      // Nothing is kept at OpenAI, so the model's reasoning comes back encrypted for the
+      // conversation's owner to replay on the next turn.
+      store: false,
+      include: ["reasoning.encrypted_content"],
       ...(args.reasoningEffort ? { reasoning: { effort: args.reasoningEffort } } : {}),
       stream: true,
     }),
@@ -259,53 +277,19 @@ async function runSingleResponsesStream(args: {
   return { responseId: lastResponseId, completed: completedEvent };
 }
 
-export async function createOpenAIConversation(apiKey: string): Promise<string> {
-  const response = await fetch("https://api.openai.com/v1/conversations", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({}),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Failed to create OpenAI conversation: ${response.status} - ${text}`);
-  }
-
-  const data = (await response.json()) as { id: string };
-  return data.id;
-}
-
-/** Adds items to a conversation without running the model. */
-async function addConversationItems(apiKey: string, conversationId: string, items: unknown[]): Promise<void> {
-  const response = await fetch(`https://api.openai.com/v1/conversations/${conversationId}/items`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ items }),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Failed to add conversation items: ${response.status} - ${text}`);
-  }
-}
-
 export async function streamResponsesWithTools(args: StreamArgs): Promise<ResponsesStreamResult> {
   let lastResponseId: string | null = null;
-  let input: unknown = args.input;
+  const items: unknown[] = [...args.input];
+  const usage: unknown[] = [];
+  let pendingToolCalls: ContextToolCall[] = [];
   let streamedAnyText = false;
 
   for (let i = 0; i < Math.max(1, args.maxToolIterations); i++) {
     const res = await runSingleResponsesStream({
       apiKey: args.apiKey,
       model: args.model,
-      input,
+      input: [...args.instructions, ...args.history, ...items],
       tools: args.tools,
-      conversationId: args.conversationId,
       signal: args.signal,
       reasoningEffort: args.reasoningEffort,
       onTextDelta: (delta) => {
@@ -317,6 +301,8 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
     });
 
     lastResponseId = res.responseId ?? lastResponseId;
+    items.push(...(res.completed?.response?.output ?? []));
+    if (res.completed?.response?.usage) usage.push(res.completed.response.usage);
 
     // Fallback: if no deltas were streamed for this segment, try to extract the final text
     // from the completed response output.
@@ -328,10 +314,13 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
     const toolCalls = extractToolCallsFromCompletedResponse(res.completed?.response?.output);
     if (toolCalls.length === 0) break;
 
+    pendingToolCalls = args.isClientToolCall ? toolCalls.filter(args.isClientToolCall) : [];
+    const ownCalls = toolCalls.filter((call) => !pendingToolCalls.includes(call));
+
     const outputs = await Promise.all(
-      toolCalls.map(async (call) => {
-        // Every call must get an output: a call left unanswered breaks the conversation for good
-        // ("No tool output found for function call").
+      ownCalls.map(async (call) => {
+        // Every call must get an output: the model rejects a conversation that holds a call
+        // without one.
         const output = await args.onToolCall(call).catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
           console.error(`[Responses] Tool ${call.name} failed:`, message);
@@ -344,27 +333,16 @@ export async function streamResponsesWithTools(args: StreamArgs): Promise<Respon
         };
       })
     );
+    items.push(...outputs);
 
-    // The reply is finished: record the outputs so the conversation stays valid, and stop.
-    // If that fails, fall through and let the model answer them as usual.
-    if (args.conversationId && args.isFinalToolCall && toolCalls.every(args.isFinalToolCall)) {
-      const saved = await addConversationItems(args.apiKey, args.conversationId, outputs).then(
-        () => true,
-        (err: unknown) => {
-          console.error("[Responses] Saving final tool outputs failed:", err instanceof Error ? err.message : err);
-          return false;
-        }
-      );
-      if (saved) break;
-    }
+    // The client has to answer the rest before the model can continue.
+    if (pendingToolCalls.length > 0) break;
 
-    // Next loop uses tool outputs as the new input, continuing the response chain.
-    // We keep tools enabled so the model can call additional tools if needed.
-    input = outputs;
+    // The reply is finished: the outputs are recorded, and the model is not asked to continue.
+    if (args.isFinalToolCall && toolCalls.every(args.isFinalToolCall)) break;
+
     streamedAnyText = false;
   }
 
-  return { responseId: lastResponseId };
+  return { responseId: lastResponseId, items, pendingToolCalls, usage };
 }
-
-

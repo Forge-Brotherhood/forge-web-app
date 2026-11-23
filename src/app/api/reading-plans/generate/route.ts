@@ -5,7 +5,6 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 
 import { generatePlanRequestSchema } from "@/lib/readingPlan/planGenerationTypes";
-import { gatherUserContextForGeneration } from "@/lib/readingPlan/gatherUserContext";
 import { generateReadingPlan, generatePassageRef } from "@/lib/readingPlan/generatePlan";
 
 // Helper to generate slug from title
@@ -41,19 +40,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { topic, durationDays, includeContext } = validationResult.data;
-
-    // Gather user context if requested
-    const userContext = includeContext
-      ? await gatherUserContextForGeneration(authResult.userId)
-      : undefined;
+    const { topic, durationDays } = validationResult.data;
 
     // Generate the plan using AI
     const generationResult = await generateReadingPlan({
       topic,
       durationDays,
       mode: "user", // Personal devotional mode
-      userContext,
     });
 
     if (!generationResult.success) {

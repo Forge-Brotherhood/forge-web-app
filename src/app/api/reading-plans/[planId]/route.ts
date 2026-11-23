@@ -53,7 +53,7 @@ export async function GET(
           },
         },
         _count: {
-          select: { progress: true, reflections: true },
+          select: { progress: true },
         },
       },
     });
@@ -130,7 +130,6 @@ export async function GET(
           })),
         },
         progressCount: userPlan._count.progress,
-        reflectionsCount: userPlan._count.reflections,
         createdAt: userPlan.createdAt.toISOString(),
       },
     });
