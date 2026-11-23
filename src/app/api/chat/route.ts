@@ -1,44 +1,39 @@
 import { z } from "zod";
 import { NextRequest } from "next/server";
-import { handleChatRequest } from "@/lib/chat/handleChatRequest";
-import type { ChatEntrypoint, ChatMode } from "@/lib/chat/chatContextBundle";
+import { getAuth } from "@/lib/auth";
+import { chatRequestFields, handleChatRequest, refineChatRequest } from "@/lib/chat/handleChatRequest";
 
 export const runtime = "nodejs";
 
 const entrypointSchema = z.enum(["bible_reader", "home", "community", "other"]);
 const modeSchema = z.enum(["general", "bible"]);
 
-const requestSchema = z.object({
-  conversationId: z.string().min(1).max(128).optional(),
-  message: z.string().min(1).max(4000),
-  entrypoint: entrypointSchema.optional(),
-  mode: modeSchema.optional(),
-  verseReference: z.string().min(1).max(200).optional(),
-  verseText: z.string().min(1).max(8000).optional(),
-  selectionState: z.enum(["selected", "visible"]).optional(),
-  includeSuggestedQuestions: z.boolean().optional(),
-  // Inline UI block kinds the client can render (streaming only).
-  uiBlocks: z.array(z.string().max(40)).max(20).optional(),
-});
+const requestSchema = z
+  .object({
+    ...chatRequestFields,
+    entrypoint: entrypointSchema.optional(),
+    mode: modeSchema.optional(),
+    verseReference: z.string().min(1).max(200).optional(),
+  })
+  .superRefine(refineChatRequest);
 
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await getAuth();
+    if (!authResult) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      });
+    }
+
     const body = await request.json().catch(() => ({}));
     const input = requestSchema.parse(body);
     return await handleChatRequest({
       request,
+      userId: authResult.userId,
       surface: "general",
-      input: input as unknown as {
-        conversationId?: string;
-        message: string;
-        entrypoint?: ChatEntrypoint;
-        mode?: ChatMode;
-        verseReference?: string;
-        verseText?: string;
-        selectionState?: "selected" | "visible";
-        includeSuggestedQuestions?: boolean;
-        uiBlocks?: string[];
-      },
+      input,
       force: { mode: "general" },
     });
   } catch (err) {

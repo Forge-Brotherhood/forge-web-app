@@ -6,7 +6,9 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { EMBEDDING_MODEL, EMBEDDING_DIMENSION } from "@/lib/artifacts/types";
+
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const EMBEDDING_DIMENSION = 1536;
 
 // =============================================================================
 // Types

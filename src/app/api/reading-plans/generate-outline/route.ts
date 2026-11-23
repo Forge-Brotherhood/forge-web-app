@@ -3,7 +3,6 @@ import { getAuth } from "@/lib/auth";
 import { z } from "zod";
 
 import { generateOutlineRequestSchema } from "@/lib/readingPlan/planGenerationTypes";
-import { gatherUserContextForGeneration } from "@/lib/readingPlan/gatherUserContext";
 import { generatePlanOutline } from "@/lib/readingPlan/generatePlan";
 
 // POST /api/reading-plans/generate-outline
@@ -30,19 +29,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { topic, durationDays, includeContext } = validationResult.data;
-
-    // Gather user context if requested
-    const userContext = includeContext
-      ? await gatherUserContextForGeneration(authResult.userId)
-      : undefined;
+    const { topic, durationDays } = validationResult.data;
 
     // Generate the outline
     const result = await generatePlanOutline({
       topic,
       durationDays,
       mode: "user",
-      userContext,
     });
 
     if (!result.success) {

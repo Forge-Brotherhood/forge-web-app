@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { Webhook } from "svix";
 import { clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
+import { wipeVault } from "@/lib/vault/vaultStore";
 import { BanState } from "@prisma/client";
 
 // Clerk webhook event types
@@ -118,6 +119,9 @@ export async function POST(req: Request) {
       where: { clerkId: evt.data.id },
       data: { banState: BanState.banned },
     });
+    // A deleted account's private records go with it.
+    const deleted = await prisma.user.findUnique({ where: { clerkId: evt.data.id }, select: { id: true } });
+    if (deleted) await wipeVault(deleted.id);
   }
 
   // Optional: merge guest data when a session is created

@@ -1,21 +1,60 @@
-import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 import { TOOL_ENABLED_GUIDE_SYSTEM_PROMPT } from "@/lib/chat/toolEnabledSystemPrompt";
-import { getAiContextForUser } from "@/lib/ai/userContext";
-import { getUserMemoryState, type MemoryNote } from "@/lib/memory/userMemoryStateStore";
 import type { ResponsesInputMessage } from "@/lib/openai/responsesClient";
 
 export type ChatEntrypoint = "bible_reader" | "home" | "community" | "other";
 export type ChatMode = "general" | "bible";
 
+const noteSchema = z.object({
+  text: z.string().min(1).max(400),
+  keywords: z.array(z.string().max(40)).max(8).optional(),
+});
+
+/**
+ * What the Guide knows about the user for this request. The app sends it each time, read from
+ * the user's own encrypted records; the server keeps none of it.
+ */
+export const chatContextSchema = z.object({
+  profile: z
+    .object({
+      name: z.string().max(100).optional(),
+      preferredTranslation: z.string().max(20).optional(),
+      explanationStyle: z.string().max(40).optional(),
+      experienceLevel: z.string().max(40).optional(),
+      studyIntent: z.array(z.string().max(40)).max(8).optional(),
+      season: z.string().max(40).optional(),
+      seasonNote: z.string().max(200).optional(),
+      weeklyCarrying: z.string().max(500).optional(),
+      weeklyHoping: z.string().max(500).optional(),
+      prayerTopics: z.array(z.string().max(200)).max(5).optional(),
+    })
+    .optional(),
+  /** False when the user has turned memory off. */
+  memoryEnabled: z.boolean().optional(),
+  sessionNotes: z.array(noteSchema).max(20).optional(),
+  globalNotes: z.array(noteSchema).max(20).optional(),
+});
+
+export type ChatContext = z.infer<typeof chatContextSchema>;
+
+type MemoryNote = z.infer<typeof noteSchema>;
+
 export type ChatContextBundle = {
-  conversationId: string;
-  entrypoint: ChatEntrypoint;
-  mode: ChatMode;
-  previousResponseId: string | null;
+  /** The profile and memory blocks, as given to the model. */
   injectedInstructions: string;
-  injection: { blockText: string; globalCount: number; sessionCount: number };
-  messages: ResponsesInputMessage[];
-  verseReference?: string;
+  /** System messages for this request. They are rebuilt each time and never part of the history. */
+  instructions: ResponsesInputMessage[];
+  /** What the user's message adds to the conversation. */
+  input: ResponsesInputMessage[];
+};
+
+/** A neutral line of guidance from what the user said they hope to find in study. */
+const userGuidanceFrom = (studyIntent: string[] | undefined): string => {
+  const descriptors = (studyIntent ?? [])
+    .map((intent) => ({ peace: "peaceful", understanding: "clear", encouragement: "encouraging", guidance: "practical" })[intent])
+    .filter(Boolean)
+    .slice(0, 2);
+  return descriptors.length ? `appreciates ${descriptors.join(", ")} explanations` : "";
 };
 
 const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -26,8 +65,7 @@ const formatKeywords = (keywords: string[] | undefined): string => {
 };
 
 const buildUserProfileBlock = (args: {
-  displayName?: string;
-  firstName?: string;
+  name?: string;
   preferredTranslation?: string;
   explanationStyle?: string;
   experienceLevel?: string;
@@ -40,7 +78,7 @@ const buildUserProfileBlock = (args: {
     prayerTopics?: string[];
   };
 }): string => {
-  const name = args.firstName?.trim() || args.displayName?.trim() || "";
+  const name = args.name?.trim() || "";
   const lines: string[] = [];
   lines.push("<user_profile>");
   if (name) lines.push(`Name: ${name}.`);
@@ -65,20 +103,8 @@ const buildMemoryNotesBlock = (args: {
   sessionNotes: MemoryNote[];
   globalNotes: MemoryNote[];
 }): { blockText: string; sessionCount: number; globalCount: number } => {
-  const now = Date.now();
-  const isUnexpired = (n: any) => {
-    const exp = typeof n?.expiresAtISO === "string" ? Date.parse(n.expiresAtISO) : NaN;
-    return !Number.isFinite(exp) || exp > now;
-  };
-
-  const session = args.sessionNotes
-    .filter((n) => normalizeWhitespace(n.text).length > 0)
-    .filter((n) => isUnexpired(n))
-    .slice(0, 20);
-  const global = args.globalNotes
-    .filter((n) => normalizeWhitespace(n.text).length > 0)
-    .filter((n) => isUnexpired(n))
-    .slice(0, 20);
+  const session = args.sessionNotes.filter((n) => normalizeWhitespace(n.text).length > 0).slice(0, 20);
+  const global = args.globalNotes.filter((n) => normalizeWhitespace(n.text).length > 0).slice(0, 20);
 
   const lines: string[] = [];
   lines.push("<memory_notes>");
@@ -171,67 +197,41 @@ const buildBibleReaderSelectedStartSystemAddendum = (): string => {
   ].join("\n");
 };
 
-export async function buildChatContextBundle(args: {
-  userId: string;
-  conversationId: string;
+export function buildChatContextBundle(args: {
+  context: ChatContext | undefined;
   entrypoint: ChatEntrypoint;
   mode: ChatMode;
-  previousResponseId: string | null;
   isNewConversation: boolean;
   message: string;
   verseReference?: string;
   verseText?: string;
   selectionState?: "selected" | "visible";
-}): Promise<ChatContextBundle> {
-  const aiContext = await getAiContextForUser(args.userId).catch(() => null);
-  const userMemoryState = await getUserMemoryState(args.userId).catch(() => ({
-    schemaVersion: "forge.user_memory_state.v1" as const,
-    globalNotes: [] as MemoryNote[],
-  }));
-  const globalNotes: MemoryNote[] = userMemoryState.globalNotes;
-
-  const now = new Date();
-  const sessionNotesRaw = await prisma.chatSessionMemoryNote.findMany({
-    where: {
-      conversationId: args.conversationId,
-      userId: args.userId,
-      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-    },
-    orderBy: [{ createdAt: "desc" }],
-    take: 50,
-    select: { text: true, keywords: true, createdAt: true, expiresAt: true },
-  });
-  const sessionNotes: MemoryNote[] = sessionNotesRaw
-    .map((n) => ({
-      text: String(n.text ?? "").trim(),
-      keywords: Array.isArray(n.keywords) ? n.keywords.slice(0, 8) : [],
-      createdAtISO: n.createdAt.toISOString(),
-      ...(n.expiresAt ? { expiresAtISO: n.expiresAt.toISOString() } : {}),
-    }))
-    .filter((n) => n.text.length > 0);
-
+}): ChatContextBundle {
+  const profile = args.context?.profile;
   const profileBlock = buildUserProfileBlock({
-    displayName: aiContext?.userProfile?.displayName,
-    firstName: aiContext?.userProfile?.firstName,
-    preferredTranslation: aiContext?.aiProfileContext?.preferredTranslation,
-    explanationStyle: aiContext?.aiProfileContext?.explanationStyle,
-    experienceLevel: aiContext?.aiProfileContext?.experienceLevel,
-    userGuidance: aiContext?.aiProfileContext?.userGuidance,
+    name: profile?.name,
+    preferredTranslation: profile?.preferredTranslation,
+    explanationStyle: profile?.explanationStyle,
+    experienceLevel: profile?.experienceLevel,
+    userGuidance: userGuidanceFrom(profile?.studyIntent),
     life: {
-      currentSeason: aiContext?.lifeContext?.currentSeason,
-      seasonNote: aiContext?.lifeContext?.seasonNote,
-      weeklyCarrying: aiContext?.lifeContext?.weeklyIntention?.carrying,
-      weeklyHoping: aiContext?.lifeContext?.weeklyIntention?.hoping,
-      prayerTopics: aiContext?.lifeContext?.prayerTopics,
+      currentSeason: profile?.season,
+      seasonNote: profile?.seasonNote,
+      weeklyCarrying: profile?.weeklyCarrying,
+      weeklyHoping: profile?.weeklyHoping,
+      prayerTopics: profile?.prayerTopics,
     },
   });
 
-  const memoriesEnabled = aiContext?.retrievalPolicy?.enabled ?? true;
-  const notesBlock = memoriesEnabled
-    ? buildMemoryNotesBlock({ sessionNotes, globalNotes })
-    : { blockText: "<memory_notes>\nDisabled.\n</memory_notes>", sessionCount: 0, globalCount: 0 };
+  const notesBlock =
+    args.context?.memoryEnabled === false
+      ? "<memory_notes>\nDisabled.\n</memory_notes>"
+      : buildMemoryNotesBlock({
+          sessionNotes: args.context?.sessionNotes ?? [],
+          globalNotes: args.context?.globalNotes ?? [],
+        }).blockText;
 
-  const injectedInstructions = [profileBlock, notesBlock.blockText].join("\n\n");
+  const injectedInstructions = [profileBlock, notesBlock].join("\n\n");
 
   const passageMessage = buildPassageUnderDiscussionMessage({
     verseReference: args.verseReference,
@@ -247,31 +247,15 @@ export async function buildChatContextBundle(args: {
         : ""
     : "";
 
-  const systemContent = [TOOL_ENABLED_GUIDE_SYSTEM_PROMPT, injectedInstructions, startAddendum]
-    .filter(Boolean)
-    .join("\n\n");
-
   const userMessage = isBibleReaderStart ? "Begin." : args.message;
 
-  const messages: ResponsesInputMessage[] = [
-    { role: "system", content: systemContent },
-    ...(passageMessage ? [passageMessage] : []),
-    { role: "user", content: userMessage },
-  ];
-
   return {
-    conversationId: args.conversationId,
-    entrypoint: args.entrypoint,
-    mode: args.mode,
-    previousResponseId: args.previousResponseId,
     injectedInstructions,
-    injection: {
-      blockText: injectedInstructions,
-      globalCount: notesBlock.globalCount,
-      sessionCount: notesBlock.sessionCount,
-    },
-    messages,
-    ...(args.verseReference ? { verseReference: args.verseReference } : {}),
+    // The fixed prompt goes first and on its own, so its cached prefix is shared by every request.
+    instructions: [
+      { role: "system", content: TOOL_ENABLED_GUIDE_SYSTEM_PROMPT },
+      { role: "system", content: [injectedInstructions, startAddendum].filter(Boolean).join("\n\n") },
+    ],
+    input: [...(passageMessage ? [passageMessage] : []), { role: "user", content: userMessage }],
   };
 }
-

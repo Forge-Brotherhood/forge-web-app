@@ -5,13 +5,15 @@ import type { ResponsesInputMessage } from "@/lib/openai/responsesClient";
 export type RunMainChatResponseArgs = {
   openaiApiKey: string;
   model: string;
-  openaiConversationId: string | null;
-  messages: ResponsesInputMessage[];
+  instructions: ResponsesInputMessage[];
+  history: unknown[];
+  input: unknown[];
   tools: ResponsesTool[];
   maxToolIterations: number;
   signal?: AbortSignal;
   reasoningEffort?: "low" | "medium" | "high";
   executeToolCall: (call: ContextToolCall) => Promise<string>;
+  isClientToolCall?: (call: ContextToolCall) => boolean;
   isFinalToolCall?: (call: ContextToolCall) => boolean;
   onTextDelta?: (delta: string) => void;
   onToolCall?: (call: ContextToolCall) => void;
@@ -23,6 +25,8 @@ export type RunMainChatResponseArgs = {
 export async function runMainChatResponse(args: RunMainChatResponseArgs): Promise<{
   finalText: string;
   responseId: string | null;
+  items: unknown[];
+  pendingToolCalls: ContextToolCall[];
 }> {
   let finalText = "";
 
@@ -38,12 +42,14 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
   const result = await streamResponsesWithTools({
     apiKey: args.openaiApiKey,
     model: args.model,
-    conversationId: args.openaiConversationId,
-    input: args.messages,
+    instructions: args.instructions,
+    history: args.history,
+    input: args.input,
     tools: args.tools,
     maxToolIterations: args.maxToolIterations,
     signal: args.signal,
     reasoningEffort: args.reasoningEffort,
+    isClientToolCall: args.isClientToolCall,
     isFinalToolCall: args.isFinalToolCall,
     onToolCallStarted: args.onToolCallStarted,
     onToolCallArgumentsDelta: args.onToolCallArgumentsDelta,
@@ -62,6 +68,10 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
     },
   });
 
-  return { finalText, responseId: result.responseId ?? null };
+  return {
+    finalText,
+    responseId: result.responseId ?? null,
+    items: result.items,
+    pendingToolCalls: result.pendingToolCalls,
+  };
 }
-

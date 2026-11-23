@@ -1,12 +1,10 @@
-import { prisma } from "@/lib/prisma";
-import { getUserMemoryState, upsertUserMemoryState, type MemoryNote } from "@/lib/memory/userMemoryStateStore";
-
-type ConsolidationStats = {
-  sessionNotesIn: number;
-  sessionNotesInUnexpired: number;
-  globalNotesIn: number;
-  globalNotesOut: number;
-  usedFallback: boolean;
+export type MemoryNote = {
+  text: string;
+  keywords: string[];
+  createdAtISO: string;
+  expiresAtISO?: string;
+  /** The same note addressed to the user ("You prefer…"), for showing it to them. `text` is what the model reads. */
+  displayText?: string;
 };
 
 const normalize = (text: string) => text.trim().toLowerCase().replace(/\s+/g, " ");
@@ -44,6 +42,8 @@ const isUnexpired = (note: Pick<MemoryNote, "expiresAtISO">, nowMs: number): boo
 type ConsolidateOutput = {
   globalNotes: Array<{
     text: string;
+    // the same note addressed to the user, for showing it to them
+    display?: string;
     keywords?: string[];
     // required: provenance against inputs to reduce invention risk
     sources: { globalIdx?: number[]; sessionIdx?: number[] };
@@ -78,6 +78,7 @@ function buildConsolidationPrompt(args: {
     "- Deduplicate near-duplicates; keep the most recent / clearest version.",
     "- Resolve conflicts with precedence: session notes override global notes.",
     "- Keep each note to 1–2 factual sentences. No instructions/policies.",
+    "- For each output note, also give `display`: the same fact as `text`, addressed to the user in the second person and in plain words (text 'User prefers short morning sessions.' -> display 'You prefer short morning sessions.'). Add nothing that is not in `text`.",
     "",
     `Now: ${args.nowISO}`,
     "",
@@ -109,6 +110,7 @@ function buildConsolidationPrompt(args: {
         globalNotes: [
           {
             text: "string",
+            display: "string",
             keywords: ["string"],
             sources: { globalIdx: [0], sessionIdx: [0] },
           },
@@ -149,7 +151,7 @@ async function llmConsolidate(args: {
           content: prompt,
         },
       ],
-      max_tokens: 800,
+      max_tokens: 1600,
       temperature: 0.2,
       response_format: { type: "json_object" },
     }),
@@ -177,9 +179,9 @@ function validateConsolidationOutput(args: {
   output: ConsolidateOutput;
   globalNotesIn: MemoryNote[];
   sessionNotesIn: MemoryNote[];
-}): Array<{ text: string; keywords: string[]; sources: { globalIdx?: number[]; sessionIdx?: number[] } }> | null {
+}): Array<{ text: string; displayText?: string; keywords: string[]; sources: { globalIdx?: number[]; sessionIdx?: number[] } }> | null {
   const maxOut = 60;
-  const out: Array<{ text: string; keywords: string[]; sources: { globalIdx?: number[]; sessionIdx?: number[] } }> = [];
+  const out: Array<{ text: string; displayText?: string; keywords: string[]; sources: { globalIdx?: number[]; sessionIdx?: number[] } }> = [];
   const seen = new Set<string>();
 
   for (const item of clampList(args.output.globalNotes, maxOut)) {
@@ -220,8 +222,12 @@ function validateConsolidationOutput(args: {
       ? rec.keywords.filter((k: unknown) => typeof k === "string" && k.trim()).slice(0, 8)
       : [];
 
+    const display = typeof rec.display === "string" ? rec.display.trim() : "";
+    const displayOk = display.length > 0 && display.length <= 400 && !looksSensitive(display) && !looksInstructional(display);
+
     out.push({
       text,
+      ...(displayOk ? { displayText: display } : {}),
       keywords,
       sources: {
         ...(globalIdx.length ? { globalIdx } : {}),
@@ -255,16 +261,21 @@ function fallbackConsolidation(args: {
       text,
       keywords: Array.isArray(n.keywords) ? n.keywords.slice(0, 8) : [],
       createdAtISO: isValidIsoDate(n.createdAtISO) ? n.createdAtISO : nowISO,
+      ...(n.displayText ? { displayText: n.displayText } : {}),
     });
   }
 
   return Array.from(byKey.values()).slice(0, 200);
 }
 
-export async function consolidateUserMemoryOnChatEnd(args: {
-  userId: string;
-  conversationId: string;
-}): Promise<{ stats: ConsolidationStats; globalNotesAfter: MemoryNote[] }> {
+/**
+ * Folds a finished conversation's session notes into the user's long-term notes and returns the
+ * new long-term notes. Nothing is stored: the app sends both lists and keeps the result.
+ */
+export async function consolidateMemoryNotes(args: {
+  sessionNotes: MemoryNote[];
+  globalNotes: MemoryNote[];
+}): Promise<MemoryNote[]> {
   const openaiApiKey = process.env.OPENAI_API_KEY;
   if (!openaiApiKey) {
     throw new Error("OPENAI_API_KEY not configured");
@@ -272,29 +283,12 @@ export async function consolidateUserMemoryOnChatEnd(args: {
 
   const nowMs = Date.now();
 
-  const notesRaw = await prisma.chatSessionMemoryNote.findMany({
-    where: { conversationId: args.conversationId, userId: args.userId },
-    orderBy: [{ createdAt: "asc" }],
-    take: 200,
-    select: { text: true, keywords: true, createdAt: true, expiresAt: true },
-  });
-
-  const sessionNotesIn: MemoryNote[] = notesRaw
-    .map((n) => ({
-      text: typeof n.text === "string" ? n.text.trim() : "",
-      keywords: Array.isArray(n.keywords) ? n.keywords.slice(0, 8) : [],
-      createdAtISO: n.createdAt.toISOString(),
-      ...(n.expiresAt ? { expiresAtISO: n.expiresAt.toISOString() } : {}),
-    }))
-    .filter((n) => n.text.length > 0);
-
-  const sessionNotesInUnexpired = sessionNotesIn.filter((n) => isUnexpired(n, nowMs));
+  const sessionNotesInUnexpired = args.sessionNotes.filter((n) => isUnexpired(n, nowMs));
   const durableSessionNotes = sessionNotesInUnexpired.filter((n) => !n.expiresAtISO);
   const ttlSessionNotes = sessionNotesInUnexpired.filter((n) => Boolean(n.expiresAtISO));
 
-  const { globalNotes: globalNotesIn } = await getUserMemoryState(args.userId);
+  const globalNotesIn = args.globalNotes;
 
-  let usedFallback = false;
   let nextGlobalNotes: MemoryNote[] = [];
 
   try {
@@ -305,7 +299,6 @@ export async function consolidateUserMemoryOnChatEnd(args: {
     });
 
     if (!output) {
-      usedFallback = true;
       nextGlobalNotes = fallbackConsolidation({ globalNotes: globalNotesIn, sessionNotes: durableSessionNotes });
     } else {
       const validated = validateConsolidationOutput({
@@ -315,7 +308,6 @@ export async function consolidateUserMemoryOnChatEnd(args: {
       });
 
       if (!validated) {
-        usedFallback = true;
         nextGlobalNotes = fallbackConsolidation({ globalNotes: globalNotesIn, sessionNotes: durableSessionNotes });
       } else {
         const nowISO = new Date().toISOString();
@@ -323,11 +315,11 @@ export async function consolidateUserMemoryOnChatEnd(args: {
           text: n.text,
           keywords: n.keywords,
           createdAtISO: nowISO,
+          ...(n.displayText ? { displayText: n.displayText } : {}),
         }));
       }
     }
   } catch {
-    usedFallback = true;
     nextGlobalNotes = fallbackConsolidation({ globalNotes: globalNotesIn, sessionNotes: durableSessionNotes });
   }
 
@@ -349,30 +341,11 @@ export async function consolidateUserMemoryOnChatEnd(args: {
         keywords: Array.isArray(n.keywords) ? n.keywords.slice(0, 8) : [],
         createdAtISO: typeof n.createdAtISO === "string" && n.createdAtISO ? n.createdAtISO : nowISO,
         ...(typeof n.expiresAtISO === "string" && n.expiresAtISO ? { expiresAtISO: n.expiresAtISO } : {}),
+        ...(n.displayText ? { displayText: n.displayText } : {}),
       });
     }
     nextGlobalNotes = Array.from(byKey.values()).slice(0, 200);
   }
 
-  await upsertUserMemoryState({ userId: args.userId, globalNotes: nextGlobalNotes });
-
-  // Clear session notes (best-effort).
-  await prisma.chatSessionMemoryNote
-    .deleteMany({
-      where: { conversationId: args.conversationId, userId: args.userId },
-    })
-    .catch(() => {});
-
-  return {
-    stats: {
-      sessionNotesIn: sessionNotesIn.length,
-      sessionNotesInUnexpired: sessionNotesInUnexpired.length,
-      globalNotesIn: globalNotesIn.length,
-      globalNotesOut: nextGlobalNotes.length,
-      usedFallback,
-    },
-    globalNotesAfter: nextGlobalNotes,
-  };
+  return nextGlobalNotes;
 }
-
-

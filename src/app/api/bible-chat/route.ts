@@ -1,48 +1,50 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { handleChatRequest } from "@/lib/chat/handleChatRequest";
+import { getAuth } from "@/lib/auth";
+import { chatRequestFields, handleChatRequest, refineChatRequest } from "@/lib/chat/handleChatRequest";
 
 export const runtime = "nodejs";
 
-const requestSchema = z.object({
-  conversationId: z.string().min(1).max(128).optional(),
-  message: z.string().min(1).max(4000),
-  // Bible endpoint requires explicit passage context.
-  verseReference: z.string().min(1).max(200),
-  verseText: z.string().min(1).max(8000).optional(),
-  // Required for start, optional for follow-ups.
-  selectionState: z.enum(["selected", "visible"]).optional(),
-  includeSuggestedQuestions: z.boolean().optional(),
-  // Inline UI block kinds the client can render (streaming only).
-  uiBlocks: z.array(z.string().max(40)).max(20).optional(),
-}).superRefine((val, ctx) => {
-  const isStart = val.message.trim() === "BIBLE_CHAT_START";
-  if (isStart && !val.selectionState) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["selectionState"],
-      message: 'selectionState is required for "BIBLE_CHAT_START".',
-    });
-  }
-});
+const requestSchema = z
+  .object({
+    ...chatRequestFields,
+    // Bible endpoint requires explicit passage context.
+    verseReference: z.string().min(1).max(200),
+  })
+  .superRefine(refineChatRequest)
+  .superRefine((val, ctx) => {
+    // Required for start, optional for follow-ups.
+    const isStart = val.message?.trim() === "BIBLE_CHAT_START";
+    if (isStart && !val.selectionState) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selectionState"],
+        message: 'selectionState is required for "BIBLE_CHAT_START".',
+      });
+    }
+  });
 
 export async function POST(request: NextRequest) {
   try {
+    const authResult = await getAuth();
+    if (!authResult) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      });
+    }
+
     const body = await request.json().catch(() => ({}));
     const input = requestSchema.parse(body);
     return await handleChatRequest({
       request,
+      userId: authResult.userId,
       surface: "bible",
       input: {
-        conversationId: input.conversationId,
-        message: input.message,
+        ...input,
         entrypoint: "bible_reader",
         mode: "bible",
-        verseReference: input.verseReference,
-        verseText: input.verseText,
-        selectionState: input.selectionState,
         includeSuggestedQuestions: input.includeSuggestedQuestions ?? true,
-        uiBlocks: input.uiBlocks,
       },
       force: { entrypoint: "bible_reader", mode: "bible" },
     });
