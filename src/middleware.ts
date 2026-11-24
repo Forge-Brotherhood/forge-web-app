@@ -12,10 +12,6 @@ const isPublicRoute = createRouteMatcher([
   '/api/bible/books',
   '/api/bible/chapters',
   '/api/bible/chapter/(.*)',
-  // Reading plan template day (for onboarding)
-  '/api/reading-plans/templates/(.*)/days/(.*)',
-  // Internal API routes (protected by API key, not Clerk)
-  '/api/internal/(.*)',
   // Jobs/cron API routes (protected by API key, not Clerk)
   '/api/jobs/(.*)',
   '/api/cron/(.*)',

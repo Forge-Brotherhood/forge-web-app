@@ -1,4 +1,3 @@
-import { searchTemplates } from "@/lib/readingPlan/templateEmbeddingService";
 import type { ContextToolCall, ResponsesTool } from "@/lib/openai/responsesClient";
 
 export type { ContextToolCall };
@@ -19,9 +18,6 @@ const safeJsonParse = (text: string): unknown => {
 };
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
-
-const truncate = (text: string, maxLen: number): string =>
-  text.length > maxLen ? `${text.slice(0, Math.max(0, maxLen - 1))}…` : text;
 
 const normalizeKeyword = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -160,28 +156,6 @@ export const buildContextToolsForUser = (): ResponsesTool[] => [
   },
   {
     type: "function",
-    name: "search_reading_plans",
-    description:
-      "Search for Bible reading plan templates by topic or theme. Use this when the user asks about reading plans, wants to start a new plan, or when you want to recommend a plan based on their interests or life situation. Returns public, published reading plan templates that match the query.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["query"],
-      properties: {
-        query: {
-          type: "string",
-          description:
-            "Search query describing what kind of reading plan to find. Examples: 'anxiety and peace', 'marriage relationships', 'spiritual growth', 'psalms for comfort', 'new believer basics'.",
-        },
-        limit: {
-          type: "integer",
-          description: "Max plans to return (default 5, max 10)",
-        },
-      },
-    },
-  },
-  {
-    type: "function",
     name: "save_memory_candidate",
     description:
       "Capture a candidate LONG-TERM memory for later consolidation. Use for: (1) stable preferences/routines/goals, (2) ongoing spiritual or emotional struggles explicitly shared by the user (e.g., 'struggles with lust', 'dealing with anger', 'wrestling with doubt') - these are IMPORTANT for pastoral follow-up, (3) faith journey context. Do NOT store secrets/credentials, addresses/phone/financial details, medical diagnoses/medications, abuse disclosures, or political data.",
@@ -287,8 +261,6 @@ export async function executeServerToolCall(
   const params = (typeof parsed === "object" && parsed !== null ? parsed : {}) as Record<string, unknown>;
 
   switch (toolCall.name) {
-    case "search_reading_plans":
-      return { output: JSON.stringify(await searchReadingPlans(params)) };
     case "save_memory_candidate":
     case "save_temporary_memory": {
       const checked = checkMemoryNote(params, toolCall.name === "save_temporary_memory");
@@ -301,7 +273,7 @@ export async function executeServerToolCall(
   }
 }
 
-const looksSensitive = (text: string): boolean => {
+export const looksSensitive = (text: string): boolean => {
   const t = text.toLowerCase();
   if (t.includes("api key") || t.includes("password") || t.includes("secret")) return true;
   if (t.includes("token") || t.includes("bearer ")) return true;
@@ -312,7 +284,7 @@ const looksSensitive = (text: string): boolean => {
   return false;
 };
 
-const looksInstructional = (text: string): boolean => {
+export const looksInstructional = (text: string): boolean => {
   const t = text.toLowerCase();
   if (t.includes("system prompt") || t.includes("ignore previous") || t.includes("developer message")) return true;
   return false;
@@ -344,41 +316,4 @@ export function checkMemoryNote(
   if (!Number.isFinite(ttlHours)) return { reason: "invalid_ttlHours" };
   const expiresAtISO = new Date(Date.now() + clamp(ttlHours, 1, 720) * 60 * 60 * 1000).toISOString();
   return { note: { text, keywords, expiresAtISO } };
-}
-
-async function searchReadingPlans(params: Record<string, unknown>): Promise<{
-  plans: Array<{
-    id: string;
-    shortId: string;
-    title: string;
-    subtitle: string | null;
-    description: string | null;
-    totalDays: number;
-    estimatedMinutes: string;
-    theme: string | null;
-    isFeatured: boolean;
-    relevanceScore: number;
-  }>;
-}> {
-  const query = typeof params.query === "string" ? params.query.trim() : "";
-  if (!query) return { plans: [] };
-
-  const limit = clamp(Number(params.limit ?? 5) || 5, 1, 10);
-
-  const results = await searchTemplates(query, limit);
-
-  return {
-    plans: results.map((r) => ({
-      id: r.template.id,
-      shortId: r.template.shortId,
-      title: r.template.title,
-      subtitle: r.template.subtitle,
-      description: r.template.description ? truncate(r.template.description, 300) : null,
-      totalDays: r.template.totalDays,
-      estimatedMinutes: `${r.template.estimatedMinutesMin}-${r.template.estimatedMinutesMax}`,
-      theme: r.template.theme,
-      isFeatured: r.template.isFeatured,
-      relevanceScore: Math.round(r.score * 100) / 100,
-    })),
-  };
 }

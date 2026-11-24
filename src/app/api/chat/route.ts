@@ -5,7 +5,7 @@ import { chatRequestFields, handleChatRequest, refineChatRequest } from "@/lib/c
 
 export const runtime = "nodejs";
 
-const entrypointSchema = z.enum(["bible_reader", "home", "community", "other"]);
+const entrypointSchema = z.enum(["bible_reader", "home", "community", "goal_thread", "other"]);
 const modeSchema = z.enum(["general", "bible"]);
 
 const requestSchema = z

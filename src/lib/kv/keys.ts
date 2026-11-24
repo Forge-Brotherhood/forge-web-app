@@ -54,6 +54,12 @@ export const CacheKeys = {
   ): string => `explain:${type}:${reference.trim().toLowerCase()}`,
 
   /**
+   * How many beats have called the model for a user on a local day (a count, nothing else).
+   * e.g., "heartbeat:model-calls:v1:<userId>:2026-11-23"
+   */
+  heartbeatModelCalls: (userId: string, day: string): string => `heartbeat:model-calls:v1:${userId}:${day}`,
+
+  /**
    * (rollups removed) Intentionally no rollup cache keys.
    */
 };

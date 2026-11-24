@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { NextRequest } from "next/server";
 
-import { handleChatRequest, type HandleChatInput } from "./handleChatRequest";
+import { z } from "zod";
+import { chatRequestFields, handleChatRequest, type HandleChatInput } from "./handleChatRequest";
+import { TOOL_ENABLED_GUIDE_SYSTEM_PROMPT } from "./toolEnabledSystemPrompt";
 
 process.env.OPENAI_API_KEY = "test-key";
 
@@ -139,7 +141,426 @@ test("the reader greeting does not look up the user's own data", async () => {
   await response.text();
 
   const toolNames = bodies[0].tools.map((t) => t.name);
-  assert.ok(toolNames.includes("search_reading_plans"));
   assert.ok(!toolNames.some((name) => name.startsWith("get_") || name.startsWith("search_verse")));
   assert.deepEqual(bodies[0].input.at(-1), { role: "user", content: "Begin." });
+});
+
+// MARK: - Goals
+
+const goalContext = {
+  ...context,
+  today: "2026-11-23",
+  goals: [
+    {
+      id: "goal-1",
+      title: "Read the Bible in a year",
+      why: "I never finished it",
+      shape: "finish" as const,
+      category: "reading" as const,
+      rhythm: "daily" as const,
+      path: ["Genesis to Exodus", "Psalms alongside"],
+      progressSummary: "Day 12 of 365, on pace",
+      workingNotes: "Offered a psalm once",
+    },
+    {
+      id: "goal-2",
+      title: "Overcome anger",
+      shape: "grow" as const,
+      category: "growth" as const,
+      path: [],
+      progressSummary: "",
+    },
+  ],
+};
+
+const personalPrompt = (body: Body) => body.input.filter((i) => i.role === "system").at(-1)!.content as string;
+
+test("the goals the app lists go to the model compactly, after the fixed prompt, which does not change", async () => {
+  const withGoals = mockModel([{ output: [message("Hello")] }]);
+  await chat({ message: "Hi", context: goalContext });
+  const plain = mockModel([{ output: [message("Hello")] }]);
+  await chat({ message: "Hi", context });
+
+  const first = withGoals[0].input.filter((i) => i.role === "system")[0].content;
+  assert.equal(first, plain[0].input.filter((i) => i.role === "system")[0].content, "the cached prefix is the same");
+
+  const personal = personalPrompt(withGoals[0]);
+  assert.ok(personal.includes("Today: 2026-11-23."));
+  assert.ok(personal.includes('Goal goal-1 (finish, reading, daily): "Read the Bible in a year".'));
+  assert.ok(personal.includes("Path: Genesis to Exodus; Psalms alongside."));
+  assert.ok(personal.includes("Progress: Day 12 of 365, on pace"));
+  assert.ok(personal.includes("Your working notes: Offered a psalm once"));
+  assert.ok(personal.includes('Goal goal-2 (grow, growth): "Overcome anger".'));
+  assert.ok(!personalPrompt(plain[0]).includes("<goals>"), "an app that sends no goals gets none");
+  assert.ok(withGoals[0].tools.map((t) => t.name).includes("set_goal"));
+});
+
+test("a goal says whether it has a reading schedule, and the prompt tells Lumen what to do about one that has none", async () => {
+  const scheduled = { ...goalContext.goals[0], reading: { books: ["EXO"], endDate: "2027-01-31" } };
+  const bodies = mockModel([{ output: [message("Hello")] }, { output: [message("Hello")] }]);
+  await chat({ message: "Hi", context: { ...goalContext, goals: [goalContext.goals[0], goalContext.goals[1]] } });
+  await chat({ message: "Hi", context: { ...goalContext, goals: [scheduled] } });
+
+  const without = personalPrompt(bodies[0]);
+  assert.ok(without.includes("Reading schedule: none yet."), "a reading goal with no schedule says so");
+  assert.equal(without.split("Reading schedule").length, 2, "a goal outside reading says nothing");
+  assert.ok(personalPrompt(bodies[1]).includes("Reading schedule: Exodus, to finish by 2027-01-31."));
+  assert.ok(!personalPrompt(bodies[1]).includes("none yet"));
+
+  const thread = mockModel([{ output: [message("Go on.")] }]);
+  await chat({ message: "Hi", context: goalContext, goalThread: { goalId: "goal-1" } });
+  assert.ok(personalPrompt(thread[0]).includes("you may offer once, in plain words"));
+  assert.ok(personalPrompt(thread[0]).includes("Never say you are updating the goal."));
+});
+
+test("a stored reading schedule can never make a request fail", () => {
+  const schema = z.object(chatRequestFields);
+  const goal = goalContext.goals[0];
+  const parse = (reading: unknown) => {
+    const result = schema.safeParse({ message: "hi", context: { goals: [{ ...goal, reading }] } });
+    assert.ok(result.success, "accepted");
+    return result.data.context?.goals?.[0].reading;
+  };
+
+  assert.deepEqual(parse({ books: ["exo", "GEN", "exo"], endDate: "2027-01-31" }), { books: ["EXO", "GEN"], endDate: "2027-01-31" });
+  assert.deepEqual(parse({ books: ["EXO"] }), { books: ["EXO"] });
+  assert.deepEqual(parse({ books: ["EXO", "NOPE", 7], endDate: "soon" }), { books: ["EXO"] }, "bad ids and dates are dropped");
+  assert.equal(parse({ books: ["NOPE"] }), undefined, "no valid books means no schedule");
+  assert.equal(parse(null), undefined);
+  assert.equal(parse(undefined), undefined);
+  const all = ["GEN", "EXO", "LEV", "NUM", "DEU", "JOS", "JDG", "RUT", "1SA", "2SA", "1KI", "2KI", "1CH", "2CH", "EZR", "NEH", "EST", "JOB", "PSA", "PRO", "ECC", "SNG", "ISA", "JER", "LAM", "EZK", "DAN", "HOS", "JOL", "AMO", "OBA", "JON", "MIC", "NAM", "HAB", "ZEP", "HAG", "ZEC", "MAL", "MAT", "MRK", "LUK", "JHN", "ACT", "ROM", "1CO", "2CO", "GAL", "EPH", "PHP", "COL", "1TH", "2TH", "1TI", "2TI", "TIT", "PHM", "HEB", "JAS", "1PE", "2PE", "1JN", "2JN", "3JN", "JUD", "REV"];
+  const big = parse({ books: [...all, ...all, ...all] }) as { books: string[] };
+  assert.ok(big.books.length <= 66);
+});
+
+test("a reading schedule's pace is shown to the model, and a bad pace in a stored goal is dropped, not refused", async () => {
+  const goal = goalContext.goals[0];
+  const bodies = mockModel([{ output: [message("Hello")] }, { output: [message("Hello")] }, { output: [message("Hello")] }]);
+  await chat({ message: "Hi", context: { ...goalContext, goals: [{ ...goal, reading: { books: ["EXO"], chaptersPerDay: 2, endDate: "2027-01-31" } }] } });
+  await chat({ message: "Hi", context: { ...goalContext, goals: [{ ...goal, reading: { books: ["EXO"], chaptersPerDay: 1 } }] } });
+  await chat({ message: "Hi", context: { ...goalContext, goals: [{ ...goal, reading: { books: ["EXO"], endDate: "2027-01-31" } }] } });
+
+  assert.ok(personalPrompt(bodies[0]).includes("Reading schedule: Exodus, 2 chapters a day, finishing by 2027-01-31."));
+  assert.ok(personalPrompt(bodies[1]).includes("Reading schedule: Exodus, 1 chapter a day, no end date yet."));
+  assert.ok(personalPrompt(bodies[2]).includes("Reading schedule: Exodus, to finish by 2027-01-31."), "no pace, no change");
+
+  const schema = z.object(chatRequestFields);
+  const parse = (chaptersPerDay: unknown) => {
+    const result = schema.safeParse({ message: "hi", context: { goals: [{ ...goal, reading: { books: ["EXO"], chaptersPerDay } }] } });
+    assert.ok(result.success, `accepted ${String(chaptersPerDay)}`);
+    return result.data.context?.goals?.[0].reading;
+  };
+  assert.deepEqual(parse(3), { books: ["EXO"], chaptersPerDay: 3 });
+  for (const bad of [0, 21, 1.5, "2", null, {}]) assert.deepEqual(parse(bad), { books: ["EXO"] }, `dropped ${JSON.stringify(bad)}`);
+});
+
+test("a pace reaches the app in the reading object of a created or updated goal, and the thread prompt covers pace and retries", async () => {
+  const set = call("call_set", "set_goal", {
+    title: "Finish Exodus",
+    shape: "finish",
+    category: "reading",
+    reading: { books: ["exo"], chaptersPerDay: 2 },
+    status: "active",
+    confidence: "explicit",
+  });
+  const update = call("call_update", "update_goal", { goalId: "goal-1", reading: { books: ["EXO"], chaptersPerDay: 1 } });
+  const bodies = mockModel([{ output: [set, update] }]);
+
+  const { events } = await chat({ message: "A chapter a day.", context: { ...goalContext, goals: [goalContext.goals[0]] }, goalThread: { goalId: "goal-1" } });
+
+  assert.deepEqual(events.filter((e) => e.type === "goal").map((e) => e.goal?.reading ?? e.changes?.reading), [
+    { books: ["EXO"], chaptersPerDay: 2 },
+    { books: ["EXO"], chaptersPerDay: 1 },
+  ]);
+
+  const thread = personalPrompt(bodies[0]);
+  assert.ok(thread.includes('that is a pace: call update_goal with reading holding the books'));
+  assert.ok(thread.includes("chaptersPerDay (a whole number from 1 to 20)"));
+  assert.ok(thread.includes("correct the call and call it again in the same turn"));
+  assert.ok(thread.includes('("update my plan")'));
+  assert.ok(thread.includes("ask one short plain question"));
+  assert.ok(thread.includes("Never tell them you tried, that something failed, or that you can't change it from here"));
+  assert.ok(thread.includes('"tap Adjust on the card"'));
+});
+
+test("a refused goal call is logged by its reason code only, and an accepted one by its action", async () => {
+  const lines: Array<Record<string, any>> = [];
+  const capture = (...args: unknown[]) => {
+    try {
+      lines.push(JSON.parse(String(args[0])));
+    } catch {
+      // not one of our log lines
+    }
+  };
+  const original = { warn: console.warn, info: console.info };
+  console.warn = capture;
+  console.info = capture;
+  try {
+    const refused = call("call_bad", "update_goal", { goalId: "goal-1", reading: { books: ["EXO", "Hobbit"], chaptersPerDay: 2 } });
+    const invalid = call("call_invalid", "update_goal", { goalId: "goal-1", reading: { books: ["EXO"], chaptersPerDay: 99 } });
+    const ok = call("call_ok", "log_progress", { goalId: "goal-1", kind: "checkin", note: "Prayed", date: "2026-11-23" });
+    mockModel([{ output: [refused, invalid, ok] }]);
+    await chat({ message: "Update my plan.", context: { ...goalContext, goals: [goalContext.goals[0]] }, conversationId: "conv-1" });
+  } finally {
+    console.warn = original.warn;
+    console.info = original.info;
+  }
+
+  const warns = lines.filter((l) => l.event === "goal_tool_refused");
+  assert.deepEqual(warns.map((l) => [l.level, l.tool, l.reason, l.conversationId]), [
+    ["warn", "update_goal", "unknown_book", "conv-1"],
+    ["warn", "update_goal", "invalid_arguments", "conv-1"],
+  ]);
+  assert.ok(warns.every((l) => typeof l.correlationId === "string"));
+  assert.ok(!JSON.stringify(lines).includes("Hobbit"), "nothing the model sent reaches a log");
+  assert.ok(!JSON.stringify(lines).includes("chaptersPerDay"), "nor a field name from the arguments");
+
+  const oks = lines.filter((l) => l.event === "goal_tool_ok");
+  assert.deepEqual(oks.map((l) => [l.level, l.tool, l.action]), [["info", "log_progress", "log_progress"]]);
+  assert.ok(!JSON.stringify(oks).includes("Prayed"));
+});
+
+test("an ignored status is logged by tool name only, and the event carries no status", async () => {
+  const lines: Array<Record<string, any>> = [];
+  const original = console.info;
+  console.info = (...args: unknown[]) => {
+    try {
+      lines.push(JSON.parse(String(args[0])));
+    } catch {
+      // not one of our log lines
+    }
+  };
+  let events: Array<Record<string, any>> = [];
+  try {
+    const both = call("call_both", "update_goal", { goalId: "goal-1", title: "Quiet new name", status: "paused" });
+    mockModel([{ output: [both] }]);
+    ({ events } = await chat({ message: "Rename it.", context: { ...goalContext, goals: [goalContext.goals[0]] }, conversationId: "conv-2" }));
+  } finally {
+    console.info = original;
+  }
+
+  assert.deepEqual(events.filter((e) => e.type === "goal").map((e) => e.changes), [{ title: "Quiet new name" }]);
+  const ignored = lines.filter((l) => l.event === "goal_tool_status_ignored");
+  assert.deepEqual(ignored.map((l) => [l.level, l.tool, l.conversationId]), [["info", "update_goal", "conv-2"]]);
+  assert.deepEqual(Object.keys(ignored[0]).sort(), ["conversationId", "correlationId", "env", "event", "level", "tool", "tag", "ts"].sort());
+  assert.ok(!JSON.stringify(lines).includes("Quiet new name"), "no goal content in a log");
+});
+
+test("a goal thread is answered with the goal-thread prompt, the folded summary and the shape's posture", async () => {
+  const bodies = mockModel([{ output: [message("Go on.")] }]);
+
+  await chat({
+    message: "I missed three days.",
+    history: [{ role: "user", content: "Recent turn" }],
+    context: goalContext,
+    goalThread: { goalId: "goal-2", summary: "They lose their temper with their brother." },
+  });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("GOAL THREAD"));
+  assert.ok(prompt.includes('The goal is goal-2: "Overcome anger". This is a Grow goal.'));
+  assert.ok(prompt.includes("never score it"));
+  assert.ok(prompt.includes("step toward a real person"));
+  assert.ok(prompt.includes("They lose their temper with their brother."));
+  assert.ok(!prompt.includes("This is the start of the thread"));
+  assert.ok(prompt.indexOf("<goals>") < prompt.indexOf("GOAL THREAD"), "new text goes after the personal context");
+});
+
+test("the goal thread tells Lumen when to rename the goal", async () => {
+  const bodies = mockModel([{ output: [message("Go on.")] }]);
+  await chat({ message: "Hi", context: goalContext, goalThread: { goalId: "goal-1" } });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("rename it in the same update_goal call with title"));
+  assert.ok(prompt.includes("making the smallest change"));
+  assert.ok(prompt.includes("never rename a Grow goal unless the user asks"));
+  assert.ok(prompt.includes('("I\'ve renamed it to ...") only when you actually renamed it'));
+});
+
+test("a thread's first message opens it, and the marker is never sent to the model as the user's words", async () => {
+  const bodies = mockModel([{ output: [message("You said you want to read the Bible in a year.")] }]);
+
+  const { done } = await chat({
+    message: "GOAL_THREAD_START",
+    context: goalContext,
+    goalThread: { goalId: "goal-1" },
+  });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("This is the start of the thread"));
+  assert.ok(prompt.includes("This is a Finish goal."));
+  assert.ok(!prompt.includes("step toward a real person"), "only grow goals get that");
+  assert.deepEqual(bodies[0].input.at(-1), { role: "user", content: "Begin." });
+  assert.deepEqual(done.items[0], { role: "user", content: "Begin." });
+});
+
+test("goal-thread requests are accepted by both routes' schema, with the limits the contract sets", () => {
+  const schema = z.object(chatRequestFields);
+  const goal = goalContext.goals[0];
+
+  assert.ok(schema.safeParse({ message: "hi", context: goalContext, goalThread: { goalId: "goal-1", summary: "s" } }).success);
+  assert.ok(schema.safeParse({ message: "hi", context: { goals: [] } }).success);
+  assert.ok(!schema.safeParse({ message: "hi", context: { goals: [goal, goal, goal, goal] } }).success, "at most 3 goals");
+  assert.ok(!schema.safeParse({ message: "hi", context: { goals: [{ ...goal, path: Array(13).fill("Step") }] } }).success);
+  assert.ok(!schema.safeParse({ message: "hi", context: { goals: [{ ...goal, progressSummary: "p".repeat(301) }] } }).success);
+  assert.ok(!schema.safeParse({ message: "hi", context: { goals: [{ ...goal, workingNotes: "n".repeat(1001) }] } }).success);
+  assert.ok(!schema.safeParse({ message: "hi", context: { goals: [{ ...goal, shape: "sprint" }] } }).success);
+  assert.ok(!schema.safeParse({ message: "hi", goalThread: {} }).success);
+});
+
+test("set_goal reaches the app as a goal event, and the model is told only that it worked", async () => {
+  const set = call("call_goal", "set_goal", {
+    title: "Pray every morning",
+    shape: "practice",
+    category: "prayer",
+    rhythm: "daily",
+    status: "active",
+    confidence: "explicit",
+  });
+  mockModel([{ text: "Good.", output: [message("Good."), set] }]);
+
+  const { events, done } = await chat({ message: "I want to pray every morning.", context: { ...goalContext, goals: [] } });
+
+  assert.deepEqual(events.find((e) => e.type === "goal"), {
+    type: "goal",
+    action: "create",
+    goal: { title: "Pray every morning", shape: "practice", category: "prayer", rhythm: "daily", status: "active" },
+  });
+  assert.deepEqual(
+    done.items.filter((i: any) => i.type === "function_call_output"),
+    [{ type: "function_call_output", call_id: "call_goal", output: '{"ok":true}' }]
+  );
+});
+
+test("a fourth goal is refused with nothing sent to the app, and a goal that is not listed is not touched", async () => {
+  const three = [...goalContext.goals, { ...goalContext.goals[0], id: "goal-3", title: "Third" }];
+  const set = call("call_set", "set_goal", {
+    title: "Memorize Psalm 23",
+    shape: "learn",
+    category: "reading",
+    status: "active",
+    confidence: "explicit",
+  });
+  const update = call("call_update", "update_goal", { goalId: "ghost", status: "paused" });
+  const log = call("call_log", "log_progress", { goalId: "goal-1", kind: "reading", ref: "NUM:14", date: "2026-11-23" });
+  mockModel([{ output: [set, update, log] }]);
+
+  const { events, done } = await chat({ message: "Do these.", context: { ...goalContext, goals: three } });
+
+  assert.deepEqual(
+    done.items.filter((i: any) => i.type === "function_call_output").map((i: any) => [i.call_id, i.output]),
+    [
+      ["call_set", '{"ok":false,"reason":"goal_limit_reached"}'],
+      ["call_update", '{"ok":false,"reason":"unknown_goal"}'],
+      ["call_log", '{"ok":true}'],
+    ]
+  );
+  assert.deepEqual(
+    events.filter((e) => e.type === "goal").map((e) => [e.action, e.goalId]),
+    [["log_progress", "goal-1"]]
+  );
+});
+
+test("schedule_activity reaches the app as an activity event, and the model is told only that it worked", async () => {
+  const schedule = call("call_sched", "schedule_activity", { goalId: "goal-2", type: "check_in", date: "2026-11-24", note: "Ask how the talk with his brother went" });
+  const bodies = mockModel([{ text: "I will check in tomorrow.", output: [message("I will check in tomorrow."), schedule] }, { output: [] }]);
+
+  const { events, done } = await chat({
+    message: "Can you check on me tomorrow?",
+    context: goalContext,
+    goalThread: { goalId: "goal-2" },
+  });
+
+  assert.ok(bodies[0].tools.map((t) => t.name).includes("schedule_activity"));
+  const event = events.find((e) => e.type === "activity")!;
+  assert.equal(event.action, "schedule");
+  assert.equal(event.activity.id, "goal-2:check_in:2026-11-24");
+  assert.equal(event.activity.status, "planned");
+  assert.deepEqual(
+    done.items.filter((i: any) => i.type === "function_call_output"),
+    [{ type: "function_call_output", call_id: "call_sched", output: '{"ok":true}' }]
+  );
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("only in a turn where you also call schedule_activity"));
+});
+
+test("cards only the heartbeat posts are never offered to the chat model, even when the app lists them", async () => {
+  const bodies = mockModel([{ text: "Here is where you are.", output: [message("Here is where you are.")] }]);
+  await chat({
+    message: "How am I doing?",
+    context: goalContext,
+    goalThread: { goalId: "goal-1" },
+    uiBlocks: ["goal_progress", "recap_card", "milestone_card", "note_recall"],
+  });
+  const showBlock = bodies[0].tools.find((t) => t.name === "show_block") as any;
+  assert.deepEqual(showBlock.parameters.properties.kind.enum, ["goal_progress"]);
+});
+
+test("goal cards are streamed to be filled by the app, and only for a goal in the request", async () => {
+  const card = call("call_card", "show_block", { kind: "goal_progress", goalId: "goal-1" });
+  const ghost = call("call_ghost", "show_block", { kind: "goal_path", goalId: "ghost" });
+  mockModel([{ text: "Here is where you are.", output: [message("Here is where you are."), card, ghost] }, { output: [] }]);
+
+  const { events, done } = await chat({
+    message: "How am I doing?",
+    context: goalContext,
+    goalThread: { goalId: "goal-1" },
+    uiBlocks: ["goal_progress", "goal_path", "goal_proposal"],
+  });
+
+  const blocks = events.filter((e) => e.type === "block").map((e) => e.block);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].kind, "goal_progress");
+  assert.equal(blocks[0].goalId, "goal-1");
+  assert.equal(blocks[0].hydrate, true);
+  assert.match(blocks[0].fallback_text, /^Where this goal stands/);
+  const outputs = done.items.filter((i: any) => i.type === "function_call_output").map((i: any) => i.output);
+  assert.equal(outputs[1], "Rejected: goalId is not one of the user's goals");
+});
+
+const GOAL_TOOLS = ["set_goal", "update_goal", "log_progress"];
+const GOAL_RULE =
+  "- You can start a goal from any conversation when they ask for one or state one plainly; an implied goal is only offered, as above. The app then shows the new goal as a card they can open, so after you create one say one plain sentence about it and do not describe the card, the schedule or the tools.";
+
+const bibleChat = async (input: Partial<HandleChatInput>) => {
+  const response = await handleChatRequest({
+    request: new NextRequest("http://localhost/api/bible-chat?stream=1", { method: "POST" }),
+    userId: "user-1",
+    surface: "bible",
+    input: { history: [], verseReference: "John 15", ...input },
+    force: { entrypoint: "bible_reader", mode: "bible" },
+  });
+  await response.text();
+};
+
+test("the goal rule text is in the fixed prompt", () => {
+  assert.ok(TOOL_ENABLED_GUIDE_SYSTEM_PROMPT.includes(GOAL_RULE));
+});
+
+test("every Guide entrypoint offers set_goal, update_goal and log_progress, the reader greeting included", async () => {
+  const entrypoints: Record<string, () => Promise<unknown>> = {
+    "general chat": () => chat({ message: "Hi", context: goalContext }),
+    "home": () => chat({ message: "Hi", context: goalContext, entrypoint: "home" }),
+    "community": () => chat({ message: "Hi", context: goalContext, entrypoint: "community" }),
+    "goal thread": () => chat({ message: "GOAL_THREAD_START", context: goalContext, goalThread: { goalId: "goal-1" } }),
+    "reader, verse selected": () =>
+      bibleChat({ message: "What does this mean?", verseText: "Abide in me.", selectionState: "selected", context: goalContext }),
+    "reader greeting, verses visible": () =>
+      bibleChat({ message: "BIBLE_CHAT_START", selectionState: "visible", context: goalContext }),
+    "reader greeting, verse selected": () =>
+      bibleChat({ message: "BIBLE_CHAT_START", selectionState: "selected", context: goalContext }),
+  };
+
+  for (const [name, run] of Object.entries(entrypoints)) {
+    const bodies = mockModel([{ output: [message("Hello")] }]);
+    await run();
+
+    const names = bodies[0].tools.map((t) => t.name);
+    for (const tool of GOAL_TOOLS) assert.ok(names.includes(tool), `${name} offers ${tool}`);
+
+    // Every entrypoint sends the same fixed prompt, which carries the goal rules.
+    const fixed = bodies[0].input.filter((i) => i.role === "system")[0].content;
+    assert.equal(fixed, TOOL_ENABLED_GUIDE_SYSTEM_PROMPT, `${name} sends the fixed prompt`);
+    assert.ok(fixed.includes(GOAL_RULE), `${name} carries the goal rule`);
+  }
 });

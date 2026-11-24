@@ -1,7 +1,7 @@
 import { BOOK_NAME_TO_CODE } from "@/lib/bible/bookCodes";
 import { getBookDisplayNameFromCode } from "@/lib/bible/bookCodes";
 
-export type AIActionType = "NAVIGATE_TO_VERSE" | "NAVIGATE_TO_READING_PLAN";
+export type AIActionType = "NAVIGATE_TO_VERSE";
 export type AIActionPriority = "secondary";
 
 export type AIAction = {

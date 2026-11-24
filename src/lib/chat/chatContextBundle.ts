@@ -1,14 +1,70 @@
 import { z } from "zod";
+import { getBookDisplayNameFromCode } from "@/lib/bible/bookCodes";
 import { TOOL_ENABLED_GUIDE_SYSTEM_PROMPT } from "@/lib/chat/toolEnabledSystemPrompt";
 import type { ResponsesInputMessage } from "@/lib/openai/responsesClient";
+import { GOAL_CATEGORIES, GOAL_RHYTHMS, GOAL_SHAPES, MAX_ACTIVE_GOALS, chaptersPerDaySchema, type GoalShape } from "@/lib/goals/goalTypes";
 
-export type ChatEntrypoint = "bible_reader" | "home" | "community" | "other";
+export type ChatEntrypoint = "bible_reader" | "home" | "community" | "goal_thread" | "other";
 export type ChatMode = "general" | "bible";
 
 const noteSchema = z.object({
   text: z.string().min(1).max(400),
   keywords: z.array(z.string().max(40)).max(8).optional(),
 });
+
+const MAX_READING_BOOKS = 66;
+
+/**
+ * A goal's reading schedule, as the app stores it. Lenient on purpose: a goal that is already
+ * stored must never make a request fail, so unknown book ids and a bad date are dropped here
+ * rather than refused, and a schedule with no valid books is treated as none.
+ */
+const readingSchema = z
+  .object({ books: z.array(z.unknown()), endDate: z.unknown().optional(), chaptersPerDay: z.unknown().optional() })
+  .nullish()
+  .transform((value) => {
+    if (!value) return undefined;
+    const books: string[] = [];
+    for (const raw of value.books) {
+      if (typeof raw !== "string") continue;
+      const code = raw.trim().toUpperCase();
+      if (getBookDisplayNameFromCode(code) && !books.includes(code)) books.push(code);
+      if (books.length === MAX_READING_BOOKS) break;
+    }
+    if (!books.length) return undefined;
+    const endDate = typeof value.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.endDate) ? value.endDate : undefined;
+    const pace = chaptersPerDaySchema.safeParse(value.chaptersPerDay);
+    return { books, ...(endDate ? { endDate } : {}), ...(pace.success ? { chaptersPerDay: pace.data } : {}) };
+  })
+  .optional();
+
+/** An active goal, as the app describes it for this request. `progressSummary` is written on the device. */
+const goalSchema = z.object({
+  id: z.string().min(1).max(128),
+  title: z.string().min(1).max(200),
+  why: z.string().max(500).optional(),
+  shape: z.enum(GOAL_SHAPES),
+  category: z.enum(GOAL_CATEGORIES),
+  rhythm: z.enum(GOAL_RHYTHMS).optional(),
+  /** Present only when the goal already has a reading schedule. */
+  reading: readingSchema,
+  /** Step titles, in order. */
+  path: z.array(z.string().max(200)).max(12),
+  progressSummary: z.string().max(300),
+  workingNotes: z.string().max(1000).optional(),
+});
+
+/** The goal conversation this request belongs to. `summary` stands in for the turns left out of `history`. */
+export const goalThreadSchema = z.object({
+  goalId: z.string().min(1).max(128),
+  summary: z.string().max(2000).optional(),
+});
+
+export type ContextGoal = z.infer<typeof goalSchema>;
+export type GoalThread = z.infer<typeof goalThreadSchema>;
+
+/** Sent by the app as the first message of a new goal thread; the Guide then opens the thread. */
+export const GOAL_THREAD_START_MESSAGE = "GOAL_THREAD_START";
 
 /**
  * What the Guide knows about the user for this request. The app sends it each time, read from
@@ -33,6 +89,13 @@ export const chatContextSchema = z.object({
   memoryEnabled: z.boolean().optional(),
   sessionNotes: z.array(noteSchema).max(20).optional(),
   globalNotes: z.array(noteSchema).max(20).optional(),
+  /** The user's active goals (the app keeps at most 3). */
+  goals: z.array(goalSchema).max(MAX_ACTIVE_GOALS).optional(),
+  /** The user's local date (yyyy-MM-dd), so "today" in a goal is theirs and not the server's. */
+  today: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 export type ChatContext = z.infer<typeof chatContextSchema>;
@@ -128,6 +191,97 @@ const buildMemoryNotesBlock = (args: {
   return { blockText: lines.join("\n"), sessionCount: session.length, globalCount: global.length };
 };
 
+/** The books and finish date in words, short enough not to cost much: a long list is named by its ends. */
+const describeReading = (reading: NonNullable<ContextGoal["reading"]>): string => {
+  const names = reading.books.map((code) => getBookDisplayNameFromCode(code) ?? code);
+  const books =
+    names.length <= 8 ? names.join(", ") : `${names.length} books, ${names[0]} to ${names[names.length - 1]}`;
+  if (reading.chaptersPerDay) {
+    const pace = `${reading.chaptersPerDay} ${reading.chaptersPerDay === 1 ? "chapter" : "chapters"} a day`;
+    return `${books}, ${pace}, ${reading.endDate ? `finishing by ${reading.endDate}` : "no end date yet"}`;
+  }
+  return reading.endDate ? `${books}, to finish by ${reading.endDate}` : books;
+};
+
+const buildGoalsBlock = (goals: ContextGoal[], today: string): string => {
+  const lines: string[] = ["<goals>", `Today: ${today}.`];
+  if (!goals.length) lines.push("No active goals.");
+  for (const goal of goals) {
+    const facts = [goal.shape, goal.category, goal.rhythm].filter(Boolean).join(", ");
+    lines.push(`Goal ${goal.id} (${facts}): "${goal.title.trim()}".`);
+    if (goal.why?.trim()) lines.push(`Why: ${goal.why.trim()}`);
+    if (goal.reading) lines.push(`Reading schedule: ${describeReading(goal.reading)}.`);
+    else if (goal.category === "reading") lines.push("Reading schedule: none yet.");
+    if (goal.path.length) lines.push(`Path: ${goal.path.map((s) => s.trim()).join("; ")}.`);
+    if (goal.progressSummary.trim()) lines.push(`Progress: ${goal.progressSummary.trim()}`);
+    if (goal.workingNotes?.trim()) lines.push(`Your working notes: ${goal.workingNotes.trim()}`);
+  }
+  lines.push("</goals>");
+  return lines.join("\n");
+};
+
+const GOAL_SHAPE_POSTURE: Record<GoalShape, string> = {
+  finish:
+    "This is a Finish goal. Progress is measurable. Keep the pace realistic. When they fall behind, offer to make the plan smaller or move the date, and never shame them.",
+  practice:
+    "This is a Practice goal. Progress is a rhythm over recent weeks. Protect the rhythm. Don't talk about streaks or days in a row.",
+  learn:
+    "This is a Learn goal. Teach in order and build on what they have already read. Progress is the ground covered on the path and what stuck.",
+  grow:
+    "This is a Grow goal. Progress is not a number, so never score it, rate it or give a figure. Walk alongside them. Be honest about sin and quick with grace, and after a failure give them a way back. Keep pointing them to real people.",
+};
+
+const buildGoalThreadSection = (args: { goal: ContextGoal | undefined; thread: GoalThread; opening: boolean }): string => {
+  const { goal, thread } = args;
+  const lines: string[] = [
+    "GOAL THREAD",
+    "This conversation is the ongoing thread about one goal. It is where the goal is worked on, and you are the one helping with it. Talk the way you do everywhere else, as a close pastor, in plain sentences.",
+    goal
+      ? `The goal is ${goal.id}: "${goal.title.trim()}". ${GOAL_SHAPE_POSTURE[goal.shape]}`
+      : `The goal is ${thread.goalId}. It is not in your goals list, so you can't see its details.`,
+  ];
+  if (thread.summary?.trim()) {
+    lines.push(
+      "",
+      "The conversation so far, folded down (the earlier turns are not repeated):",
+      thread.summary.trim()
+    );
+  }
+  lines.push(
+    "",
+    "In this thread:",
+    "- Move the goal forward by one small step at a time. Say one thing, then show a card if it helps. A card never replaces what a pastor would say, and never answers a hard moment on its own.",
+    "- Only say what is in your goals list, the summary above and this conversation. Never say you noticed something you can't see.",
+    "- You may say you will check in, or send a reading, a prayer or a question, later, but only in a turn where you also call schedule_activity for it. Never say you will pray for them.",
+    "- When they change what they want (slower pace, a pause, letting it go, a new step), call update_goal. When they tell you something they did that the app can't see, call log_progress.",
+    "- If this is a reading goal (or clearly about reading Scripture) and its Reading schedule says none yet or is missing, you may offer once, in plain words and only when it fits the conversation, to set up a reading schedule: what to read and by when. When they agree, call update_goal with reading (and shape finish for a read-through goal), working out any end date from today's date in <goals>. Never say you are updating the goal.",
+    "- When they say how much they want to read at a time (\"a chapter a day\", \"two chapters a morning\"), that is a pace: call update_goal with reading holding the books (the same as in its Reading schedule, or taken from the goal itself when it has none yet) and chaptersPerDay (a whole number from 1 to 20), and leave endDate out so the finish date is worked out for them. Never count chapters or dates yourself.",
+    "- In update_goal, include only what they asked to change and leave every other field out; never repeat the goal's current values. status (pause, let go, finish) goes alone in its own call, never together with another field.",
+    "- Steps on a goal's path card are saved the moment they tap \"Looks good\". If they ask you to save steps and this goal's path already matches them, say in one plain sentence that they are saved and make no tool call. Only call update_goal with path when the steps differ, and then send the steps. Never say you could not save steps.",
+    "- If update_goal, set_goal or log_progress answers ok false with a reason you can fix, correct the call and call it again in the same turn. If they ask for a change but what to change is vague (\"update my plan\") and the conversation does not already say (a pace or date they gave earlier counts), ask one short plain question about what they want to change instead of calling with nothing. Never tell them you tried, that something failed, or that you can't change it from here, and never mention tools, fields or refusals. If it still fails after one retry, say in one friendly sentence what you could not do and what they can do instead (for example, \"tap Adjust on the card\").",
+    "- When a change makes this goal's current title wrong or misleading (a duration, date or pace in the title that no longer matches, or the aim itself changed, such as a different book or a different focus), rename it in the same update_goal call with title, keeping the user's wording and making the smallest change (\"Read the Gospel of Mark in 30 days\" becomes \"Read the Gospel of Mark\"). Do not rename it for any other reason, and never rename a Grow goal unless the user asks. When they ask to rename it, do it. Say so in one plain sentence (\"I've renamed it to ...\") only when you actually renamed it. If a rename answers already_a_goal, another goal already has that name, so choose a slightly different one.",
+    "",
+    "Goal cards, when show_block offers them:",
+    "- Show at most one goal card per reply, after a sentence of your own. Never repeat a card's figures, dates or steps in your prose. The app fills them in from the user's own records.",
+    "- goal_path: when you propose the approach, or when it changes. Pass this goal's id. Pass steps only for a path you are proposing, and the user confirms it from the card. To change the stored path because the user asked, call update_goal with the new steps, then show goal_path without steps.",
+    "- goal_progress: when they ask how it is going, or now and then when seeing where things stand would help them. Pass this goal's id. Say the pace in a sentence of your own, never as a score. For a Grow goal, say where things stand in words only.",
+    "- Don't use goal_proposal in this thread."
+  );
+  if (goal?.shape === "grow") {
+    lines.push(
+      "",
+      "Because this is a Grow goal: the path must include at least one step toward a real person (a friend, a pastor, a group). Don't become the only one who knows about the struggle. If the path you propose or change has no such step, add one."
+    );
+  }
+  if (args.opening) {
+    lines.push(
+      "",
+      "This is the start of the thread. The user has just made this goal and has not written anything yet, so do not refer to a first message. Open the thread: say the goal back in their own words in one sentence, show goal_path with the steps you propose, then ask one question that will help you start well (how much time they have on a normal day, or when in the day suits them). Keep it to a few sentences."
+    );
+  }
+  return lines.join("\n");
+};
+
 const buildPassageUnderDiscussionMessage = (args: {
   verseReference?: string;
   verseText?: string;
@@ -206,6 +360,7 @@ export function buildChatContextBundle(args: {
   verseReference?: string;
   verseText?: string;
   selectionState?: "selected" | "visible";
+  goalThread?: GoalThread;
 }): ChatContextBundle {
   const profile = args.context?.profile;
   const profileBlock = buildUserProfileBlock({
@@ -231,7 +386,14 @@ export function buildChatContextBundle(args: {
           globalNotes: args.context?.globalNotes ?? [],
         }).blockText;
 
-  const injectedInstructions = [profileBlock, notesBlock].join("\n\n");
+  // Goals are sent whenever the app knows about them (an empty list included), with the user's date.
+  const goals = args.context?.goals;
+  const goalsBlock =
+    goals || args.context?.today
+      ? buildGoalsBlock(goals ?? [], args.context?.today ?? new Date().toISOString().slice(0, 10))
+      : "";
+
+  const injectedInstructions = [profileBlock, notesBlock, goalsBlock].filter(Boolean).join("\n\n");
 
   const passageMessage = buildPassageUnderDiscussionMessage({
     verseReference: args.verseReference,
@@ -247,14 +409,23 @@ export function buildChatContextBundle(args: {
         : ""
     : "";
 
-  const userMessage = isBibleReaderStart ? "Begin." : args.message;
+  const isGoalThreadStart = Boolean(args.goalThread) && args.message === GOAL_THREAD_START_MESSAGE;
+  const goalThreadSection = args.goalThread
+    ? buildGoalThreadSection({
+        goal: goals?.find((g) => g.id === args.goalThread?.goalId),
+        thread: args.goalThread,
+        opening: isGoalThreadStart,
+      })
+    : "";
+
+  const userMessage = isBibleReaderStart || isGoalThreadStart ? "Begin." : args.message;
 
   return {
     injectedInstructions,
     // The fixed prompt goes first and on its own, so its cached prefix is shared by every request.
     instructions: [
       { role: "system", content: TOOL_ENABLED_GUIDE_SYSTEM_PROMPT },
-      { role: "system", content: [injectedInstructions, startAddendum].filter(Boolean).join("\n\n") },
+      { role: "system", content: [injectedInstructions, startAddendum, goalThreadSection].filter(Boolean).join("\n\n") },
     ],
     input: [...(passageMessage ? [passageMessage] : []), { role: "user", content: userMessage }],
   };
