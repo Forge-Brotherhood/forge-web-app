@@ -51,20 +51,6 @@ enum UploadStatus {
   error
 }
 
-enum ReadingPlanVisibility {
-  public
-  private
-  archived
-}
-
-enum UserReadingPlanStatus {
-  scheduled
-  active
-  paused
-  completed
-  canceled
-}
-
 // ---------- Core ----------
 
 model User {
@@ -93,14 +79,16 @@ model User {
   pushTokens               PushToken[]
   readerSettings           ReaderSettings?
 
-  // Reading Plans relations
-  createdTemplates          ReadingPlanTemplate[]   @relation("ReadingPlanTemplateCreator")
-  userReadingPlans          UserReadingPlan[]       @relation("UserReadingPlans")
-  readingPlanProgress       ReadingPlanProgress[]   @relation("ReadingPlanProgressUser")
-
   // Private content, encrypted on the user's device
   vaultKey                  VaultKey?
   vaultRecords              VaultRecord[]
+
+  // Server heartbeat: metadata and ciphertext only
+  heartbeatState            HeartbeatState?
+  heartbeatBrief            HeartbeatBrief?
+  heartbeatGrant            HeartbeatGrant?
+  heartbeatOutbox           HeartbeatOutbox[]
+  heartbeatRuns             HeartbeatRun[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -307,154 +295,6 @@ model ReaderSettings {
   updatedAt             DateTime @updatedAt
 }
 
-// ---------- Reading Plans ----------
-
-model ReadingPlanTemplate {
-  id            String   @id @default(uuid())
-  shortId       String   @unique // NanoID (10 chars)
-  slug          String   @unique // e.g. "romans-gospel-changes-everything"
-
-  title         String
-  subtitle      String?
-  description   String?
-  coverImageUrl String?
-
-  totalDays           Int
-  estimatedMinutesMin Int @default(7)
-  estimatedMinutesMax Int @default(12)
-  theme               String?
-
-  visibility  ReadingPlanVisibility @default(public)
-  isPublished Boolean               @default(false)
-  isFeatured  Boolean               @default(false)
-
-  createdById String?
-  createdBy   User?   @relation("ReadingPlanTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
-
-  days        ReadingPlanTemplateDay[]
-  userPlans   UserReadingPlan[]
-  embeddings  ReadingPlanTemplateEmbedding[]
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-
-  @@index([visibility, isPublished])
-  @@index([createdById])
-  @@index([slug])
-}
-
-model ReadingPlanTemplateDay {
-  id          String              @id @default(uuid())
-  templateId  String
-  template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  dayNumber   Int  // 1-indexed (Day 1, Day 2, etc.)
-
-  // Scripture reference - structured format for non-contiguous ranges
-  // Each block: { bookId, chapter, startVerse?, endVerse?, order }
-  scriptureBlocks  Json     // Array of ScriptureBlock objects
-  passageRef       String   // Auto-generated from scriptureBlocks: "1 Samuel 17:1-11, 32-50"
-
-  title          String?  // "Faith Over Performance"
-  summary        String?  // Brief description for daily card
-
-  reflectionPrompt String? // "What stood out to you today?"
-  prayerPrompt     String? // "Pray for one brother's faith today."
-
-  contextIntro   String?  // Historical/cultural context
-  extraMetadata  Json?    // Future: tags, video refs, etc.
-
-  audioUrl       String?  // Cloudinary URL for narration audio
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations for progress/reflections
-  progress      ReadingPlanProgress[]
-  scriptureAudio ReadingPlanDayAudio?
-
-  @@unique([templateId, dayNumber])
-  @@index([templateId])
-}
-
-// Unified day audio with section and verse-level timestamps for navigation
-model ReadingPlanDayAudio {
-  id            String @id @default(uuid())
-  templateDayId String @unique
-  templateDay   ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
-
-  translation   String   // "BSB" - which translation's text was used
-  voiceId       String   // ElevenLabs voice ID
-  audioUrl      String   // Cloudinary URL for unified day audio
-  durationMs    Int      // Total duration in milliseconds
-
-  // Unified markers array (sections + verses)
-  // [{ type: "section", id: "title", label: "Title", startMs: 0, endMs: 5000 },
-  //  { type: "verse", id: "ROM.8.1", label: "v1", startMs: 25000, endMs: 30000 }, ...]
-  markers       Json
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([templateDayId])
-}
-
-model UserReadingPlan {
-  id          String @id @default(uuid())
-  shortId     String @unique // NanoID (10 chars)
-
-  userId      String
-  user        User   @relation("UserReadingPlans", fields: [userId], references: [id], onDelete: Cascade)
-
-  templateId  String
-  template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
-
-  // Scheduling
-  startDate   DateTime  // When Day 1 begins
-  status      UserReadingPlanStatus @default(scheduled)
-
-  // Optional configuration
-  notifyDaily Boolean  @default(true)
-  timezone    String   @default("America/New_York")
-
-  progress    ReadingPlanProgress[]
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-
-  @@index([userId, status])
-  @@index([templateId])
-  @@index([startDate])
-}
-
-model ReadingPlanProgress {
-  id              String           @id @default(uuid())
-
-  userPlanId      String
-  userPlan        UserReadingPlan @relation(fields: [userPlanId], references: [id], onDelete: Cascade)
-
-  templateDayId   String
-  templateDay     ReadingPlanTemplateDay @relation(fields: [templateDayId], references: [id], onDelete: Cascade)
-
-  userId          String
-  user            User @relation("ReadingPlanProgressUser", fields: [userId], references: [id], onDelete: Cascade)
-
-  // Step completion flags
-  hasRead         Boolean   @default(false)
-  hasReflected    Boolean   @default(false)
-  hasPrayed       Boolean   @default(false)
-  completedAt     DateTime?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([userPlanId, templateDayId, userId])
-  @@index([userId])
-  @@index([userPlanId, templateDayId])
-}
-
 // ---------- Vault (private content, encrypted on the device) ----------
 
 /// Which key an account's records are encrypted with. The key itself never leaves the user's
@@ -491,22 +331,106 @@ model VaultRecord {
   @@index([userId, collection, updatedAt])
 }
 
-// ---------- Embeddings ----------
+// ---------- Heartbeat (server-run goal work, on a brief the user has granted) ----------
+//
+// Nothing below holds readable content. `ciphertext` is AES-256-GCM under the user's brief key, a
+// random key made on the device (not the vault key). The only copy the server keeps of that key is
+// `HeartbeatGrant.wrappedKey`, wrapped by AWS KMS with the user's id as encryption context, and only
+// for as long as the grant lasts. Everything else is metadata: ids, times, flags, counts, codes.
 
-/// Embeddings for reading plan templates (public plans searchable by Guide)
-model ReadingPlanTemplateEmbedding {
-  id          String   @id @default(cuid())
-  templateId  String
-  model       String   // e.g. "text-embedding-3-small"
-  dimension   Int
-  vector      Bytes    // serialized float array
+/// Scheduling metadata for one user. No content. `claimedUntil` is a lease so that two overlapping
+/// runs never process the same user.
+model HeartbeatState {
+  userId       String    @id
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  template    ReadingPlanTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  enabled      Boolean   @default(false)
+  /// IANA timezone, e.g. "America/New_York".
+  timezone     String
+  /// Local "HH:mm". The range may cross midnight. Nothing runs inside it.
+  quietStart   String
+  quietEnd     String
+  /// Whether a push may be sent for this user (used from Phase 5).
+  pushEnabled  Boolean   @default(false)
+
+  nextBeatAt   DateTime
+  lastBeatAt   DateTime?
+  claimedUntil DateTime?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([enabled, nextBeatAt])
+}
+
+/// The working brief, ciphertext only. `keyId` names which brief key it was encrypted under (the
+/// device chooses it). `deviceWrittenAt` is when a device last wrote it (the server's own rewrites
+/// leave it alone) and decides when the grant has lapsed. `revision` lets the server's rewrite lose
+/// to a device write that landed while a run was in progress.
+model HeartbeatBrief {
+  userId          String   @id
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ciphertext      String   @db.Text
+  keyId           String
+  deviceWrittenAt DateTime
+  revision        Int      @default(1)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([deviceWrittenAt])
+}
+
+/// The brief key, wrapped by KMS (base64 of the KMS ciphertext). Never the plain key.
+model HeartbeatGrant {
+  userId      String   @id
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  wrappedKey  String   @db.Text
+  keyId       String
+  expiresAt   DateTime
 
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@unique([templateId, model])
-  @@index([model])
+  @@index([expiresAt])
+}
+
+/// What a run produced for the app to take, ciphertext only. Deleted once the app has taken it.
+model HeartbeatOutbox {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ciphertext String   @db.Text
+  keyId      String
+
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// One run for one user. Counts and an outcome code only: no content, ever.
+model HeartbeatRun {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  trigger      String
+  outcome      String
+  staleness    String?
+  modelCalled  Boolean  @default(false)
+  posts        Int      @default(0)
+  activities   Int      @default(0)
+  dropped      Int      @default(0)
+  pushed       Int      @default(0)
+  durationMs   Int      @default(0)
+
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
 }
 
 // Bible places for guide maps. Imported from OpenBible.info Bible Geocoding Data (CC BY 4.0)

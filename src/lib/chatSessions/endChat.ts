@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { generateChatSessionTitle } from "@/lib/chatSessions/titleService";
 import { generateSessionSummary } from "@/lib/chatSessions/sessionSummary";
+import { generateGoalCandidates } from "@/lib/chatSessions/goalCandidates";
 import { consolidateMemoryNotes } from "@/lib/memory/userMemoryConsolidator";
 
 // Notes come back from an earlier chat end, whose keywords the model wrote: trim, don't reject.
@@ -36,25 +37,38 @@ export const chatEndRequestSchema = z.object({
     )
     .max(200)
     .default([]),
+  /** False when the user has turned memory off: nothing is inferred from the conversation then. */
+  memoryEnabled: z.boolean().optional(),
+  /** Goals the user has or has turned down, so the same ones are not suggested again. */
+  activeGoalTitles: z.array(z.string().max(200)).max(10).default([]),
+  declinedGoalTitles: z.array(z.string().max(200)).max(100).default([]),
 });
 
 /**
  * Titles and summarises a finished conversation and folds its session notes into long-term
- * memory. Nothing is stored: the app sends what is needed and keeps the results, encrypted.
+ * memory, and offers goals the conversation points to. Nothing is stored: the app sends what is
+ * needed and keeps the results, encrypted.
  */
 export async function endChat(input: z.infer<typeof chatEndRequestSchema>) {
   const turns = input.messages.filter((m) => m.content.trim().length > 0);
   const hasSubstance = turns.length >= 2 && turns.some((t) => t.role === "user");
   const nowISO = new Date().toISOString();
 
-  const [title, summary, globalNotes] = await Promise.all([
+  const [title, summary, globalNotes, goalCandidates] = await Promise.all([
     generateChatSessionTitle({ kind: "guide", turns }),
     hasSubstance ? generateSessionSummary({ turns }).catch(() => null) : null,
     consolidateMemoryNotes({
       sessionNotes: input.sessionNotes.map((n) => ({ ...n, createdAtISO: nowISO })),
       globalNotes: input.globalNotes.map((n) => ({ ...n, createdAtISO: n.createdAtISO ?? nowISO })),
     }),
+    hasSubstance && input.memoryEnabled !== false
+      ? generateGoalCandidates({
+          messages: input.messages,
+          activeTitles: input.activeGoalTitles,
+          declinedTitles: input.declinedGoalTitles,
+        })
+      : [],
   ]);
 
-  return { title, summary, globalNotes };
+  return { title, summary, globalNotes, goalCandidates };
 }

@@ -6,11 +6,14 @@ import {
   executeServerToolCall,
   type SessionNote,
 } from "@/lib/chat/tools/contextTools";
+import { ACTIVITY_TOOL_NAMES, buildActivityTools, createActivityToolRunner, type ActivityEvent } from "@/lib/chat/tools/activityTools";
+import { GOAL_TOOL_NAMES, buildGoalTools, createGoalToolRunner, type GoalEvent, type GoalToolResult } from "@/lib/chat/tools/goalTools";
 import type { ContextToolCall } from "@/lib/openai/responsesClient";
 import { extractUiActionsDeterministic, type AIAction } from "@/lib/openai/structuredActions";
 import {
   buildChatContextBundle,
   chatContextSchema,
+  goalThreadSchema,
   type ChatEntrypoint,
   type ChatMode,
 } from "@/lib/chat/chatContextBundle";
@@ -21,6 +24,7 @@ import {
   blockReferences,
   buildShowBlockTool,
   buildUiBlocksSystemPrompt,
+  HEARTBEAT_ONLY_BLOCK_KINDS,
   closingChoiceOptions,
   isQuickRepliesCall,
   parseClientBlockKinds,
@@ -46,6 +50,10 @@ type SSEEvent =
   | { type: "suggested_questions"; questions: string[] }
   /** The Guide chose to remember something for this conversation; the app keeps it. */
   | { type: "memory_note"; note: SessionNote }
+  /** The Guide started, changed or logged progress on a goal; the app applies it. Nothing is stored here. */
+  | ({ type: "goal" } & GoalEvent)
+  /** The Guide put something on the calendar for a goal; the app keeps the activity. Nothing is stored here. */
+  | ({ type: "activity" } & ActivityEvent)
   /**
    * `items` is what this request added to the conversation; the app appends them to its history.
    * With `pendingToolCalls` the reply is unfinished: the app answers the calls from the user's
@@ -67,6 +75,8 @@ export const chatRequestFields = {
     .optional(),
   history: z.array(z.unknown()).max(2000).default([]),
   context: chatContextSchema.optional(),
+  /** Set when the request belongs to a goal's own conversation. */
+  goalThread: goalThreadSchema.optional(),
   verseText: z.string().min(1).max(8000).optional(),
   selectionState: z.enum(["selected", "visible"]).optional(),
   includeSuggestedQuestions: z.boolean().optional(),
@@ -129,6 +139,27 @@ const chatLog = (level: ChatLogLevel, event: string, fields: Record<string, unkn
   else console.info(JSON.stringify(payload));
 };
 
+/**
+ * A refused goal call is logged by its reason code alone: anything after the first ':' can echo what
+ * the model sent (a book id, a field name), so it never reaches a log. An accepted call logs its action.
+ */
+const logGoalToolResult = (args: { correlationId: string; conversationId: string; tool: string; result: GoalToolResult }) => {
+  const { correlationId, conversationId, tool, result } = args;
+  let parsed: { ok?: unknown; reason?: unknown } = {};
+  try {
+    parsed = JSON.parse(result.output);
+  } catch {
+    // An output that is not JSON is logged as an unknown reason below.
+  }
+  if (parsed.ok === false) {
+    const reason = typeof parsed.reason === "string" ? parsed.reason.split(":")[0].trim() : "unknown";
+    chatLog("warn", "goal_tool_refused", { correlationId, conversationId, tool, reason });
+  } else {
+    chatLog("info", "goal_tool_ok", { correlationId, conversationId, tool, action: result.event?.action });
+    if (result.statusIgnored) chatLog("info", "goal_tool_status_ignored", { correlationId, conversationId, tool });
+  }
+};
+
 const isRecord = (x: unknown): x is Record<string, unknown> =>
   typeof x === "object" && x !== null && !Array.isArray(x);
 
@@ -160,6 +191,7 @@ export type HandleChatInput = {
   verseText?: string;
   selectionState?: "selected" | "visible";
   includeSuggestedQuestions?: boolean;
+  goalThread?: z.infer<typeof goalThreadSchema>;
   /** Inline UI block kinds the client can render. */
   uiBlocks?: string[];
 };
@@ -184,7 +216,9 @@ export async function handleChatRequest(args: {
 
   const message = args.input.message?.trim() ?? "";
   const isContinuation = Boolean(args.input.toolOutputs);
-  const entrypoint = (args.force?.entrypoint ?? args.input.entrypoint ?? "other") as ChatEntrypoint;
+  const entrypoint = (
+    args.input.goalThread ? "goal_thread" : (args.force?.entrypoint ?? args.input.entrypoint ?? "other")
+  ) as ChatEntrypoint;
   const mode = (args.force?.mode ?? args.input.mode ?? (args.input.verseReference ? "bible" : "general")) as ChatMode;
 
   chatLog("info", "request_start", {
@@ -200,6 +234,7 @@ export async function handleChatRequest(args: {
     hasVerseText: Boolean(args.input.verseText?.trim()),
     selectionState: args.input.selectionState ?? null,
     includeSuggestedQuestions: Boolean(args.input.includeSuggestedQuestions),
+    goals: args.input.context?.goals?.length ?? 0,
   });
 
   const jsonResponse = (body: unknown, status: number) =>
@@ -242,6 +277,7 @@ export async function handleChatRequest(args: {
           verseReference: args.input.verseReference,
           verseText: args.input.verseText,
           selectionState: args.input.selectionState,
+          goalThread: args.input.goalThread,
         });
         // A continuation adds only the answers to the calls left pending by the previous request.
         const input = args.input.toolOutputs
@@ -273,7 +309,7 @@ export async function handleChatRequest(args: {
         // The greeting gets no model-chosen cards; at most a rule-based chapter map after its text.
         // A reopened guide reuses its conversation, so detect the greeting by its start message.
         const isGreeting = entrypoint === "bible_reader" && message === "BIBLE_CHAT_START";
-        const modelBlockKinds = isGreeting ? [] : blockKinds;
+        const modelBlockKinds = isGreeting ? [] : blockKinds.filter((k) => !HEARTBEAT_ONLY_BLOCK_KINDS.includes(k));
         const passagePlaces =
           blockKinds.includes("map_card") && entrypoint === "bible_reader"
             ? await getPassagePlaces(args.input.verseReference, args.input.selectionState).catch(() => null)
@@ -298,10 +334,24 @@ export async function handleChatRequest(args: {
         // Quick replies answer the guide's closing question, so they always go out after all text.
         let quickReplies: GuideBlock | null = null;
 
-        // The greeting is a short orientation; it does not look up the user's own data.
+        // The greeting is a short orientation; it does not look up the user's own data, but a goal can still be started from it.
         const contextTools = isGreeting
-          ? buildContextToolsForUser().filter((tool) => !CLIENT_TOOL_NAMES.has(tool.name))
-          : buildContextToolsForUser();
+          ? [...buildContextToolsForUser().filter((tool) => !CLIENT_TOOL_NAMES.has(tool.name)), ...buildGoalTools()]
+          : [...buildContextToolsForUser(), ...buildGoalTools(), ...buildActivityTools()];
+        const runGoalTool = createGoalToolRunner({
+          goals: args.input.context?.goals,
+          memoryEnabled: args.input.context?.memoryEnabled,
+          today: args.input.context?.today ?? new Date().toISOString().slice(0, 10),
+        });
+        const goalIds = [
+          ...(args.input.context?.goals ?? []).map((g) => g.id),
+          ...(args.input.goalThread ? [args.input.goalThread.goalId] : []),
+        ];
+        const runActivityTool = createActivityToolRunner({
+          goalIds,
+          goals: args.input.context?.goals,
+          today: args.input.context?.today ?? new Date().toISOString().slice(0, 10),
+        });
         const tools = modelBlockKinds.length ? [...contextTools, buildShowBlockTool(modelBlockKinds)] : contextTools;
         const instructions = modelBlockKinds.length
           ? [
@@ -310,8 +360,6 @@ export async function handleChatRequest(args: {
               ...bundle.instructions.slice(1),
             ]
           : bundle.instructions;
-
-        const toolResults: Array<{ name: string; output: string }> = [];
 
         stage = "run_main_response";
         const { finalText, responseId, items, pendingToolCalls } = await runMainChatResponse({
@@ -362,7 +410,6 @@ export async function handleChatRequest(args: {
           onToolResult: (call, output) => {
             markStage(`${call.name}_done`);
             awaitingRoundText = true;
-            toolResults.push({ name: call.name, output });
           },
           executeToolCall: async (call: ContextToolCall) => {
             if (call.name === SHOW_BLOCK_TOOL_NAME) {
@@ -373,6 +420,7 @@ export async function handleChatRequest(args: {
                 userId,
                 blockId: nextBlockId(),
                 passage: passagePlaces,
+                goalIds,
               }).catch((err): Awaited<ReturnType<typeof resolveShowBlockCall>> => {
                 chatLog("error", "ui_block_failed", { correlationId, conversationId, error: safeErrorDetails(err) });
                 return { ok: false, reason: "the card could not be built" };
@@ -406,6 +454,17 @@ export async function handleChatRequest(args: {
                 heldBlocks.push(result.block);
               }
               return "Shown to the user. Continue your reply without repeating the card's content.";
+            }
+            if (GOAL_TOOL_NAMES.has(call.name)) {
+              const result = runGoalTool(call);
+              if (result.event) write({ type: "goal", ...result.event });
+              logGoalToolResult({ correlationId, conversationId, tool: call.name, result });
+              return result.output;
+            }
+            if (ACTIVITY_TOOL_NAMES.has(call.name)) {
+              const result = runActivityTool(call);
+              if (result.event) write({ type: "activity", ...result.event });
+              return result.output;
             }
             const result = await executeServerToolCall(call);
             if (result.note) write({ type: "memory_note", note: result.note });
@@ -441,40 +500,12 @@ export async function handleChatRequest(args: {
           verseReference: args.input.verseReference,
         }).filter((a) => !(a.params.reference && shownReferences.has(a.params.reference)));
 
-        // Extract reading plan actions from tool results (only plans referenced in response)
         const lowerText = turnText.toLowerCase();
-        for (const result of toolResults) {
-          if (result.name === "search_reading_plans") {
-            try {
-              const parsed = JSON.parse(result.output);
-              for (const plan of parsed.plans ?? []) {
-                if (lowerText.includes(plan.title.toLowerCase())) {
-                  actions.push({
-                    id: `NAVIGATE_TO_READING_PLAN:${plan.shortId}`,
-                    type: "NAVIGATE_TO_READING_PLAN",
-                    version: 1,
-                    params: {
-                      planId: plan.shortId,
-                      planTitle: plan.title,
-                      planDescription: plan.description ?? undefined,
-                      planTotalDays: String(plan.totalDays),
-                    },
-                    resolved: null,
-                    confidence: plan.relevanceScore ?? 0.8,
-                    priority: "secondary",
-                    icon: "book.closed.fill",
-                    color: "blue",
-                  });
-                }
-              }
-            } catch { /* ignore parse errors */ }
-          }
-        }
 
         // Sort actions by order of first mention in response
         actions.sort((a, b) => {
-          const aKey = a.params.reference ?? a.params.planTitle ?? "";
-          const bKey = b.params.reference ?? b.params.planTitle ?? "";
+          const aKey = a.params.reference ?? "";
+          const bKey = b.params.reference ?? "";
           const aPos = lowerText.indexOf(aKey.toLowerCase());
           const bPos = lowerText.indexOf(bKey.toLowerCase());
           return (aPos === -1 ? Infinity : aPos) - (bPos === -1 ? Infinity : bPos);
