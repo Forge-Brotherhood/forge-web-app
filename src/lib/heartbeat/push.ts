@@ -49,18 +49,25 @@ export function fitTarget(target: SealedTarget, maxBytes = MAX_SEALED_PLAINTEXT_
   return withoutText;
 }
 
+/** What a result asks to notify about: its heads-up on a heads-up run, otherwise the post that earned it. */
+const notification = (output: Pick<BeatOutput, "posts" | "headsUp">): { goalId: string; activityId?: string; text: string } | null => {
+  if (output.headsUp) return output.headsUp;
+  const post = notifyPost(output);
+  return post?.notify ? { goalId: post.goalId, ...(post.activityId ? { activityId: post.activityId } : {}), text: post.notify.text } : null;
+};
+
 /** The push for a result, or null when nothing in it earned one. Seals with the key; the caller still owns (and zeroes) it. */
-export function buildHeartbeatPush(args: { key: Buffer; userId: string; keyId: string; brief: Brief; output: Pick<BeatOutput, "posts"> }): PushPayload | null {
-  const post = notifyPost(args.output);
-  const goal = post && args.brief.goals.find((g) => g.id === post.goalId);
-  if (!post?.notify || !goal) return null;
+export function buildHeartbeatPush(args: { key: Buffer; userId: string; keyId: string; brief: Brief; output: Pick<BeatOutput, "posts" | "headsUp"> }): PushPayload | null {
+  const note = notification(args.output);
+  const goal = note && args.brief.goals.find((g) => g.id === note.goalId);
+  if (!note || !goal) return null;
 
   // A discreet goal, or text the rules already replaced with the neutral line, sends no text: the device keeps the neutral one.
-  const showText = !isDiscreet(goal) && post.notify.text !== NEUTRAL_NOTIFICATION_TEXT;
+  const showText = !isDiscreet(goal) && note.text !== NEUTRAL_NOTIFICATION_TEXT;
   const target = fitTarget({
-    goalId: post.goalId,
-    ...(post.activityId ? { activityId: post.activityId } : {}),
-    ...(showText ? { text: post.notify.text } : {}),
+    goalId: note.goalId,
+    ...(note.activityId ? { activityId: note.activityId } : {}),
+    ...(showText ? { text: note.text } : {}),
   });
 
   return {
@@ -93,7 +100,7 @@ export async function sendHeartbeatPush(
     userId: string;
     keyId: string;
     brief: Brief;
-    output: Pick<BeatOutput, "posts">;
+    output: Pick<BeatOutput, "posts" | "headsUp">;
     pushEnabled: boolean;
     /** Records the day's push just before it goes. False: one already went today, so this one does not. */
     claimDay?: () => Promise<boolean>;
@@ -102,7 +109,7 @@ export async function sendHeartbeatPush(
   }
 ): Promise<{ pushed: number; code: PushCode }> {
   try {
-    if (!notifyPost(args.output)) return { pushed: 0, code: "none" };
+    if (!notification(args.output)) return { pushed: 0, code: "none" };
     if (!args.pushEnabled) return { pushed: 0, code: "off" };
     const tokens = await deps.tokensFor(args.userId);
     if (tokens.length === 0) return { pushed: 0, code: "no_tokens" };
