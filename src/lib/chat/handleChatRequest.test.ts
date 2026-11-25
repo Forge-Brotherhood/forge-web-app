@@ -394,6 +394,70 @@ test("a thread's first message opens it, and the marker is never sent to the mod
   assert.deepEqual(done.items[0], { role: "user", content: "Begin." });
 });
 
+test("a goal setup opens with Lumen's question, drawn on what it knows, and the marker is never sent as the user's words", async () => {
+  const bodies = mockModel([{ output: [message("What would you like to work toward?")] }]);
+
+  const { done } = await chat({
+    message: "GOAL_SETUP_START",
+    context: goalContext,
+    uiBlocks: ["quick_replies", "goal_proposal"],
+    goalSetup: { noticed: ["Pray with my wife"], recentReading: ["JHN:3", "PSA:23"] },
+  });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("GOAL SETUP"));
+  assert.ok(prompt.includes("This is the start."));
+  assert.ok(prompt.includes('"Pray with my wife"'));
+  assert.ok(prompt.includes("John 3, Psalms 23") || prompt.includes("John 3, Psalm 23"));
+  assert.ok(!prompt.includes("GOAL THREAD"));
+  assert.ok(!prompt.includes("the most they can have"), "one goal leaves room");
+  assert.deepEqual(bodies[0].input.at(-1), { role: "user", content: "Begin." });
+  assert.deepEqual(done.items[0], { role: "user", content: "Begin." });
+});
+
+test("a goal setup's later turns keep the setup prompt without the opening, and three goals are said plainly", async () => {
+  const goal = goalContext.goals[0];
+  const bodies = mockModel([{ output: [message("Why does it matter to you?")] }]);
+
+  await chat({
+    message: "Read the Bible in a year",
+    context: { ...goalContext, goals: [goal, { ...goal, id: "goal-2", title: "B" }, { ...goal, id: "goal-3", title: "C" }] },
+    goalSetup: { noticed: [], recentReading: [] },
+  });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("GOAL SETUP"));
+  assert.ok(!prompt.includes("This is the start."));
+  assert.ok(prompt.includes("the most they can have"));
+  assert.deepEqual(bodies[0].input.at(-1), { role: "user", content: "Read the Bible in a year" });
+});
+
+test("a thread that opens after its goal was set up lays out the steps without saying the goal back", async () => {
+  const bodies = mockModel([{ output: [message("Here is how I'd begin.")] }]);
+
+  await chat({
+    message: "GOAL_THREAD_START",
+    history: [{ role: "user", content: "Read the Bible in a year" }],
+    context: goalContext,
+    goalThread: { goalId: "goal-1" },
+    // Sent by mistake with a thread: the thread wins.
+    goalSetup: { noticed: [], recentReading: [] },
+  });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("The goal was just made in the conversation above"));
+  assert.ok(!prompt.includes("say the goal back in their own words"));
+  assert.ok(!prompt.includes("GOAL SETUP"));
+});
+
+test("goal setup requests are held to their limits", () => {
+  const schema = z.object(chatRequestFields);
+  assert.ok(schema.safeParse({ message: "GOAL_SETUP_START", goalSetup: {} }).success);
+  assert.ok(!schema.safeParse({ message: "hi", goalSetup: { noticed: ["a", "b", "c", "d"] } }).success, "at most 3 noticed");
+  assert.ok(!schema.safeParse({ message: "hi", goalSetup: { recentReading: Array(9).fill("JHN:1") } }).success, "at most 8 chapters");
+  assert.ok(!schema.safeParse({ message: "hi", goalSetup: { noticed: ["n".repeat(121)] } }).success);
+});
+
 test("coming back after the reading begins a reflection, led by what they made but never reciting it", async () => {
   const bodies = mockModel([{ output: [message("Jesus says the good shepherd knows his own.")] }]);
 

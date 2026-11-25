@@ -14,6 +14,7 @@ import {
   GOAL_THREAD_REFLECT_MESSAGE,
   buildChatContextBundle,
   chatContextSchema,
+  goalSetupSchema,
   goalThreadSchema,
   type ChatEntrypoint,
   type ChatMode,
@@ -79,6 +80,8 @@ export const chatRequestFields = {
   context: chatContextSchema.optional(),
   /** Set when the request belongs to a goal's own conversation. */
   goalThread: goalThreadSchema.optional(),
+  /** Set while the conversation is setting up a new goal, until the goal is made. */
+  goalSetup: goalSetupSchema.optional(),
   verseText: z.string().min(1).max(8000).optional(),
   selectionState: z.enum(["selected", "visible"]).optional(),
   includeSuggestedQuestions: z.boolean().optional(),
@@ -196,6 +199,7 @@ export type HandleChatInput = {
   selectionState?: "selected" | "visible";
   includeSuggestedQuestions?: boolean;
   goalThread?: z.infer<typeof goalThreadSchema>;
+  goalSetup?: z.infer<typeof goalSetupSchema>;
   /** Inline UI block kinds the client can render. */
   uiBlocks?: string[];
   /** The card the user asked to see, by tapping its example in Lumen's menu. */
@@ -285,6 +289,7 @@ export async function handleChatRequest(args: {
           verseText: args.input.verseText,
           selectionState: args.input.selectionState,
           goalThread: args.input.goalThread,
+          goalSetup: args.input.goalSetup,
         });
         // A continuation adds only the answers to the calls left pending by the previous request.
         const input = args.input.toolOutputs
