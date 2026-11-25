@@ -130,7 +130,7 @@ export const ACTIVITY_REGISTRY = {
   review: define({
     serves: ["finish", "practice", "learn", "grow"],
     guidance:
-      "The weekly look back. Offer it only when the goal's state says a review is due (reason \"review\"), and instead of the day's other offer, never as well. Say in one or two plain sentences how the week was, in words: what held, what got hard. Never a figure, a score, a count of days or a streak. On a Grow goal say only where things stand, in words, and never measure anything. You may ask whether they want to change something about the path; you do not change it. It is a look back with them, not a report on them. The card that follows fills in the rest from their own records. payload.note is one optional short line for the card.",
+      "The weekly look back. Offer it only when the goal's state says a review is due (reason \"review\"), and instead of the day's other offer, never as well. Say in one or two plain sentences how the week was, in words: what held, what got hard. Never a figure, a score, a count of days or a streak. On a Grow goal say only where things stand, in words, and never measure anything. You may ask whether they want to change something about the path, but never as a matter of pace or speed; you do not change it. It is a look back with them, not a report on them. The card that follows fills in the rest from their own records. payload.note is one optional short line for the card.",
     doneWhen: "The person answers the card (Keep going or Change something) or replies in the thread.",
     expiresAfterDays: 2,
     plannable: true,
