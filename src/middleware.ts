@@ -17,6 +17,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/cron/(.*)',
   // Dev clock (404 unless on; setting it needs the cron secret)
   '/api/dev/(.*)',
+  // Model-quality evals, for the admin (every route needs the cron secret)
+  '/api/evals/(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

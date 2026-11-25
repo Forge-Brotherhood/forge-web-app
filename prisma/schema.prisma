@@ -352,6 +352,13 @@ model HeartbeatState {
   quietEnd     String
   /// Whether a push may be sent for this user (used from Phase 5).
   pushEnabled  Boolean   @default(false)
+  /// The next heads-up send times, worked out on the device from when the user tends to open the
+  /// app (push-engagement-plan.md §3.4). Instants only: the session times stay on the device.
+  sendTimes    DateTime[] @default([])
+  /// No notifications until then.
+  pausedUntil  DateTime?
+  /// The local day (YYYY-MM-DD) a heads-up was last pushed. At most one a day.
+  lastHeadsUpDay String?
 
   nextBeatAt   DateTime
   lastBeatAt   DateTime?
@@ -374,6 +381,8 @@ model HeartbeatBrief {
   ciphertext      String   @db.Text
   keyId           String
   deviceWrittenAt DateTime
+  /// When a device last wrote the brief, by the server's clock. A server run does not move it.
+  receivedAt      DateTime?
   revision        Int      @default(1)
 
   createdAt       DateTime @default(now())
@@ -461,4 +470,39 @@ model BiblePlaceRef {
 
   @@unique([placeId, bookId, chapter, verse])
   @@index([bookId, chapter])
+}
+
+// Model-quality evals (src/lib/evals), run from the admin. Inputs are synthetic fixtures, never a
+// person's data, so the model's output is stored as it is.
+model EvalRun {
+  id           String       @id @default(uuid())
+  suiteId      String
+  // The model and a hash of the prompt and rubric, so runs before and after a change can be told apart.
+  suiteVersion String
+  label        String?
+  caseIds      String[]
+  repeats      Int
+  estimatedUsd Float
+  createdAt    DateTime     @default(now())
+  results      EvalResult[]
+
+  @@index([suiteId, createdAt])
+}
+
+model EvalResult {
+  id         String   @id @default(uuid())
+  runId      String
+  run        EvalRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  caseId     String
+  repeat     Int
+  output     String
+  raw        Json?
+  checks     Json // [{ name, pass, detail? }]
+  grade      Json? // { pass, reason }, or null when not graded
+  passed     Boolean
+  error      String?
+  durationMs Int
+  createdAt  DateTime @default(now())
+
+  @@unique([runId, caseId, repeat])
 }

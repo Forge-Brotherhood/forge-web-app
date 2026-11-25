@@ -91,7 +91,26 @@ test("request shapes are checked", () => {
   assert.ok(putStateSchema.safeParse(s).success);
   assert.ok(!putStateSchema.safeParse({ ...s, timezone: "Mars/Base" }).success);
   assert.ok(!putStateSchema.safeParse({ ...s, quietHours: { start: "25:00", end: "07:00" } }).success);
+  // Send times from the device: at most 7 instants; old builds send none. A pause may be cleared with null.
+  const week = Array.from({ length: 7 }, (_, i) => new Date(NOW.getTime() + (i + 1) * 86_400_000).toISOString());
+  assert.ok(putStateSchema.safeParse({ ...s, sendTimes: week, pausedUntil: null }).success);
+  assert.ok(putStateSchema.safeParse({ ...s, pausedUntil: week[2] }).success);
+  assert.ok(!putStateSchema.safeParse({ ...s, sendTimes: [...week, week[0]] }).success, "at most 7");
+  assert.ok(!putStateSchema.safeParse({ ...s, sendTimes: ["06:40"] }).success, "instants, not clock times");
 
   assert.ok(ackOutboxSchema.safeParse({ ids: ["a"] }).success);
   assert.ok(!ackOutboxSchema.safeParse({ ids: [] }).success);
+});
+
+test("the state keeps the device's send times and pause, and a write without them clears them", async () => {
+  const store = new MemoryStore();
+  const sendTimes = [new Date("2026-11-24T11:20:00.000Z"), new Date("2026-11-25T11:20:00.000Z")];
+  const pausedUntil = new Date("2026-11-30T05:00:00.000Z");
+  const row = await store.putState("u1", { ...state, sendTimes, pausedUntil }, NOW);
+  assert.deepEqual(row.sendTimes, sendTimes);
+  assert.deepEqual(row.pausedUntil, pausedUntil);
+  // An older build sends neither.
+  const old = await store.putState("u1", state, NOW);
+  assert.deepEqual(old.sendTimes, []);
+  assert.equal(old.pausedUntil, null);
 });

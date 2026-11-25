@@ -5,7 +5,7 @@ import type { BeatTrigger, Brief, GoalFile, LedgerEntry } from "@/lib/heartbeat/
 /**
  * Replay fixtures (plan 7.4): one brief per goal shape, and the hard cases. Each is run through a
  * beat with a scripted model in the tests (to check the code rules) and with the real model in
- * scripts/replay-beat.ts (to read the output against the soul doc). The clock is fixed:
+ * the heartbeat eval suite, src/lib/evals (to read the output against the soul doc). The clock is fixed:
  * Monday 23 November 2026, 10:00 in New York.
  */
 
@@ -277,6 +277,7 @@ const finishedGenesis = {
 
 const recallPaul = {
   ...learnPaul,
+  workingNotes: "Asked why Paul was so firm in Galatians. Before Thessalonians, bring back what Sam wrote on Galatians for him to look at again.",
   noteExcerpts: ["Grace is not a reward for getting it right. It is what holds me when I do not."],
 };
 
@@ -291,7 +292,13 @@ const lessonPaul = {
 
 const peopleGrow = {
   ...growAnger,
-  activities: [entry("g-anger", "check_in", -10, "done"), entry("g-anger", "reflection", -6, "done"), entry("g-anger", "check_in", -3, "done")],
+  // A look back two days ago, so the review is not due and the step toward a person is the thing to offer.
+  activities: [entry("g-anger", "check_in", -10, "done"), entry("g-anger", "reflection", -6, "done"), entry("g-anger", "check_in", -3, "done"), entry("g-anger", "review", -2, "done")],
+};
+
+const verseForMornings = {
+  ...morningPrayer,
+  workingNotes: "Sam asked for a verse to carry into the mornings. Offer one from a psalm.",
 };
 
 const memorizeReview = {
@@ -354,7 +361,8 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal, discreet by default.",
     brief: makeBrief([growAnger]),
     trigger: "app_open",
-    expect: "A plain check-in in the pastor's voice. No number. A notification, if any, is neutral.",
+    expect:
+      "One plain thing for this goal, offered as an invitation: a check-in, a verse to carry, or a small step toward a person on the goal's path. No number, no score. A notification, if any, is neutral.",
   },
   {
     name: "grieving",
@@ -396,7 +404,7 @@ export const FIXTURES: Fixture[] = [
     description: "The brief was written nine days ago.",
     brief: staleFrom(9),
     trigger: "app_open",
-    expect: "At most one gentle, general word with no card and nothing specific.",
+    expect: "At most one short word that asks how Sam is, perhaps with a plain line about the Lord being near. Nothing about the goal, the reading or a next step, and no card.",
   },
   {
     name: "stale-16-days",
@@ -429,7 +437,7 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal a week in, after a few check-ins.",
     brief: makeBrief([reviewGrow]),
     trigger: "app_open",
-    expect: "A look back in words only: no figures, no streaks, no 'progress'. Honest and warm. If it mentions a person it is an invitation.",
+    expect: "A look back in words only: no figures, no streaks, no 'progress'. Honest and warm. It may recall what Sam did with the people in his life; anything it suggests doing with a person is an invitation.",
   },
   {
     name: "review-while-grieving",
@@ -450,7 +458,7 @@ export const FIXTURES: Fixture[] = [
     description: "A review would be due, but the brief was written three days ago.",
     brief: makeBrief([reviewBible], {}, 3),
     trigger: "app_open",
-    expect: "No review: it waits for a fresh brief. Things that still make sense, nothing called recent.",
+    expect: "No review: it waits for a fresh brief. Today's planned reading may still be offered; nothing called recent.",
   },
   {
     name: "milestone-finish",
@@ -468,7 +476,7 @@ export const FIXTURES: Fixture[] = [
   },
   {
     name: "people-grow",
-    description: "A Grow goal that has had several check-ins and never a step toward a person.",
+    description: "A Grow goal that has had several check-ins and a look back, and never a step toward a person.",
     brief: makeBrief([peopleGrow]),
     trigger: "app_open",
     expect: "A step toward a real person, offered as an invitation, in one or two plain sentences. No deadline, no 'make sure', no report back, no number.",
@@ -482,15 +490,15 @@ export const FIXTURES: Fixture[] = [
   },
   {
     name: "note-recall-learn",
-    description: "A Learn goal with one excerpt of the person's own note in the brief.",
+    description: "A Learn goal with one excerpt of the person's own note in the brief, and a working note to bring it back.",
     brief: makeBrief([recallPaul]),
     trigger: "app_open",
-    expect: "One plain sentence saying there is something of theirs to look at again, with a note_recall card. It does not quote or describe the note.",
+    expect: "One plain sentence saying there is something of theirs to look at again, with a note_recall card. The message does not quote or describe the note; the card shows it unchanged.",
   },
   {
     name: "memorize-practice",
-    description: "A Practice goal with no verse to carry yet.",
-    brief: makeBrief([morningPrayer]),
+    description: "A Practice goal with no verse to carry yet, where Sam asked for one.",
+    brief: makeBrief([verseForMornings]),
     trigger: "app_open",
     expect: "At most a verse to carry from where the thread has been (a psalm), as an invitation with a passage card. No quiz.",
   },

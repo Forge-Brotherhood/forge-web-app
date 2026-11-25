@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { nextSendTime } from "@/lib/heartbeat/rules";
 import type { Claimed, GrantInfo, HeartbeatStore, OutboxRow, RunInput, StateRow } from "@/lib/heartbeat/store";
 
 /**
@@ -13,19 +14,23 @@ import type { Claimed, GrantInfo, HeartbeatStore, OutboxRow, RunInput, StateRow 
 export const prismaHeartbeatStore: HeartbeatStore = {
   async getState(userId) {
     const rows = await prisma.$queryRaw<StateRow[]>`
-      SELECT "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "nextBeatAt", "lastBeatAt"
+      SELECT "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "sendTimes", "pausedUntil", "nextBeatAt", "lastBeatAt"
       FROM "HeartbeatState" WHERE "userId" = ${userId}`;
     return rows[0] ?? null;
   },
 
   async putState(userId, input, now) {
+    const soonest = nextSendTime(input.sendTimes ?? [], now);
     const rows = await prisma.$queryRaw<StateRow[]>`
-      INSERT INTO "HeartbeatState" ("userId", "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "nextBeatAt", "createdAt", "updatedAt")
-      VALUES (${userId}, ${input.enabled}, ${input.timezone}, ${input.quietStart}, ${input.quietEnd}, ${input.pushEnabled}, ${now}, ${now}, ${now})
+      INSERT INTO "HeartbeatState" ("userId", "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "sendTimes", "pausedUntil", "nextBeatAt", "createdAt", "updatedAt")
+      VALUES (${userId}, ${input.enabled}, ${input.timezone}, ${input.quietStart}, ${input.quietEnd}, ${input.pushEnabled},
+        ${input.sendTimes ?? []}::timestamp(3)[], ${input.pausedUntil ?? null}, ${now}, ${now}, ${now})
       ON CONFLICT ("userId") DO UPDATE SET
         "enabled" = EXCLUDED."enabled", "timezone" = EXCLUDED."timezone", "quietStart" = EXCLUDED."quietStart",
-        "quietEnd" = EXCLUDED."quietEnd", "pushEnabled" = EXCLUDED."pushEnabled", "updatedAt" = EXCLUDED."updatedAt"
-      RETURNING "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "nextBeatAt", "lastBeatAt"`;
+        "quietEnd" = EXCLUDED."quietEnd", "pushEnabled" = EXCLUDED."pushEnabled", "sendTimes" = EXCLUDED."sendTimes",
+        "pausedUntil" = EXCLUDED."pausedUntil", "updatedAt" = EXCLUDED."updatedAt",
+        "nextBeatAt" = LEAST("HeartbeatState"."nextBeatAt", ${soonest}::timestamp(3))
+      RETURNING "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "sendTimes", "pausedUntil", "nextBeatAt", "lastBeatAt"`;
     return rows[0];
   },
 
@@ -51,12 +56,12 @@ export const prismaHeartbeatStore: HeartbeatStore = {
     if (grant.keyId !== brief.keyId) return "key_mismatch";
     // The grant is checked again in the statement itself, in case it was revoked or rotated just now.
     const count = await prisma.$executeRaw`
-      INSERT INTO "HeartbeatBrief" ("userId", "ciphertext", "keyId", "deviceWrittenAt", "revision", "createdAt", "updatedAt")
-      SELECT ${userId}, ${brief.ciphertext}, ${brief.keyId}, ${brief.deviceWrittenAt}, 1, ${now}, ${now}
+      INSERT INTO "HeartbeatBrief" ("userId", "ciphertext", "keyId", "deviceWrittenAt", "receivedAt", "revision", "createdAt", "updatedAt")
+      SELECT ${userId}, ${brief.ciphertext}, ${brief.keyId}, ${brief.deviceWrittenAt}, ${now}, 1, ${now}, ${now}
       WHERE EXISTS (SELECT 1 FROM "HeartbeatGrant" WHERE "userId" = ${userId} AND "keyId" = ${brief.keyId})
       ON CONFLICT ("userId") DO UPDATE SET
         "ciphertext" = EXCLUDED."ciphertext", "keyId" = EXCLUDED."keyId", "deviceWrittenAt" = EXCLUDED."deviceWrittenAt",
-        "revision" = "HeartbeatBrief"."revision" + 1, "updatedAt" = EXCLUDED."updatedAt"`;
+        "receivedAt" = EXCLUDED."receivedAt", "revision" = "HeartbeatBrief"."revision" + 1, "updatedAt" = EXCLUDED."updatedAt"`;
     return count > 0 ? "ok" : "no_grant";
   },
 
@@ -98,7 +103,7 @@ export const prismaHeartbeatStore: HeartbeatStore = {
       )
       UPDATE "HeartbeatState" st SET "claimedUntil" = ${leaseUntil}
       FROM picked WHERE st."userId" = picked."userId"
-      RETURNING st."userId", st."timezone", st."quietStart", st."quietEnd"`;
+      RETURNING st."userId", st."timezone", st."quietStart", st."quietEnd", st."sendTimes"`;
   },
 
   async findLapsed(now, writtenBefore, limit) {
@@ -112,15 +117,24 @@ export const prismaHeartbeatStore: HeartbeatStore = {
   },
 
   async loadForRun(userId): Promise<RunInput | null> {
-    const state = await prismaHeartbeatStore.getState(userId);
+    const states = await prisma.$queryRaw<Array<{ pushEnabled: boolean; pausedUntil: Date | null; lastHeadsUpDay: string | null }>>`
+      SELECT "pushEnabled", "pausedUntil", "lastHeadsUpDay" FROM "HeartbeatState" WHERE "userId" = ${userId}`;
+    const state = states[0];
     if (!state) return null;
     const grants = await prisma.$queryRaw<NonNullable<RunInput["grant"]>[]>`
       SELECT "wrappedKey", "keyId", "expiresAt" FROM "HeartbeatGrant" WHERE "userId" = ${userId}`;
     const briefs = await prisma.$queryRaw<NonNullable<RunInput["brief"]>[]>`
-      SELECT "ciphertext", "keyId", "deviceWrittenAt", "revision" FROM "HeartbeatBrief" WHERE "userId" = ${userId}`;
+      SELECT "ciphertext", "keyId", "deviceWrittenAt", "revision", "receivedAt" FROM "HeartbeatBrief" WHERE "userId" = ${userId}`;
     const counts = await prisma.$queryRaw<Array<{ n: number }>>`
       SELECT COUNT(*)::int AS "n" FROM "HeartbeatOutbox" WHERE "userId" = ${userId}`;
-    return { grant: grants[0] ?? null, brief: briefs[0] ?? null, outboxCount: counts[0]?.n ?? 0, pushEnabled: state.pushEnabled };
+    return {
+      grant: grants[0] ?? null,
+      brief: briefs[0] ?? null,
+      outboxCount: counts[0]?.n ?? 0,
+      pushEnabled: state.pushEnabled,
+      pausedUntil: state.pausedUntil,
+      lastHeadsUpDay: state.lastHeadsUpDay,
+    };
   },
 
   async finishRun(userId, result) {
@@ -147,6 +161,13 @@ export const prismaHeartbeatStore: HeartbeatStore = {
   async release(userId, nextBeatAt, now) {
     await prisma.$executeRaw`
       UPDATE "HeartbeatState" SET "nextBeatAt" = ${nextBeatAt}, "claimedUntil" = NULL, "updatedAt" = ${now} WHERE "userId" = ${userId}`;
+  },
+
+  async claimHeadsUpDay(userId, day, now) {
+    const count = await prisma.$executeRaw`
+      UPDATE "HeartbeatState" SET "lastHeadsUpDay" = ${day}, "updatedAt" = ${now}
+      WHERE "userId" = ${userId} AND "lastHeadsUpDay" IS DISTINCT FROM ${day}`;
+    return count > 0;
   },
 
   async recordRun(run, now) {

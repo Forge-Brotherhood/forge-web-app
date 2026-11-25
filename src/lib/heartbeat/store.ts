@@ -5,8 +5,17 @@
  * returns readable content.
  */
 
-export type StateInput = { enabled: boolean; timezone: string; quietStart: string; quietEnd: string; pushEnabled: boolean };
-export type StateRow = StateInput & { nextBeatAt: Date; lastBeatAt: Date | null };
+export type StateInput = {
+  enabled: boolean;
+  timezone: string;
+  quietStart: string;
+  quietEnd: string;
+  pushEnabled: boolean;
+  /** The next heads-up send times, from the device. Absent means none. */
+  sendTimes?: Date[];
+  pausedUntil?: Date | null;
+};
+export type StateRow = Required<StateInput> & { nextBeatAt: Date; lastBeatAt: Date | null };
 
 export type GrantInfo = { keyId: string; expiresAt: Date };
 
@@ -15,15 +24,19 @@ export type PutBriefResult = "ok" | "no_grant" | "key_mismatch";
 export type OutboxRow = { id: string; keyId: string; ciphertext: string; createdAt: Date };
 
 /** A user claimed for a run. The lease (`claimedUntil`) keeps any other run away until it is released. */
-export type Claimed = { userId: string; timezone: string; quietStart: string; quietEnd: string };
+export type Claimed = { userId: string; timezone: string; quietStart: string; quietEnd: string; sendTimes: Date[] };
 
 /** What a run reads for one user. The wrapped key is the only key material, and it is not plain. */
 export type RunInput = {
   grant: { wrappedKey: string; keyId: string; expiresAt: Date } | null;
-  brief: { ciphertext: string; keyId: string; deviceWrittenAt: Date; revision: number } | null;
+  /** `receivedAt` is when a device last wrote it, by the server's clock (null before that was kept). */
+  brief: { ciphertext: string; keyId: string; deviceWrittenAt: Date; revision: number; receivedAt: Date | null } | null;
   outboxCount: number;
   /** The user's push switch (state), read with the rest of the run's input. */
   pushEnabled: boolean;
+  pausedUntil: Date | null;
+  /** The local day a heads-up was last pushed, YYYY-MM-DD. */
+  lastHeadsUpDay: string | null;
 };
 
 export type RunRecord = {
@@ -44,7 +57,7 @@ export type RunRecord = {
 export interface HeartbeatStore {
   // MARK: Device-facing
   getState(userId: string): Promise<StateRow | null>;
-  /** Creates the state (first beat due now) or updates it. */
+  /** Creates the state (first beat due now) or updates it. A send time sooner than the next beat brings the beat forward to it. */
   putState(userId: string, input: StateInput, now: Date): Promise<StateRow>;
   getGrant(userId: string): Promise<GrantInfo | null>;
   /** Stores or replaces the wrapped key. False when the user has no state yet. */
@@ -78,5 +91,7 @@ export interface HeartbeatStore {
   ): Promise<{ briefWritten: boolean }>;
   /** Puts a user back with a time to look again, without any other change. Also how quiet hours defer. */
   release(userId: string, nextBeatAt: Date, now: Date): Promise<void>;
+  /** Records the heads-up push for a local day. False when one was already recorded for that day: at most one a day, even if two runs race. */
+  claimHeadsUpDay(userId: string, day: string, now: Date): Promise<boolean>;
   recordRun(run: RunRecord, now: Date): Promise<void>;
 }
