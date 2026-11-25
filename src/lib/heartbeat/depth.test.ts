@@ -416,6 +416,8 @@ test("people is an invitation: no deadline, no 'make sure', no report back, no n
     assert.deepEqual(run.output.posts, [], code);
     assert.deepEqual(codes(run), [code], code);
   }
+  // The thread says "my wife" and "his wife"; the model says "your wife".
+  assert.deepEqual(codes(await beat(brief, { posts: [people({ payload: { person: "your wife" } })] })), []);
 });
 
 test("people is never the only thing offered, and not more than once a review cycle", async () => {

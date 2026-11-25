@@ -216,7 +216,11 @@ export const ACTIVITY_REGISTRY = {
     plannable: true,
     payload: z.object({ person: z.string().trim().min(1).max(40).optional() }),
     payloadHint: '{"person": "optional, a name the thread already uses"}',
-    check: (payload, { goal }) => (payload.person && !goalCorpus(goal).toLowerCase().includes(payload.person.toLowerCase()) ? "person_not_in_brief" : null),
+    // "your wife" names the wife the thread calls "my wife" or "his wife".
+    check: (payload, { goal }) =>
+      payload.person && !goalCorpus(goal).toLowerCase().includes(payload.person.toLowerCase().replace(/^(your|my|his|her|their) /, ""))
+        ? "person_not_in_brief"
+        : null,
   }),
   note_recall: define({
     serves: ["learn", "grow"],
