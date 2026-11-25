@@ -4,7 +4,7 @@ import { BRIEF_COLLECTION, OUTBOX_COLLECTION, openJson, sealJson } from "@/lib/h
 import type { BriefKeyVault } from "@/lib/heartbeat/kms";
 import type { BeatModel } from "@/lib/heartbeat/model";
 import { sendHeartbeatPush, type PushCode, type PushDeps } from "@/lib/heartbeat/push";
-import { addDays, isQuietMinute, localParts, zonedInstant } from "@/lib/heartbeat/rules";
+import { AFTER_QUIET_MINUTES, addDays, isQuietMinute, localParts, zonedInstant } from "@/lib/heartbeat/rules";
 import { runBeat } from "@/lib/heartbeat/runBeat";
 import { HEARTBEAT_TRIGGER, briefSchema } from "@/lib/heartbeat/schemas";
 import type { Claimed, HeartbeatStore, RunRecord } from "@/lib/heartbeat/store";
@@ -101,7 +101,8 @@ export async function runHeartbeat(deps: RunDeps): Promise<RunSummary> {
     for (const user of claimed) {
       let until: Date | null = null;
       try {
-        until = quietEndsAt(now, user);
+        const end = quietEndsAt(now, user);
+        until = end && new Date(end.getTime() + AFTER_QUIET_MINUTES * 60_000);
       } catch {
         until = new Date(now.getTime() + RETRY.stuck);
       }
