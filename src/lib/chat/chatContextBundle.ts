@@ -118,11 +118,27 @@ export const goalThreadSchema = z.object({
     .optional(),
 });
 
+/**
+ * Set while the conversation is setting up a new goal ("New goal" in the app), until the goal is
+ * made and the conversation becomes its thread. Read from the user's own records on the device
+ * for this request; kept nowhere.
+ */
+export const goalSetupSchema = z.object({
+  /** Goals Lumen noticed in past conversations that the user has not said yes or no to. */
+  noticed: z.array(z.string().trim().min(1).max(120)).max(3).default([]),
+  /** Chapters read lately, most recent first, as `BOOK:CHAPTER`. */
+  recentReading: z.array(refKey).max(8).default([]),
+});
+
 export type ContextGoal = z.infer<typeof goalSchema>;
 export type GoalThread = z.infer<typeof goalThreadSchema>;
+export type GoalSetup = z.infer<typeof goalSetupSchema>;
 
 /** Sent by the app as the first message of a new goal thread; the Guide then opens the thread. */
 export const GOAL_THREAD_START_MESSAGE = "GOAL_THREAD_START";
+
+/** Sent by the app, hidden, as the first message of a goal setup conversation; the Guide then asks what they want to work toward. */
+export const GOAL_SETUP_START_MESSAGE = "GOAL_SETUP_START";
 
 /** Sent by the app, hidden, when the user comes back to a goal's thread after its reading; the Guide then begins a reflection. */
 export const GOAL_THREAD_REFLECT_MESSAGE = "GOAL_THREAD_REFLECT";
@@ -336,7 +352,54 @@ const buildReflectionSection = (reflection: GoalThread["reflection"]): string =>
   ].join("\n");
 };
 
-const buildGoalThreadSection = (args: { goal: ContextGoal | undefined; thread: GoalThread; opening: boolean; reflecting?: boolean }): string => {
+/** A conversation that sets up a new goal; once the goal is made it becomes the goal's thread. */
+const buildGoalSetupSection = (args: { setup: GoalSetup; opening: boolean; activeGoals: number }): string => {
+  const lines: string[] = [
+    "GOAL SETUP",
+    "The user tapped \"New goal\". In this conversation you help them choose a goal and make it their own. Once you create it, this conversation becomes that goal's own thread.",
+  ];
+  if (args.activeGoals >= 3) {
+    lines.push(
+      "They already have three goals going, the most they can have. Say so plainly and kindly, and ask whether they would like to pause or let go of one first. Do not call set_goal until one has been paused or let go."
+    );
+  }
+  const known = [
+    ...(args.setup.noticed.length
+      ? [`- Goals you noticed in past conversations that they have not said yes or no to: ${args.setup.noticed.map((t) => `"${t}"`).join(", ")}`]
+      : []),
+    ...(args.setup.recentReading.length ? [`- What they have read lately, most recent first: ${args.setup.recentReading.map(readableRef).join(", ")}`] : []),
+  ];
+  lines.push(
+    "",
+    "What you can draw on, for your direction only. Never recite it or say how you know it:",
+    ...known,
+    "- Their profile, life context, your memory notes and their current goals, above.",
+    "",
+    "How to lead it:"
+  );
+  if (args.opening) {
+    lines.push(
+      "- This is the start. They have not written anything yet, so do not refer to a message of theirs. In one or two warm sentences, ask what they would like to work toward. Then call quick_replies with 3 or 4 goals they might choose, each written as they would say it. Make them personal: draw on what you know (a goal you noticed, something they are carrying or hoping for, what they have been reading) and never offer a goal they already have. When you know little about them, offer familiar ones such as \"Read the Bible in a year\" or \"Pray every morning\". Do not list the options in your prose."
+    );
+  }
+  lines.push(
+    "- Make the goal theirs in a short back and forth: one short question per turn, and no more than two questions before you create it. Ask what would make it real (for a reading goal, what to read and by when, or how much at a time; for a practice, when in the day or how often) or why it matters to them now. Skip any question their words already answer. When their first answer already says what and how (\"Read the Bible in a year\"), ask only why it matters to them now. If they say they just want to start, create it.",
+    "- Offer quick_replies when your question has obvious short answers. Leave them off when you ask why it matters, so they answer in their own words.",
+    "- When you know what the goal is and enough to begin, call set_goal with status \"active\" and confidence \"explicit\", the title in their own words, and why when they gave one. Choosing one of your suggestions counts as stating it. In that same reply, say in one plain sentence that it is set, and stop there: do not lay out steps or ask another question, because that comes next.",
+    "- If they would rather not set a goal now, let it go in one sentence.",
+    "- Don't use goal_proposal here."
+  );
+  return lines.join("\n");
+};
+
+const buildGoalThreadSection = (args: {
+  goal: ContextGoal | undefined;
+  thread: GoalThread;
+  opening: boolean;
+  reflecting?: boolean;
+  /** The thread was a goal setup conversation until this goal was made in it. */
+  afterSetup?: boolean;
+}): string => {
   const { goal, thread } = args;
   const lines: string[] = [
     "GOAL THREAD",
@@ -379,7 +442,12 @@ const buildGoalThreadSection = (args: { goal: ContextGoal | undefined; thread: G
       "Because this is a Grow goal: the path must include at least one step toward a real person (a friend, a pastor, a group). Don't become the only one who knows about the struggle. If the path you propose or change has no such step, add one."
     );
   }
-  if (args.opening) {
+  if (args.opening && args.afterSetup) {
+    lines.push(
+      "",
+      "This is the start of the thread. The goal was just made in the conversation above, and you have already said it is set. Do not say the goal back or greet them again. In a sentence of your own, say how you would go about it, show goal_path with the steps you propose, then ask one question that will help you start well (how much time they have on a normal day, or when in the day suits them), unless the conversation above already answered it. Keep it to a few sentences."
+    );
+  } else if (args.opening) {
     lines.push(
       "",
       "This is the start of the thread. The user has just made this goal and has not written anything yet, so do not refer to a first message. Open the thread: say the goal back in their own words in one sentence, show goal_path with the steps you propose, then ask one question that will help you start well (how much time they have on a normal day, or when in the day suits them). Keep it to a few sentences."
@@ -470,6 +538,7 @@ export function buildChatContextBundle(args: {
   verseText?: string;
   selectionState?: "selected" | "visible";
   goalThread?: GoalThread;
+  goalSetup?: GoalSetup;
 }): ChatContextBundle {
   const profile = args.context?.profile;
   const profileBlock = buildUserProfileBlock({
@@ -526,17 +595,34 @@ export function buildChatContextBundle(args: {
         thread: args.goalThread,
         opening: isGoalThreadStart,
         reflecting: isGoalThreadReflect,
+        // A thread that opens with history behind it was a goal setup conversation.
+        afterSetup: isGoalThreadStart && !args.isNewConversation,
       })
     : "";
 
-  const userMessage = isBibleReaderStart || isGoalThreadStart || isGoalThreadReflect ? "Begin." : args.message;
+  // A goal's thread is no longer setting up its goal.
+  const goalSetup = args.goalThread ? undefined : args.goalSetup;
+  const isGoalSetupStart = Boolean(goalSetup) && args.message === GOAL_SETUP_START_MESSAGE;
+  const goalSetupSection = goalSetup
+    ? buildGoalSetupSection({
+        setup: goalSetup,
+        opening: isGoalSetupStart,
+        activeGoals: goals?.length ?? 0,
+      })
+    : "";
+
+  const userMessage =
+    isBibleReaderStart || isGoalThreadStart || isGoalThreadReflect || isGoalSetupStart ? "Begin." : args.message;
 
   return {
     injectedInstructions,
     // The fixed prompt goes first and on its own, so its cached prefix is shared by every request.
     instructions: [
       { role: "system", content: TOOL_ENABLED_GUIDE_SYSTEM_PROMPT },
-      { role: "system", content: [injectedInstructions, startAddendum, goalThreadSection].filter(Boolean).join("\n\n") },
+      {
+        role: "system",
+        content: [injectedInstructions, startAddendum, goalThreadSection, goalSetupSection].filter(Boolean).join("\n\n"),
+      },
     ],
     input: [...(passageMessage ? [passageMessage] : []), { role: "user", content: userMessage }],
   };
