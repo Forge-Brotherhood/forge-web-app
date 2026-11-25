@@ -397,7 +397,7 @@ export const FIXTURES: Fixture[] = [
     description: "The brief was written nine days ago.",
     brief: staleFrom(9),
     trigger: "app_open",
-    expect: "At most one gentle, general word with no card and nothing specific.",
+    expect: "At most one short word that asks how Sam is, perhaps with a plain line about the Lord being near. Nothing about the goal, the reading or a next step, and no card.",
   },
   {
     name: "stale-16-days",

@@ -109,7 +109,7 @@ const describeGoalState = (s: GoalState, decision: Decision): string => {
 const MODE_NOTE: Record<Decision["mode"], string> = {
   normal: "Normal. Act on what is due and plan ahead, if the state says so.",
   care: "Care mode. Post nothing about the goals and plan nothing. At most one caring word.",
-  gentle: "Gentle mode. At most one general word. Plan nothing.",
+  gentle: "Gentle mode. The brief is old, so you do not know how they are. At most one word, and it asks after them: how they are, in one or two plain sentences. You may add a plain line about the Lord being near. Nothing about the goal, the reading or a next step. Plan nothing.",
   none: "Nothing to decide.",
 };
 
