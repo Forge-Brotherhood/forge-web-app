@@ -99,6 +99,7 @@ test("rules first: which fixtures need the model at all", () => {
   const needs = Object.fromEntries(FIXTURES.map((f) => [f.name, decide(f.brief, FIXTURE_NOW, f.trigger).needsModel]));
   assert.deepEqual(needs, {
     "finish-due": true,
+    "reading-lead-in": true,
     "practice-rhythm": true,
     "learn-rhythm": true,
     "grow-checkin": true,

@@ -68,3 +68,34 @@ test("an activity card must name a goal the app listed", async () => {
     reason: "goalId is not one of the user's goals",
   });
 });
+
+test("journal_card carries the entry's title, how it begins and the reading it is about", async () => {
+  const journal = (args: object, goalIds?: string[]) =>
+    resolveShowBlockCall({ argumentsJson: JSON.stringify({ kind: "journal_card", ...args }), allowedKinds: ["journal_card"], userId: "user-1", blockId: "block-1", goalIds });
+  const seed = "I keep my anger at home away from God, as if I have to fix it first. What would change if I brought it to him as it is?";
+
+  const result = await journal({ goalId: "g1", title: " Bringing it as it is ", seed, ref_key: "jhn:10" }, ["g1"]);
+  assert.ok(result.ok);
+  assert.deepEqual(wire(result.block), {
+    id: "block-1",
+    kind: "journal_card",
+    v: 1,
+    goalId: "g1",
+    title: "Bringing it as it is",
+    seed,
+    ref_key: "JHN:10",
+    reference: "John 10",
+    fallback_text: `Journal: Bringing it as it is. ${seed}`,
+  });
+
+  // The reading is optional; a wrong one, an unknown goal, or a seed too short to start from is refused.
+  const plain = await journal({ goalId: "g1", title: "Known", seed }, ["g1"]);
+  assert.ok(plain.ok && !("ref_key" in wire(plain.block)));
+  assert.equal((await journal({ goalId: "g1", title: "Known", seed, ref_key: "XYZ:1" }, ["g1"])).ok, false);
+  assert.equal((await journal({ goalId: "g2", title: "Known", seed }, ["g1"])).ok, false);
+  assert.equal((await journal({ goalId: "g1", title: "Known", seed: "Too short." }, ["g1"])).ok, false);
+
+  const prompt = buildUiBlocksSystemPrompt(["journal_card"]);
+  assert.ok(prompt.includes("- journal_card:"));
+  assert.ok((buildShowBlockTool(["journal_card"]).parameters as any).properties.seed);
+});

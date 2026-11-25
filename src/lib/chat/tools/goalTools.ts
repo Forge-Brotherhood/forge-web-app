@@ -8,7 +8,10 @@ import {
   GOAL_SHAPES,
   MAX_ACTIVE_GOALS,
   MAX_CHAPTERS_PER_DAY,
-  chaptersPerDaySchema,
+  READING_PLAN_JSON_PROPERTIES,
+  checkGoalReading,
+  goalReadingSchema,
+  type GoalReading as Reading,
 } from "@/lib/goals/goalTypes";
 import type { ContextToolCall, ResponsesTool } from "@/lib/openai/responsesClient";
 
@@ -29,7 +32,7 @@ export type GoalEvent =
         shape: (typeof GOAL_SHAPES)[number];
         category: (typeof GOAL_CATEGORIES)[number];
         rhythm?: (typeof GOAL_RHYTHMS)[number];
-        reading?: { books: string[]; endDate?: string; chaptersPerDay?: number };
+        reading?: Reading;
         path?: string[];
         status: "active" | "suggested";
       };
@@ -44,7 +47,7 @@ export type GoalEvent =
         endDate?: string;
         status?: "paused" | "released" | "completed";
         workingNotes?: string;
-        reading?: { books: string[]; endDate?: string; chaptersPerDay?: number };
+        reading?: Reading;
         shape?: Exclude<(typeof GOAL_SHAPES)[number], "grow">;
       };
     }
@@ -56,8 +59,6 @@ export type GoalEvent =
 
 /** `statusIgnored` marks an update whose `status` was left out because the call also changed something else. */
 export type GoalToolResult = { output: string; event?: GoalEvent; statusIgnored?: true };
-
-const MAX_BOOKS = 66;
 
 const optionalText = (max: number) =>
   z
@@ -81,13 +82,6 @@ const dayText = z
 
 const pathSchema = z.array(requiredText(200)).min(1).max(12);
 
-const readingSchema = z
-  .object({
-    books: z.array(z.string().trim().min(1).max(8)).min(1).max(MAX_BOOKS),
-    endDate: dayText.nullish(),
-    chaptersPerDay: chaptersPerDaySchema.nullish(),
-  })
-  .nullish();
 
 const setGoalSchema = z.object({
   title: requiredText(120),
@@ -95,7 +89,7 @@ const setGoalSchema = z.object({
   shape: z.enum(GOAL_SHAPES),
   category: z.enum(GOAL_CATEGORIES),
   rhythm: z.enum(GOAL_RHYTHMS).nullish(),
-  reading: readingSchema,
+  reading: goalReadingSchema,
   path: pathSchema.nullish(),
   status: z.enum(["active", "suggested"]),
   confidence: z.enum(["explicit", "strong", "weak"]),
@@ -109,7 +103,7 @@ const updateGoalSchema = z.object({
   endDate: dayText.nullish(),
   status: z.enum(["paused", "released", "completed"]).nullish(),
   workingNotes: optionalText(1000),
-  reading: readingSchema,
+  reading: goalReadingSchema,
   shape: z.enum(["finish", "practice", "learn"]).nullish(),
 });
 
@@ -129,26 +123,6 @@ const parseChapterRef = (ref: string): string | null => {
   const last = m[3] ? Number(m[3]) : first;
   if (first < 1 || last < first) return null;
   return last === first ? `${m[1]}:${first}` : `${m[1]}:${first}-${last}`;
-};
-
-/** Book ids upper-cased and checked, repeats dropped; the first unknown id is named so the model can correct it. */
-const checkReading = (
-  input: { books: string[]; endDate?: string | null; chaptersPerDay?: number | null } | null | undefined
-): { reading?: { books: string[]; endDate?: string; chaptersPerDay?: number }; unknown?: string } => {
-  if (!input) return {};
-  const books: string[] = [];
-  for (const raw of input.books) {
-    const code = raw.toUpperCase();
-    if (!getBookDisplayNameFromCode(code)) return { unknown: raw };
-    if (!books.includes(code)) books.push(code);
-  }
-  return {
-    reading: {
-      books,
-      ...(input.endDate ? { endDate: input.endDate } : {}),
-      ...(input.chaptersPerDay ? { chaptersPerDay: input.chaptersPerDay } : {}),
-    },
-  };
 };
 
 const refuse = (reason: string): GoalToolResult => ({ output: JSON.stringify({ ok: false, reason }) });
@@ -172,11 +146,25 @@ const sameTitle = (a: string, b: string) => a.trim().toLowerCase() === b.trim().
 
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((item, i) => item === b[i]);
 
-type Reading = { books: string[]; endDate?: string; chaptersPerDay?: number };
+const isPaced = (reading: Reading | undefined): boolean => Boolean(reading?.chaptersPerDay || reading?.perPeriod);
 
-/** With a pace the end date is left to the app, which works it out from the chapters left. */
-const withoutEndDateWhenPaced = (reading: Reading): Reading =>
-  reading.chaptersPerDay ? { books: reading.books, chaptersPerDay: reading.chaptersPerDay } : reading;
+/** With a pace the end date is left to the app, which works it out from what is left to read. */
+const withoutEndDateWhenPaced = (reading: Reading): Reading => {
+  if (!isPaced(reading)) return reading;
+  const { endDate: _endDate, ...rest } = reading;
+  return rest;
+};
+
+/** The same plan, field by field; a missing list and an empty one are the same. */
+const sameReading = (a: Reading, b: Reading): boolean =>
+  sameList(a.books ?? [], b.books ?? []) &&
+  sameList(a.passages ?? [], b.passages ?? []) &&
+  a.unit === b.unit &&
+  a.period === b.period &&
+  a.perPeriod === b.perPeriod &&
+  a.order === b.order &&
+  a.endDate === b.endDate &&
+  a.chaptersPerDay === b.chaptersPerDay;
 
 const addDays = (day: string, days: number): string =>
   new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -194,6 +182,8 @@ export function createGoalToolRunner(args: {
   const known = new Set(goals.map((g) => g.id));
   const titles = goals.map((g) => ({ id: g.id as string | undefined, title: g.title }));
   let activeCount = goals.length;
+  /** Goals paused, let go or finished in this request: each frees its place once. */
+  const freed = new Set<string>();
 
   const setGoal = (raw: unknown): GoalToolResult => {
     const parsed = setGoalSchema.safeParse(raw);
@@ -211,8 +201,8 @@ export function createGoalToolRunner(args: {
       if (args.memoryEnabled === false) return refuse("memory_off");
     }
 
-    const { reading: checked, unknown } = checkReading(input.reading);
-    if (unknown) return refuse(`unknown_book: ${unknown}`);
+    const { reading: checked, refused } = checkGoalReading(input.reading);
+    if (refused) return refuse(refused);
     const reading = checked && withoutEndDateWhenPaced(checked);
 
     if (titles.some((t) => sameTitle(t.title, input.title))) return refuse("already_a_goal");
@@ -243,20 +233,15 @@ export function createGoalToolRunner(args: {
     if (!current) return refuse("unknown_goal");
     // A Grow goal is about who someone is becoming, so it never turns into a plan with a figure.
     if (input.shape && current.shape === "grow") return refuse("grow_goal_shape_fixed");
-    const { reading: checked, unknown } = checkReading(input.reading);
-    if (unknown) return refuse(`unknown_book: ${unknown}`);
+    const { reading: checked, refused } = checkGoalReading(input.reading);
+    if (refused) return refuse(refused);
 
     // The model fills in fields nobody asked to change, so a field equal to the goal's current value
     // is left out. Only exact equality counts. Titles are compared with this request's renames too.
     const currentTitle = titles.find((t) => t.id === input.goalId)?.title ?? current.title;
     const currentReading = current.reading;
-    const paced = Boolean(checked?.chaptersPerDay);
-    const readingEcho =
-      checked &&
-      currentReading &&
-      sameList(checked.books, currentReading.books) &&
-      checked.endDate === currentReading.endDate &&
-      checked.chaptersPerDay === currentReading.chaptersPerDay;
+    const paced = isPaced(checked);
+    const readingEcho = checked && currentReading && sameReading(checked, currentReading);
     // With a pace, the app works out the finish date: neither date is passed on.
     const reading = checked && !readingEcho ? withoutEndDateWhenPaced(checked) : undefined;
     const endDate = !paced && input.endDate && input.endDate !== currentReading?.endDate ? input.endDate : undefined;
@@ -265,10 +250,11 @@ export function createGoalToolRunner(args: {
     const rhythm = input.rhythm && input.rhythm !== current.rhythm ? input.rhythm : undefined;
     const shape = input.shape && input.shape !== current.shape ? input.shape : undefined;
 
-    // Pausing, letting go or finishing a goal is something the user asks for on its own. Next to any
-    // other field it is the model's own addition, so it is ignored.
+    // Pausing, letting go or finishing a goal is something the user asks for on its own. Next to a
+    // real change to anything else it is the model's own addition, so it is ignored; next to the
+    // goal's current values repeated, it stands.
     const statusIgnored = Boolean(
-      input.status && (input.title || input.path || input.rhythm || input.endDate || input.reading || input.shape || input.workingNotes)
+      input.status && (title || path || rhythm || endDate || reading || shape || input.workingNotes)
     );
     const status = statusIgnored ? undefined : input.status;
 
@@ -286,7 +272,7 @@ export function createGoalToolRunner(args: {
       // Asked for values the goal already has (say, saving steps it already holds): that is done,
       // not a failure, so the model must not tell the user it could not save. Nothing is changed.
       const asked = Boolean(
-        input.title || input.path || input.rhythm || input.endDate || input.status || input.reading || input.shape || input.workingNotes
+        input.title || input.path || input.rhythm || input.endDate || input.status || checked || input.shape || input.workingNotes
       );
       return asked ? { output: JSON.stringify({ ok: true, unchanged: true }) } : refuse("nothing_to_change");
     }
@@ -301,6 +287,11 @@ export function createGoalToolRunner(args: {
     }
 
     if (statusIgnored) return { ...accept({ action: "update", goalId: input.goalId, changes }), statusIgnored: true };
+    // A goal paused, let go or finished here makes room for a new one in the same reply.
+    if (status && !freed.has(input.goalId)) {
+      freed.add(input.goalId);
+      activeCount -= 1;
+    }
     return accept({ action: "update", goalId: input.goalId, changes });
   };
 
@@ -385,7 +376,7 @@ export const buildGoalTools = (): ResponsesTool[] => [
     type: "function",
     name: "set_goal",
     description:
-      "Start a goal for the user, in their words. Call it only when the user has plainly stated something they want to do or become in their life with God. Nothing is stored here; the app creates the goal and its conversation. For a reading goal, call it right away: work out reading.books from what they said (\"the Gospel of Mark\" is MRK) and reading.endDate from any length of time or date they gave (\"in 30 days\", \"by Christmas\") counted from today's date in <goals>. Do not ask for either when it is already implied. If they gave a pace instead (\"a chapter a day\", \"two chapters a morning\"), pass it as reading.chaptersPerDay and leave endDate out: the app works out the finish date, so never count chapters or dates from a pace yourself. If something is truly missing, ask one short plain question instead of calling, and never mention setup, fields or what the goal needs.",
+      "Start a goal for the user, in their words. Call it only when the user has plainly stated something they want to do or become in their life with God. Nothing is stored here; the app creates the goal and its conversation. For a reading goal, call it right away: work out reading.books from what they said (\"the Gospel of Mark\" is MRK) and reading.endDate from any length of time or date they gave (\"in 30 days\", \"by Christmas\") counted from today's date in <goals>. Do not ask for either when it is already implied. If they gave a pace instead (\"a chapter a day\", \"two chapters a morning\"), pass it as reading.chaptersPerDay and leave endDate out: the app works out the finish date, so never count chapters or dates from a pace yourself. A plan can also go by whole books or by the week (\"one of Paul's letters a week\": the letters as books, unit book, period week, perPeriod 1, order any), or read chosen passages instead of books (\"Jesus' prayers\": reading.passages). If something is truly missing, ask one short plain question instead of calling, and never mention setup, fields or what the goal needs.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -403,14 +394,13 @@ export const buildGoalTools = (): ResponsesTool[] => [
         reading: {
           type: "object",
           additionalProperties: false,
-          required: ["books"],
-          description: "Reading goals only: what to read.",
+          description: "Reading goals only: what to read (books, passages or both) and how it is spread.",
           properties: {
             books: {
               type: "array",
               maxItems: 66,
               description:
-                "Book codes in reading order, taken from what they said: ['MRK'] for the Gospel of Mark, ['ROM','1CO'] and so on for Paul's letters, all 66 for the whole Bible.",
+                "Book codes in reading order, taken from what they said: ['MRK'] for the Gospel of Mark, ['ROM','1CO'] and so on for Paul's letters, all 66 for the whole Bible. Leave out for a plan of passages only.",
               items: { type: "string", maxLength: 8 },
             },
             endDate: {
@@ -423,6 +413,7 @@ export const buildGoalTools = (): ResponsesTool[] => [
               maximum: MAX_CHAPTERS_PER_DAY,
               description: "Chapters a day, when they stated a pace (\"a chapter a day\" is 1). Without endDate the app works out the finish date from it; do not compute one yourself.",
             },
+            ...READING_PLAN_JSON_PROPERTIES,
           },
         },
         path: pathProperty("Optional first steps, in order, as short plain titles. For a grow goal include a step toward a real person."),
@@ -461,14 +452,13 @@ export const buildGoalTools = (): ResponsesTool[] => [
         reading: {
           type: "object",
           additionalProperties: false,
-          required: ["books"],
           description:
-            "Set or replace the goal's reading schedule, for a reading goal the user has agreed to give one or whose pace or date they want changed. Always include books: take them from what they said, or from the goal's Reading schedule in <goals> when changing it. Pass endDate only for a length of time or date they gave, counted from today's date in <goals>. For a pace (\"a chapter a day\") pass chaptersPerDay and leave endDate out, so the app recomputes the finish date; never count chapters or dates from a pace yourself.",
+            "Set or replace the goal's reading schedule, for a reading goal the user has agreed to give one or whose pace or date they want changed. It replaces the whole schedule, so always include what to read (books, passages or both) and how it is spread: take them from what they said, or from the goal's Reading schedule in <goals> when changing it. Pass endDate only for a length of time or date they gave, counted from today's date in <goals>. For a pace (\"a chapter a day\") pass chaptersPerDay and leave endDate out, so the app recomputes the finish date; never count chapters or dates from a pace yourself.",
           properties: {
             books: {
               type: "array",
               maxItems: 66,
-              description: "Book codes in reading order, e.g. ['EXO'] or all 66 for the whole Bible.",
+              description: "Book codes in reading order, e.g. ['EXO'] or all 66 for the whole Bible. Leave out for a plan of passages only.",
               items: { type: "string", maxLength: 8 },
             },
             endDate: { type: "string", description: "yyyy-MM-dd, when they want to finish. Leave it out when they gave only a pace." },
@@ -478,6 +468,7 @@ export const buildGoalTools = (): ResponsesTool[] => [
               maximum: MAX_CHAPTERS_PER_DAY,
               description: "Chapters a day, when they stated a pace (\"two chapters a morning\" is 2). Without endDate the app works out the finish date.",
             },
+            ...READING_PLAN_JSON_PROPERTIES,
           },
         },
         shape: {

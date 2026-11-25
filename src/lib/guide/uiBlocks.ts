@@ -5,7 +5,16 @@ import type { BibleContentElement, BibleInline } from "@/core/models/bibleModels
 import type { ResponsesTool } from "@/lib/openai/responsesClient";
 import { buildMapBlockFromModel, describePassagePlaces, type MapCardBlock, type PassagePlaces } from "@/lib/guide/places";
 import { getAvailableTranslations, getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
-import { GOAL_CATEGORIES, GOAL_SHAPES, chaptersPerDaySchema, type GoalCategory, type GoalShape } from "@/lib/goals/goalTypes";
+import {
+  GOAL_CATEGORIES,
+  GOAL_SHAPES,
+  READING_PLAN_JSON_PROPERTIES,
+  checkGoalReading,
+  goalReadingSchema,
+  type GoalCategory,
+  type GoalReading,
+  type GoalShape,
+} from "@/lib/goals/goalTypes";
 
 /**
  * Inline UI blocks for the Bible guide ("adaptive UI").
@@ -30,6 +39,7 @@ export const GUIDE_BLOCK_KINDS = [
   "goal_progress",
   "reading_card",
   "prompt_card",
+  "journal_card",
   "recap_card",
   "milestone_card",
   "note_recall",
@@ -47,7 +57,6 @@ export const SHOW_BLOCK_TOOL_NAME = "show_block";
 
 const MAX_PASSAGE_VERSES = 6;
 const MAX_READING_CHAPTERS = 10;
-const MAX_GOAL_BOOKS = 66;
 const MAX_COMPARE_VERSES = 3;
 const MAX_COMPARE_TRANSLATIONS = 3;
 
@@ -203,7 +212,7 @@ export type GuideBlock =
       category: GoalCategory;
       how?: string;
       /** Reading goals: what to read. The app builds the schedule from it. */
-      reading?: { books: string[]; endDate?: string; chaptersPerDay?: number };
+      reading?: GoalReading;
     }
   | {
       id: string;
@@ -238,6 +247,8 @@ export type GuideBlock =
       /** BOOK:CHAPTER, a run of chapters BOOK:FIRST-LAST, or a verse range BOOK:CHAPTER:FIRST-LAST. */
       ref_key: string;
       reference: string;
+      /** One line to read for, in the Guide's words, when a beat's lead-in gave one. */
+      focus?: string;
       /** The activity this card belongs to, when a heartbeat beat posted it. */
       activityId?: string;
     }
@@ -251,6 +262,23 @@ export type GuideBlock =
       /** The one question to write on, in the Guide's words. */
       prompt: string;
       activityId?: string;
+    }
+  /**
+   * An offer to keep writing about what came out of the conversation. The app makes the journal
+   * entry from `title` and `seed` the first time the user taps it, and keeps it on the device.
+   */
+  | {
+      id: string;
+      kind: "journal_card";
+      v: 1;
+      fallback_text: string;
+      goalId: string;
+      title: string;
+      /** A few sentences in the user's own voice, ending on an open line, for them to change and go on from. */
+      seed: string;
+      /** The reading it is about, when there is one. */
+      ref_key?: string;
+      reference?: string;
     }
   /**
    * The Phase 6 cards. Same rule: the app fills every figure, date and step from the user's own
@@ -304,11 +332,6 @@ const optionalText = (max: number) =>
     .max(max)
     .nullish()
     .transform((v) => (v ? v : undefined));
-
-const isRealDate = (value: string): boolean => {
-  const ms = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(ms) && new Date(ms).toISOString().startsWith(value);
-};
 
 const showBlockArgsSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -378,17 +401,7 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
     shape: z.enum(GOAL_SHAPES),
     category: z.enum(GOAL_CATEGORIES),
     how: optionalText(200),
-    reading: z
-      .object({
-        books: z.array(z.string().trim().min(1).max(8)).min(1).max(MAX_GOAL_BOOKS),
-        endDate: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .refine(isRealDate, "not a real date")
-          .nullish(),
-        chaptersPerDay: chaptersPerDaySchema.nullish(),
-      })
-      .nullish(),
+    reading: goalReadingSchema,
   }),
   z.object({
     kind: z.literal("goal_path"),
@@ -409,11 +422,19 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
     kind: z.literal("reading_card"),
     goalId: z.string().trim().min(1).max(128),
     ref_key: z.string().trim().min(1).max(30),
+    focus: optionalText(120),
   }),
   z.object({
     kind: z.literal("prompt_card"),
     goalId: z.string().trim().min(1).max(128),
     prompt: z.string().trim().min(10).max(280),
+  }),
+  z.object({
+    kind: z.literal("journal_card"),
+    goalId: z.string().trim().min(1).max(128),
+    title: z.string().trim().min(1).max(80),
+    seed: z.string().trim().min(20).max(600),
+    ref_key: optionalText(30),
   }),
   z.object({
     kind: z.literal("recap_card"),
@@ -455,7 +476,7 @@ export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
       ref_key: {
         type: "string",
         description:
-          "passage_card and compare_translations: BOOK:CHAPTER:VERSE or BOOK:CHAPTER:VERSE-VERSE with a three-letter book code (e.g. ROM:8:28, PSA:23:1-4, 1CO:13:4-7); at most 6 verses for passage_card, 3 for compare_translations. context_callout and word_study, optional: the verse the card is about. reading_card: BOOK:CHAPTER (NUM:14), a run of up to 10 chapters BOOK:FIRST-LAST (NUM:14-16), or a verse range BOOK:CHAPTER:FIRST-LAST (PSA:23:1-6).",
+          "passage_card and compare_translations: BOOK:CHAPTER:VERSE or BOOK:CHAPTER:VERSE-VERSE with a three-letter book code (e.g. ROM:8:28, PSA:23:1-4, 1CO:13:4-7); at most 6 verses for passage_card, 3 for compare_translations. context_callout and word_study, optional: the verse the card is about. reading_card: BOOK:CHAPTER (NUM:14), a run of up to 10 chapters BOOK:FIRST-LAST (NUM:14-16), or a verse range BOOK:CHAPTER:FIRST-LAST (PSA:23:1-6). journal_card, optional: the reading the entry is about, in the same form as reading_card.",
       },
       note: {
         type: "string",
@@ -465,20 +486,25 @@ export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
       title: {
         type: "string",
         description:
-          "context_callout (required, under 60 characters) or prayer_card, cross_refs, map_card (optional): a short title. goal_proposal (required, under 120 characters): the goal in the user's own words.",
+          "context_callout (required, under 60 characters) or prayer_card, cross_refs, map_card (optional): a short title. goal_proposal (required, under 120 characters): the goal in the user's own words. journal_card (required, under 80 characters): the entry's title, in the user's voice.",
       },
-      goalId: { type: "string", description: "goal_path, goal_progress, reading_card and prompt_card only: the id of the goal, from the goals list." },
+      goalId: { type: "string", description: "goal_path, goal_progress, reading_card, prompt_card and journal_card only: the id of the goal, from the goals list." },
       prompt: { type: "string", description: "prompt_card only: the one question for the user to write on, 10 to 280 characters, in your own plain words." },
+      seed: {
+        type: "string",
+        description:
+          "journal_card only: how the entry begins, 20 to 600 characters. Two to four sentences in the user's own voice (I, me) that gather what came out of this conversation, ending on an open line or question they can keep writing from. Use their words where you can and never put a feeling or a resolve in their mouth they did not express. Plain sentences, with no contrast such as \"X, not Y\" or \"not X, but Y\".",
+      },
       reading: {
         type: "object",
         description:
-          "goal_proposal only, optional: for a goal about reading the Bible, what to read. books are three-letter book codes in reading order (all 66 for the whole Bible); endDate is yyyy-MM-dd if they named a finish date; chaptersPerDay (1 to 20) if they named a pace such as a chapter a day, with endDate left out so the app works out the finish date. The app builds the schedule from it.",
+          "goal_proposal only, optional: for a goal about reading the Bible, what to read. books are three-letter book codes in reading order (all 66 for the whole Bible), or leave them out for a plan of passages only; endDate is yyyy-MM-dd if they named a finish date; chaptersPerDay (1 to 20) if they named a pace such as a chapter a day, with endDate left out so the app works out the finish date. The app builds the schedule from it.",
         properties: {
           books: { type: "array", items: { type: "string" } },
           endDate: { type: "string" },
           chaptersPerDay: { type: "integer", minimum: 1, maximum: 20 },
+          ...READING_PLAN_JSON_PROPERTIES,
         },
-        required: ["books"],
       },
       steps: {
         type: "array",
@@ -569,7 +595,7 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
       "- word_study: when the user asks what a word means, or when one key word's original Hebrew, Aramaic or Greek meaning genuinely opens up the verse. Give the English term exactly as it appears in the verse, the language, the original word in its own script, a transliteration, a short gloss, and 2 to 3 sentences on what it means here. Add up to 3 related verses where the same original word appears only if you are sure of them. Only include words and meanings you are confident of; never give Strong's numbers. The app labels the card as an AI study note.",
     compare_translations: `- compare_translations: when the way different Bible translations word a verse sheds light on its meaning (for example the user asks why their Bible says something, or a key phrase is rendered very differently). Give ref_key (1 to 3 verses) and a note on what to notice. The app shows the user's own translation first, adds contrasting ones, and fetches the exact text, so do not quote the translations yourself. Available translations: ${availableCompareTranslations().join(", ")}.`,
     goal_proposal:
-      "- goal_proposal: only outside a goal's own conversation, when what the user has said points to a goal they have not stated outright (they keep coming back to Paul's letters, or they say they wish they prayed more). Give the goal in their own words as title, a shape (finish: get through something by a date, practice: keep a rhythm, learn: study a subject, grow: change in who they are), a category, and one line on how you would help. For a goal about reading the Bible, also give reading with the book codes in reading order (and endDate if they named one, or chaptersPerDay if they named a pace instead), so the app can set up the schedule when they say yes. The user decides with a button; never create the goal yourself in that case. Don't use it for a goal they have plainly stated (use set_goal), or one they have already declined.",
+      "- goal_proposal: only outside a goal's own conversation, when what the user has said points to a goal they have not stated outright (they keep coming back to Paul's letters, or they say they wish they prayed more). Give the goal in their own words as title, a shape (finish: get through something by a date, practice: keep a rhythm, learn: study a subject, grow: change in who they are), a category, and one line on how you would help. For a goal about reading the Bible, also give reading with the book codes in reading order, or the passages for a study of chosen passages (and endDate if they named one, or chaptersPerDay if they named a pace instead), so the app can set up the schedule when they say yes. The user decides with a button; never create the goal yourself in that case. Don't use it for a goal they have plainly stated (use set_goal), or one they have already declined.",
     goal_path:
       "- goal_path: inside a goal's own conversation, to show the approach to the goal. Give this goal's goalId, and steps only for a path you are proposing. Leave steps out to show the stored path. The app fills in the rest. Never write the steps out in your prose as well.",
     goal_progress:
@@ -578,6 +604,8 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
       "- reading_card: inside a goal's own conversation, when you are offering the user a specific reading to do. Give this goal's goalId and ref_key for the passage (a chapter, a run of chapters, or a verse range). It points to the passage and does not show its text; the app fills in the time it takes and the Read button. Say a sentence of your own first, say what the reading is, and never say whether they have already read it. Show at most one goal card per reply.",
     prompt_card:
       "- prompt_card: inside a goal's own conversation, when you want the user to write on one question. Give this goal's goalId and the question as prompt. Say a sentence of your own first, and do not repeat the question in your prose. Show at most one goal card per reply.",
+    journal_card:
+      "- journal_card: inside a goal's own conversation, often after a reflection on a reading, when the user has said something worth keeping and more could come of writing it down. Give this goal's goalId, a title, the seed (how the entry begins, in their voice) and, when it is about a reading, its ref_key. Ask in a sentence of your own first whether they would like to write more while it is fresh, and do not repeat the seed in your prose. Offer it once in a conversation, and not again if they pass. Show at most one goal card per reply.",
     recap_card: "- recap_card: only the heartbeat posts this, from the user's brief. Never use it in a conversation.",
     milestone_card: "- milestone_card: only the heartbeat posts this, from the user's brief. Never use it in a conversation.",
     note_recall: "- note_recall: only the heartbeat posts this, from the user's brief. Never use it in a conversation.",
@@ -786,20 +814,8 @@ export async function resolveShowBlockCall(args: {
   }
 
   if (input.kind === "goal_proposal") {
-    let reading: { books: string[]; endDate?: string; chaptersPerDay?: number } | undefined;
-    if (input.reading) {
-      const books: string[] = [];
-      for (const raw of input.reading.books) {
-        const code = raw.toUpperCase();
-        if (!getBookDisplayNameFromCode(code)) return { ok: false, reason: `unknown book ${raw}` };
-        if (!books.includes(code)) books.push(code);
-      }
-      reading = {
-        books,
-        ...(input.reading.endDate ? { endDate: input.reading.endDate } : {}),
-        ...(input.reading.chaptersPerDay ? { chaptersPerDay: input.reading.chaptersPerDay } : {}),
-      };
-    }
+    const { reading, refused } = checkGoalReading(input.reading);
+    if (refused) return { ok: false, reason: refused };
     return {
       ok: true,
       block: {
@@ -814,6 +830,25 @@ export async function resolveShowBlockCall(args: {
         how: input.how,
         reading,
         fallback_text: truncate(`Goal suggestion: ${input.title}.${input.how ? ` ${input.how}` : ""}`, 2000),
+      },
+    };
+  }
+
+  if (input.kind === "journal_card") {
+    if (args.goalIds && !args.goalIds.includes(input.goalId)) return { ok: false, reason: "goalId is not one of the user's goals" };
+    const ref = input.ref_key ? parseReadingRef(input.ref_key) : null;
+    if (input.ref_key && !ref) return { ok: false, reason: "ref_key must be BOOK:CHAPTER, BOOK:FIRST-LAST or BOOK:CHAPTER:FIRST-LAST" };
+    return {
+      ok: true,
+      block: {
+        id: args.blockId,
+        kind: "journal_card",
+        v: 1,
+        goalId: input.goalId,
+        title: input.title,
+        seed: input.seed,
+        ...(ref ? { ref_key: ref.refKey, reference: ref.reference } : {}),
+        fallback_text: truncate(`Journal: ${input.title}. ${input.seed}`, 2000),
       },
     };
   }
@@ -846,7 +881,8 @@ export async function resolveShowBlockCall(args: {
         goalId: input.goalId,
         ref_key: ref.refKey,
         reference: ref.reference,
-        fallback_text: `Reading: ${ref.reference}.`,
+        ...(input.focus ? { focus: input.focus } : {}),
+        fallback_text: `Reading: ${ref.reference}.${input.focus ? ` Read for: ${input.focus}` : ""}`,
       },
     };
   }

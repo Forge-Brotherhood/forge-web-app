@@ -15,6 +15,8 @@ const isPublicRoute = createRouteMatcher([
   // Jobs/cron API routes (protected by API key, not Clerk)
   '/api/jobs/(.*)',
   '/api/cron/(.*)',
+  // Dev clock (404 unless on; setting it needs the cron secret)
+  '/api/dev/(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

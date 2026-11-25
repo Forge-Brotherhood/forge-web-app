@@ -274,8 +274,8 @@ test("a pace reaches the app in the reading object of a created or updated goal,
   ]);
 
   const thread = personalPrompt(bodies[0]);
-  assert.ok(thread.includes('that is a pace: call update_goal with reading holding the books'));
-  assert.ok(thread.includes("chaptersPerDay (a whole number from 1 to 20)"));
+  assert.ok(thread.includes("that is a pace: call update_goal with reading holding what to read and how it is spread"));
+  assert.ok(thread.includes("chaptersPerDay, a whole number from 1 to 20, or perPeriod"));
   assert.ok(thread.includes("correct the call and call it again in the same turn"));
   assert.ok(thread.includes('("update my plan")'));
   assert.ok(thread.includes("ask one short plain question"));
@@ -394,6 +394,60 @@ test("a thread's first message opens it, and the marker is never sent to the mod
   assert.deepEqual(done.items[0], { role: "user", content: "Begin." });
 });
 
+test("coming back after the reading begins a reflection, led by what they made but never reciting it", async () => {
+  const bodies = mockModel([{ output: [message("Jesus says the good shepherd knows his own.")] }]);
+
+  const { done } = await chat({
+    message: "GOAL_THREAD_REFLECT",
+    context: goalContext,
+    uiBlocks: ["passage_card", "quick_replies"],
+    goalThread: {
+      goalId: "goal-1",
+      reflection: {
+        ref: "JHN:10",
+        made: { highlights: ["JHN:10:14"], notes: [{ ref: "JHN:10:14", text: "He knows me first." }], questions: ["What does lay down his life mean?"], minutes: 11 },
+      },
+    },
+  });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("This turn begins a reflection."));
+  assert.ok(prompt.includes("the reading for this goal, John 10,"));
+  assert.ok(prompt.includes("- Marked: John 10:14"));
+  assert.ok(prompt.includes('- Wrote beside John 10:14: "He knows me first."'));
+  assert.ok(prompt.includes('- Asked you while reading: "What does lay down his life mean?"'));
+  assert.ok(prompt.includes("Do not recite it back"));
+  assert.ok(prompt.includes("Ask the hard question when it is the true one"));
+  assert.ok(prompt.includes("Never build a sentence on a contrast"));
+  assert.ok(!bodies[0].tools.some((t) => t.name === "show_block"), "the start of a reflection shows no card");
+  assert.ok(!prompt.includes("This is the start of the thread"));
+  assert.deepEqual(bodies[0].input.at(-1), { role: "user", content: "Begin." });
+  assert.deepEqual(done.items[0], { role: "user", content: "Begin." });
+
+  // Nothing made: it still begins, from the passage and the goal.
+  const quiet = mockModel([{ output: [message("Go on.")] }]);
+  await chat({ message: "GOAL_THREAD_REFLECT", context: goalContext, goalThread: { goalId: "goal-1", reflection: { ref: "JHN:10", made: { highlights: [], notes: [], questions: [] } } } });
+  assert.ok(personalPrompt(quiet[0]).includes("They did not mark, note or ask anything while reading this time."));
+
+  // An ordinary turn in the thread is not a reflection.
+  const plain = mockModel([{ output: [message("Go on.")] }]);
+  await chat({ message: "Hi", context: goalContext, goalThread: { goalId: "goal-1" }, uiBlocks: ["passage_card", "cross_refs"] });
+  assert.ok(!personalPrompt(plain[0]).includes("This turn begins a reflection."));
+  assert.ok(plain[0].tools.some((t) => t.name === "show_block"), "an ordinary turn still offers cards");
+  assert.ok(personalPrompt(plain[0]).includes("Never build a sentence on a contrast"), "every turn in a goal thread holds the plain-voice rule");
+});
+
+test("verses in an answer are links in its text: the model is never offered a passage card", async () => {
+  const bodies = mockModel([{ output: [message("Read John 8:12.")] }, { output: [message("Go on.")] }]);
+  await chat({ message: "What does light mean in John 8?", context, uiBlocks: ["passage_card", "cross_refs"] });
+  await chat({ message: "Hi", context, uiBlocks: ["passage_card"] });
+
+  const showBlock = JSON.stringify(bodies[0].tools.find((t) => t.name === "show_block"));
+  assert.ok(showBlock.includes("cross_refs"));
+  assert.ok(!JSON.stringify(bodies[0].instructions ?? bodies[0]).includes("- passage_card:"), "no passage_card guidance");
+  assert.ok(!bodies[1].tools.some((t) => t.name === "show_block"), "offering only a passage card offers nothing");
+});
+
 test("goal-thread requests are accepted by both routes' schema, with the limits the contract sets", () => {
   const schema = z.object(chatRequestFields);
   const goal = goalContext.goals[0];
@@ -406,6 +460,11 @@ test("goal-thread requests are accepted by both routes' schema, with the limits 
   assert.ok(!schema.safeParse({ message: "hi", context: { goals: [{ ...goal, workingNotes: "n".repeat(1001) }] } }).success);
   assert.ok(!schema.safeParse({ message: "hi", context: { goals: [{ ...goal, shape: "sprint" }] } }).success);
   assert.ok(!schema.safeParse({ message: "hi", goalThread: {} }).success);
+  const reflection = (made: object) => ({ message: "GOAL_THREAD_REFLECT", goalThread: { goalId: "goal-1", reflection: { ref: "JHN:10", made } } });
+  assert.ok(schema.safeParse(reflection({ highlights: [], notes: [], questions: [] })).success);
+  assert.ok(!schema.safeParse(reflection({ highlights: Array(9).fill("JHN:10:1"), notes: [], questions: [] })).success, "at most 8 highlights");
+  assert.ok(!schema.safeParse(reflection({ highlights: [], notes: [{ ref: "JHN:10:1", text: "n".repeat(241) }], questions: [] })).success);
+  assert.ok(!schema.safeParse(reflection({ highlights: [], notes: [], questions: Array(5).fill("q") })).success, "at most 4 questions");
 });
 
 test("set_goal reaches the app as a goal event, and the model is told only that it worked", async () => {
@@ -563,4 +622,23 @@ test("every Guide entrypoint offers set_goal, update_goal and log_progress, the 
     assert.equal(fixed, TOOL_ENABLED_GUIDE_SYSTEM_PROMPT, `${name} sends the fixed prompt`);
     assert.ok(fixed.includes(GOAL_RULE), `${name} carries the goal rule`);
   }
+});
+
+test("a plan of passages or of whole books by the week is shown to the model, and a bad passage is dropped", async () => {
+  const goal = goalContext.goals[0];
+  const bodies = mockModel([{ output: [message("Hello")] }, { output: [message("Hello")] }]);
+  const prayers = { passages: ["MAT:6:9-13", "JHN:17"], perPeriod: 1 };
+  const letters = { books: ["PHP", "COL"], unit: "book", period: "week", perPeriod: 1, order: "any" };
+  await chat({ message: "Hi", context: { ...goalContext, goals: [{ ...goal, reading: prayers }] } });
+  await chat({ message: "Hi", context: { ...goalContext, goals: [{ ...goal, reading: letters }] } });
+
+  assert.ok(personalPrompt(bodies[0]).includes("Reading schedule: passages MAT:6:9-13, JHN:17, 1 passage a day, no end date yet."));
+  assert.ok(personalPrompt(bodies[1]).includes("Reading schedule: Philippians, Colossians, 1 book a week, in any order, no end date yet."));
+
+  const parsed = z.object(chatRequestFields).safeParse({
+    message: "hi",
+    context: { goals: [{ ...goal, reading: { passages: ["mat:6:9-13", "Matthew 6", 7], period: "month", order: "any" } }] },
+  });
+  assert.ok(parsed.success);
+  assert.deepEqual(parsed.data.context?.goals?.[0].reading, { passages: ["MAT:6:9-13"], order: "any" });
 });

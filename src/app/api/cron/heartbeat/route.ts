@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cleanupInvalidTokens, sendPushNotification } from "@/lib/fcm";
 import { takeModelCall } from "@/lib/heartbeat/dailyCap";
+import { appNow } from "@/lib/devClock";
 import { isHeartbeatEnabled } from "@/lib/heartbeat/config";
 import { isCronAuthorized } from "@/lib/heartbeat/cronAuth";
 import { getBriefKeyVault } from "@/lib/heartbeat/kms";
@@ -37,6 +38,7 @@ export async function GET(request: NextRequest) {
       },
       allowModel: takeModelCall,
       log: (event) => console.info(JSON.stringify(event)),
+      now: appNow,
       enabled,
     });
     return NextResponse.json(summary, { headers: { "Cache-Control": "no-store" } });

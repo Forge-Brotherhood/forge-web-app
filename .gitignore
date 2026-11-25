@@ -29,6 +29,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# dev clock shift (src/lib/devClock.ts)
+.dev-clock.json
+
 # vercel
 .vercel
 

@@ -9,7 +9,7 @@ import { BEAT_SYSTEM_PROMPT } from "./prompt";
 import { runBeat } from "./runBeat";
 import { BRIEF_MAX_CHARS, beatOutputSchema, briefSchema, type BeatOutput, type BeatTrigger, type Brief } from "./schemas";
 import type { BeatModelInput } from "./model";
-import { passageSource, resolveShowBlockCall } from "@/lib/guide/uiBlocks";
+import { passageSource, resolveShowBlockCall, type GuideBlock } from "@/lib/guide/uiBlocks";
 
 type Run = { output: BeatOutput; calls: BeatModelInput[] };
 
@@ -447,19 +447,52 @@ test("reading wording holds whether or not they read today", async () => {
 test("messages are short, plain and without guilt, streaks, dashes, promises or things the brief does not show", async () => {
   const brief = fixture("finish-due").brief;
   const cases: Array<[string, string]> = [
-    ["Today's is Numbers 14. It is short. Take your time. Read it slowly. Enjoy.", "too_long"],
+    ["Today's is Numbers 14. It is short. Take your time. Read it slowly. Stop where it holds you. Then rest. Enjoy.", "too_long"],
     ["Today's is Numbers 14 — a short one.", "dash"],
     ["You should read Numbers 14 today.", "nudge_language"],
     ["Keep your streak going with Numbers 14.", "nudge_language"],
     ["I noticed you were busy. Today's is Numbers 14.", "unseen_observation"],
     ["Today's is Numbers 14. I'll check in tomorrow.", "false_promise"],
     ["Today's is Numbers 14. I'll be praying for you.", "false_promise"],
-    ["x".repeat(321), "too_long"],
   ];
   for (const [message, code] of cases) {
     const run = await beat(brief, { posts: [reading({ message })] });
     assert.deepEqual(codes(run), [code], message);
   }
+  // A lead-in may reach 600 characters and no further.
+  assert.equal((await beat(brief, { posts: [reading({ message: `Today's is Numbers 14. ${"a".repeat(570)}.` })] })).output.posts.length, 1);
+  assert.deepEqual((await beat(brief, { posts: [reading({ message: "x".repeat(601) })] })).output.posts, []);
+  // Only a reading's lead-in runs long. Every other post keeps the short limit.
+  const other = await beat(fixture("practice-rhythm").brief, { posts: [prayer({ message: "x".repeat(321) })] });
+  assert.deepEqual(codes(other), ["too_long"]);
+});
+
+test("a reading's message is a lead-in that builds on what they made, and its focus line goes on the card", async () => {
+  const brief = fixture("reading-lead-in").brief;
+  const leadIn =
+    "Last week you marked the place where Caleb spoke up, and you wrote about feeling like a grasshopper at work. Numbers 14 is what happens next. Read it slowly and listen for the difference between Caleb's voice and the crowd's. Stop at any line where you hear your own.";
+  const run = await beat(brief, { posts: [reading({ message: leadIn, payload: { ref: "NUM:14", focus: "Caleb's voice beside the crowd's." } })] });
+  assert.deepEqual(codes(run), []);
+  const card = run.output.posts[0].card as Extract<GuideBlock, { kind: "reading_card" }>;
+  assert.equal(run.output.posts[0].message, leadIn);
+  assert.equal(card.focus, "Caleb's voice beside the crowd's.");
+  assert.equal(card.fallback_text, "Reading: Numbers 14. Read for: Caleb's voice beside the crowd's.");
+
+  // The focus line is held to the same plain wording as the message.
+  const cases: Array<[string, string]> = [
+    ["Caleb — and the crowd.", "card_dash"],
+    ["You should notice Caleb.", "card_nudge_language"],
+    ["I noticed you like Caleb.", "card_unseen_observation"],
+  ];
+  for (const [focus, code] of cases) {
+    const dropped = await beat(brief, { posts: [reading({ payload: { ref: "NUM:14", focus } })] });
+    assert.deepEqual(codes(dropped), [code], focus);
+  }
+  // Without a focus the card is as before.
+  const plain = await beat(brief, { posts: [reading()] });
+  assert.equal("focus" in (plain.output.posts[0].card as object), false);
+  assert.match(ACTIVITY_REGISTRY.reading.guidance, /recentWork/);
+  assert.match(BEAT_SYSTEM_PROMPT, /recentWork/);
 });
 
 test("only what is in the brief: references off the schedule, unknown ids, notes that read as instructions", async () => {
@@ -536,6 +569,13 @@ test("the brief schema caps what a device may send", () => {
   const result = briefSchema.safeParse(oversized);
   assert.equal(result.success, false);
   assert.match(JSON.stringify(result.error?.issues), /over 32000 characters/);
+  // What they made on their readings is optional, and capped.
+  const work = fixture("reading-lead-in").brief.goals[0].recentWork!;
+  const withWork = (recentWork: object) => briefSchema.safeParse({ ...brief, goals: [{ ...brief.goals[0], recentWork }] }).success;
+  assert.equal(withWork(work), true);
+  assert.equal(withWork({ ...work, highlights: Array(6).fill(work.highlights[0]) }), false);
+  assert.equal(withWork({ ...work, notes: [{ ...work.notes[0], text: "n".repeat(241) }] }), false);
+  assert.equal(withWork({ ...work, journal: Array(3).fill({ title: "t", excerpt: "e", at: at(0) }) }), false);
 });
 
 test("the prompt is the Guide's voice with the beat's rules, and describes every activity type", () => {
@@ -547,7 +587,7 @@ test("the prompt is the Guide's voice with the beat's rules, and describes every
 // MARK: - The registry
 
 const SAMPLE_PAYLOADS: Record<(typeof ACTIVITY_TYPES)[number], object> = {
-  reading: { ref: "NUM:14" },
+  reading: { ref: "NUM:14", focus: "What the people say beside what Caleb says." },
   check_in: { options: ["Going well", "It has been hard"] },
   reflection: { prompt: "What stood out to you in this passage?" },
   prayer: { body: "Father, be near to me this morning. Teach me to listen." },
