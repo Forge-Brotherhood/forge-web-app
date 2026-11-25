@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendPushNotification } from "@/lib/fcm";
+import { sendPushNotification } from "@/lib/apns";
 
 /**
  * POST /api/push/test

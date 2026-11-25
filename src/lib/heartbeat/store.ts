@@ -36,7 +36,7 @@ export type RunRecord = {
   posts: number;
   activities: number;
   dropped: number;
-  /** Pushes FCM accepted in this run (a count, 0 or 1). */
+  /** Pushes APNs accepted in this run (a count, 0 or 1). */
   pushed: number;
   durationMs: number;
 };

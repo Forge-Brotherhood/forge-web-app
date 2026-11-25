@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cleanupInvalidTokens, sendPushNotification } from "@/lib/fcm";
+import { cleanupInvalidTokens, sendPushNotification } from "@/lib/apns";
 import { takeModelCall } from "@/lib/heartbeat/dailyCap";
 import { appNow } from "@/lib/devClock";
 import { isHeartbeatEnabled } from "@/lib/heartbeat/config";
