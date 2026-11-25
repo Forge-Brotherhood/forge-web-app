@@ -277,6 +277,7 @@ const finishedGenesis = {
 
 const recallPaul = {
   ...learnPaul,
+  workingNotes: "Asked why Paul was so firm in Galatians. Before Thessalonians, bring back what Sam wrote on Galatians for him to look at again.",
   noteExcerpts: ["Grace is not a reward for getting it right. It is what holds me when I do not."],
 };
 
@@ -291,7 +292,13 @@ const lessonPaul = {
 
 const peopleGrow = {
   ...growAnger,
-  activities: [entry("g-anger", "check_in", -10, "done"), entry("g-anger", "reflection", -6, "done"), entry("g-anger", "check_in", -3, "done")],
+  // A look back two days ago, so the review is not due and the step toward a person is the thing to offer.
+  activities: [entry("g-anger", "check_in", -10, "done"), entry("g-anger", "reflection", -6, "done"), entry("g-anger", "check_in", -3, "done"), entry("g-anger", "review", -2, "done")],
+};
+
+const verseForMornings = {
+  ...morningPrayer,
+  workingNotes: "Sam asked for a verse to carry into the mornings. Offer one from a psalm.",
 };
 
 const memorizeReview = {
@@ -469,7 +476,7 @@ export const FIXTURES: Fixture[] = [
   },
   {
     name: "people-grow",
-    description: "A Grow goal that has had several check-ins and never a step toward a person.",
+    description: "A Grow goal that has had several check-ins and a look back, and never a step toward a person.",
     brief: makeBrief([peopleGrow]),
     trigger: "app_open",
     expect: "A step toward a real person, offered as an invitation, in one or two plain sentences. No deadline, no 'make sure', no report back, no number.",
@@ -483,15 +490,15 @@ export const FIXTURES: Fixture[] = [
   },
   {
     name: "note-recall-learn",
-    description: "A Learn goal with one excerpt of the person's own note in the brief.",
+    description: "A Learn goal with one excerpt of the person's own note in the brief, and a working note to bring it back.",
     brief: makeBrief([recallPaul]),
     trigger: "app_open",
-    expect: "One plain sentence saying there is something of theirs to look at again, with a note_recall card. It does not quote or describe the note.",
+    expect: "One plain sentence saying there is something of theirs to look at again, with a note_recall card. The message does not quote or describe the note; the card shows it unchanged.",
   },
   {
     name: "memorize-practice",
-    description: "A Practice goal with no verse to carry yet.",
-    brief: makeBrief([morningPrayer]),
+    description: "A Practice goal with no verse to carry yet, where Sam asked for one.",
+    brief: makeBrief([verseForMornings]),
     trigger: "app_open",
     expect: "At most a verse to carry from where the thread has been (a psalm), as an invitation with a passage card. No quiz.",
   },
