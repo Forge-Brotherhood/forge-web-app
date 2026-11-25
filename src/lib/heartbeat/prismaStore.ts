@@ -13,19 +13,21 @@ import type { Claimed, GrantInfo, HeartbeatStore, OutboxRow, RunInput, StateRow 
 export const prismaHeartbeatStore: HeartbeatStore = {
   async getState(userId) {
     const rows = await prisma.$queryRaw<StateRow[]>`
-      SELECT "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "nextBeatAt", "lastBeatAt"
+      SELECT "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "sendTimes", "pausedUntil", "nextBeatAt", "lastBeatAt"
       FROM "HeartbeatState" WHERE "userId" = ${userId}`;
     return rows[0] ?? null;
   },
 
   async putState(userId, input, now) {
     const rows = await prisma.$queryRaw<StateRow[]>`
-      INSERT INTO "HeartbeatState" ("userId", "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "nextBeatAt", "createdAt", "updatedAt")
-      VALUES (${userId}, ${input.enabled}, ${input.timezone}, ${input.quietStart}, ${input.quietEnd}, ${input.pushEnabled}, ${now}, ${now}, ${now})
+      INSERT INTO "HeartbeatState" ("userId", "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "sendTimes", "pausedUntil", "nextBeatAt", "createdAt", "updatedAt")
+      VALUES (${userId}, ${input.enabled}, ${input.timezone}, ${input.quietStart}, ${input.quietEnd}, ${input.pushEnabled},
+        ${input.sendTimes ?? []}::timestamp(3)[], ${input.pausedUntil ?? null}, ${now}, ${now}, ${now})
       ON CONFLICT ("userId") DO UPDATE SET
         "enabled" = EXCLUDED."enabled", "timezone" = EXCLUDED."timezone", "quietStart" = EXCLUDED."quietStart",
-        "quietEnd" = EXCLUDED."quietEnd", "pushEnabled" = EXCLUDED."pushEnabled", "updatedAt" = EXCLUDED."updatedAt"
-      RETURNING "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "nextBeatAt", "lastBeatAt"`;
+        "quietEnd" = EXCLUDED."quietEnd", "pushEnabled" = EXCLUDED."pushEnabled", "sendTimes" = EXCLUDED."sendTimes",
+        "pausedUntil" = EXCLUDED."pausedUntil", "updatedAt" = EXCLUDED."updatedAt"
+      RETURNING "enabled", "timezone", "quietStart", "quietEnd", "pushEnabled", "sendTimes", "pausedUntil", "nextBeatAt", "lastBeatAt"`;
     return rows[0];
   },
 

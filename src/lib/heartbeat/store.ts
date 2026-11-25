@@ -5,8 +5,17 @@
  * returns readable content.
  */
 
-export type StateInput = { enabled: boolean; timezone: string; quietStart: string; quietEnd: string; pushEnabled: boolean };
-export type StateRow = StateInput & { nextBeatAt: Date; lastBeatAt: Date | null };
+export type StateInput = {
+  enabled: boolean;
+  timezone: string;
+  quietStart: string;
+  quietEnd: string;
+  pushEnabled: boolean;
+  /** The next heads-up send times, from the device. Absent means none. */
+  sendTimes?: Date[];
+  pausedUntil?: Date | null;
+};
+export type StateRow = Required<StateInput> & { nextBeatAt: Date; lastBeatAt: Date | null };
 
 export type GrantInfo = { keyId: string; expiresAt: Date };
 

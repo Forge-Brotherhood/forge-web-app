@@ -59,7 +59,14 @@ export class MemoryStore implements HeartbeatStore {
 
   async putState(userId: string, input: StateInput, now: Date) {
     const current = this.states.get(userId);
-    const row: StateData = { ...input, nextBeatAt: current?.nextBeatAt ?? now, lastBeatAt: current?.lastBeatAt ?? null, claimedUntil: current?.claimedUntil ?? null };
+    const row: StateData = {
+      ...input,
+      sendTimes: input.sendTimes ?? [],
+      pausedUntil: input.pausedUntil ?? null,
+      nextBeatAt: current?.nextBeatAt ?? now,
+      lastBeatAt: current?.lastBeatAt ?? null,
+      claimedUntil: current?.claimedUntil ?? null,
+    };
     this.states.set(userId, row);
     return row;
   }
@@ -185,6 +192,8 @@ export function seedUser(
       quietStart: options.quiet?.start ?? brief.person.quietHours.start,
       quietEnd: options.quiet?.end ?? brief.person.quietHours.end,
       pushEnabled: options.pushEnabled ?? false,
+      sendTimes: [],
+      pausedUntil: null,
       nextBeatAt: options.nextBeatAt ?? new Date(now.getTime() - 3_600_000),
       lastBeatAt: null,
       claimedUntil: null,
