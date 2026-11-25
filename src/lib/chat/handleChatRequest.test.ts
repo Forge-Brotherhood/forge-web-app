@@ -185,7 +185,7 @@ test("the goals the app lists go to the model compactly, after the fixed prompt,
   assert.equal(first, plain[0].input.filter((i) => i.role === "system")[0].content, "the cached prefix is the same");
 
   const personal = personalPrompt(withGoals[0]);
-  assert.ok(personal.includes("Today: 2026-11-23."));
+  assert.ok(personal.includes("Today: 2026-11-23, a Monday."));
   assert.ok(personal.includes('Goal goal-1 (finish, reading, daily): "Read the Bible in a year".'));
   assert.ok(personal.includes("Path: Genesis to Exodus; Psalms alongside."));
   assert.ok(personal.includes("Progress: Day 12 of 365, on pace"));
@@ -718,4 +718,30 @@ test("a plan of passages or of whole books by the week is shown to the model, an
   });
   assert.ok(parsed.success);
   assert.deepEqual(parsed.data.context?.goals?.[0].reading, { passages: ["MAT:6:9-13"], order: "any" });
+});
+
+test("a change to notifications reaches the app, and reading them is left for the app", async () => {
+  const read = call("call_read", "get_notification_settings", {});
+  const update = call("call_update", "update_notification_settings", { change: "reflect_reminders_off" });
+  const bodies = mockModel([{ output: [read, update] }]);
+
+  const { events, done } = await chat({ message: "Stop reminding me to reflect.", context: goalContext });
+
+  assert.ok(bodies[0].tools.some((t) => t.name === "get_notification_settings"));
+  assert.ok(TOOL_ENABLED_GUIDE_SYSTEM_PROMPT.includes("NOTIFICATION RULES"));
+  assert.deepEqual(events.find((e) => e.type === "notification_settings"), {
+    type: "notification_settings",
+    changes: { reflectReminders: false },
+  });
+  assert.deepEqual(done.pendingToolCalls, [{ callId: "call_read", name: "get_notification_settings", argumentsJson: "{}" }]);
+});
+
+test("after three unopened reminders, the goal's thread is told to ask whether they help", async () => {
+  const bodies = mockModel([{ output: [message("Hello")] }, { output: [message("Hello")] }]);
+  await chat({ message: "Hi", context: goalContext, goalThread: { goalId: "goal-1", remindersUnopened: true } });
+  await chat({ message: "Hi", context: goalContext, goalThread: { goalId: "goal-1" } });
+
+  const asks = (body: Body) => body.input.some((i) => i.role === "system" && String(i.content).includes("three reminders to reflect"));
+  assert.ok(asks(bodies[0]));
+  assert.ok(!asks(bodies[1]));
 });
