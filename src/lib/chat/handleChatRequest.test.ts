@@ -448,6 +448,19 @@ test("verses in an answer are links in its text: the model is never offered a pa
   assert.ok(!bodies[1].tools.some((t) => t.name === "show_block"), "offering only a passage card offers nothing");
 });
 
+test("a card asked for from Lumen's menu must be shown, when it is one the model may show", async () => {
+  const bodies = mockModel([{ output: [message("Here.")] }, { output: [message("Here.")] }, { output: [message("Here.")] }]);
+  await chat({ message: "Compare translations of Romans 8:28", context, uiBlocks: ["cross_refs", "compare_translations"], requestedBlock: "compare_translations" });
+  await chat({ message: "Show me Psalm 23", context, uiBlocks: ["passage_card", "cross_refs"], requestedBlock: "passage_card" });
+  await chat({ message: "Hi", context, uiBlocks: ["cross_refs", "compare_translations"] });
+
+  const rule = "Your reply to it must show one";
+  assert.ok(JSON.stringify(bodies[0]).includes(`to see a compare_translations card. ${rule} compare_translations card`));
+  assert.ok(!JSON.stringify(bodies[1]).includes(rule), "a card the model is never offered is not asked for");
+  assert.ok(!JSON.stringify(bodies[2]).includes(rule), "an ordinary question asks for no card");
+  assert.ok(z.object(chatRequestFields).safeParse({ message: "hi", requestedBlock: "word_study" }).success);
+});
+
 test("goal-thread requests are accepted by both routes' schema, with the limits the contract sets", () => {
   const schema = z.object(chatRequestFields);
   const goal = goalContext.goals[0];
