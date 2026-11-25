@@ -6,18 +6,10 @@ import { sendPushNotification } from "@/lib/apns";
 /**
  * POST /api/push/test
  * Send a test push notification to all of the authenticated user's devices.
- * Only available in development environment.
+ * In production only an admin may use it (the same check as /admin).
  */
 export async function POST() {
   try {
-    // Only allow in development
-    if (process.env.NODE_ENV === "production") {
-      return NextResponse.json(
-        { error: "Test endpoint not available in production" },
-        { status: 403 }
-      );
-    }
-
     const { userId: clerkId } = await auth();
 
     if (!clerkId) {
@@ -31,6 +23,7 @@ export async function POST() {
         id: true,
         displayName: true,
         firstName: true,
+        role: true,
         pushTokens: {
           where: { isActive: true },
           select: { token: true },
@@ -40,6 +33,13 @@ export async function POST() {
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (process.env.NODE_ENV === "production" && user.role !== "admin") {
+      return NextResponse.json(
+        { error: "Test endpoint not available in production" },
+        { status: 403 }
+      );
     }
 
     const tokens = user.pushTokens.map((t) => t.token);
