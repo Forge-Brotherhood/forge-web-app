@@ -91,6 +91,9 @@ test("sensitive subjects and weekday wishes are recognised", () => {
   assert.deepEqual([...sensitiveFamilies("My father died last month")], ["death"]);
   assert.deepEqual([...sensitiveFamilies("She struggles with anxiety and porn")].sort(), ["mentalHealth", "sexuality"]);
   assert.equal(sensitiveFamilies("Today's is Numbers 14.").size, 0);
+  // Panic in a passage is narration, not the person's health.
+  assert.equal(sensitiveFamilies("Read for the difference between Caleb's trust and the crowd's panic.").size, 0);
+  assert.deepEqual([...sensitiveFamilies("I had a panic attack at work")], ["mentalHealth"]);
   assert.deepEqual([...blockedWeekdays(["Not on Sundays please", "never on tuesday"])].sort(), [0, 2]);
   assert.equal(blockedWeekdays(["no sunscreen"]).size, 0);
 });

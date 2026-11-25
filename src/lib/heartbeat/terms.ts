@@ -18,7 +18,7 @@ const SENSITIVE_FAMILIES = {
   selfHarm: /\b(suicid\w*|self[- ]harm|kill (?:myself|yourself)|end (?:my|your) life|overdos\w*)\b/i,
   sexuality: /\b(porn\w*|lust\w*|sexual\w*|masturbat\w*)\b/i,
   addiction: /\b(addict\w*|alcohol\w*|drunk|drinking|relapse\w*|gambl\w*)\b/i,
-  mentalHealth: /\b(depress\w*|anxiety|anxious|panic|therap\w*)\b/i,
+  mentalHealth: /\b(depress\w*|anxiety|anxious|panic attacks?|therap\w*)\b/i,
   work: /\b(laid off|lost (?:my|your) job|unemploy\w*)\b/i,
 } as const;
 
