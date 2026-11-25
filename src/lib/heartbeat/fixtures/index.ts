@@ -354,7 +354,8 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal, discreet by default.",
     brief: makeBrief([growAnger]),
     trigger: "app_open",
-    expect: "A plain check-in in the pastor's voice. No number. A notification, if any, is neutral.",
+    expect:
+      "One plain thing for this goal, offered as an invitation: a check-in, a verse to carry, or a small step toward a person on the goal's path. No number, no score. A notification, if any, is neutral.",
   },
   {
     name: "grieving",
