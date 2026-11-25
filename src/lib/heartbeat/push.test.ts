@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 
-import type { PushPayload, PushResult } from "@/lib/fcm";
+import { apnsBody, type PushPayload, type PushResult } from "@/lib/apns";
 import { BRIEF_COLLECTION, OUTBOX_COLLECTION, PUSH_COLLECTION, open, openJson, sealJson } from "./crypto";
 import { FIXTURE_NOW, fixture } from "./fixtures";
 import { FakeKms, MemoryStore, seedUser } from "./fixtures/fakes";
@@ -142,13 +142,13 @@ test("size cap: the text is cut on a character boundary with an ellipsis, and th
   const key = randomBytes(32);
   const output = { posts: [{ id: "p", goalId: "g-bible", activityId: "a".repeat(160), message: "m", reason: "due" as const, notify: { at: NOW.toISOString(), text: huge } }] };
   const payload = buildHeartbeatPush({ key, userId: "u1", keyId: "k".repeat(64), brief: brief(), output })!;
-  // Everything FCM will hand to APNs, with generous room for the aps dictionary and FCM's own keys.
-  const whole = Buffer.byteLength(JSON.stringify({ aps: { alert: { title: payload.title, body: payload.body }, sound: "default", badge: 1, "mutable-content": 1 }, ...payload.data }), "utf8");
+  // The exact body APNs receives.
+  const whole = Buffer.byteLength(apnsBody(payload), "utf8");
   assert.ok(whole < 3000, `payload is ${whole} bytes`);
   assert.ok(whole <= 4096);
 });
 
-test("tokens FCM reports invalid are cleaned up", async () => {
+test("tokens APNs reports invalid are cleaned up", async () => {
   const s = setup({ tokens: ["good", "dead-1", "dead-2"], result: () => ({ successCount: 1, failedTokens: ["dead-1", "dead-2"] }) });
   await seed(s);
   await runHeartbeat(s.deps);
