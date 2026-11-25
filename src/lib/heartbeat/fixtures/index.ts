@@ -5,7 +5,7 @@ import type { BeatTrigger, Brief, GoalFile, LedgerEntry } from "@/lib/heartbeat/
 /**
  * Replay fixtures (plan 7.4): one brief per goal shape, and the hard cases. Each is run through a
  * beat with a scripted model in the tests (to check the code rules) and with the real model in
- * scripts/replay-beat.ts (to read the output against the soul doc). The clock is fixed:
+ * the heartbeat eval suite, src/lib/evals (to read the output against the soul doc). The clock is fixed:
  * Monday 23 November 2026, 10:00 in New York.
  */
 
