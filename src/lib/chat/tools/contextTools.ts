@@ -248,6 +248,7 @@ export const CLIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_conversation_session_summaries",
   "search_conversation_session_summaries",
   "get_life_context",
+  "get_notification_settings",
 ]);
 
 /**

@@ -8,6 +8,12 @@ import {
 } from "@/lib/chat/tools/contextTools";
 import { ACTIVITY_TOOL_NAMES, buildActivityTools, createActivityToolRunner, type ActivityEvent } from "@/lib/chat/tools/activityTools";
 import { GOAL_TOOL_NAMES, buildGoalTools, createGoalToolRunner, type GoalEvent, type GoalToolResult } from "@/lib/chat/tools/goalTools";
+import {
+  NOTIFICATION_TOOL_NAMES,
+  buildNotificationTools,
+  createNotificationToolRunner,
+  type NotificationSettingsEvent,
+} from "@/lib/chat/tools/notificationTools";
 import type { ContextToolCall } from "@/lib/openai/responsesClient";
 import { extractUiActionsDeterministic, type AIAction } from "@/lib/openai/structuredActions";
 import {
@@ -57,6 +63,8 @@ type SSEEvent =
   | ({ type: "goal" } & GoalEvent)
   /** The Guide put something on the calendar for a goal; the app keeps the activity. Nothing is stored here. */
   | ({ type: "activity" } & ActivityEvent)
+  /** The user asked to change their notifications; the app applies it. Nothing is stored here. */
+  | { type: "notification_settings"; changes: NotificationSettingsEvent }
   /**
    * `items` is what this request added to the conversation; the app appends them to its history.
    * With `pendingToolCalls` the reply is unfinished: the app answers the calls from the user's
@@ -356,7 +364,7 @@ export async function handleChatRequest(args: {
         // The greeting is a short orientation; it does not look up the user's own data, but a goal can still be started from it.
         const contextTools = isGreeting
           ? [...buildContextToolsForUser().filter((tool) => !CLIENT_TOOL_NAMES.has(tool.name)), ...buildGoalTools()]
-          : [...buildContextToolsForUser(), ...buildGoalTools(), ...buildActivityTools()];
+          : [...buildContextToolsForUser(), ...buildGoalTools(), ...buildActivityTools(), ...buildNotificationTools()];
         const runGoalTool = createGoalToolRunner({
           goals: args.input.context?.goals,
           memoryEnabled: args.input.context?.memoryEnabled,
@@ -369,6 +377,10 @@ export async function handleChatRequest(args: {
         const runActivityTool = createActivityToolRunner({
           goalIds,
           goals: args.input.context?.goals,
+          today: args.input.context?.today ?? new Date().toISOString().slice(0, 10),
+        });
+        const runNotificationTool = createNotificationToolRunner({
+          goalIds,
           today: args.input.context?.today ?? new Date().toISOString().slice(0, 10),
         });
         const tools = modelBlockKinds.length ? [...contextTools, buildShowBlockTool(modelBlockKinds)] : contextTools;
@@ -485,6 +497,11 @@ export async function handleChatRequest(args: {
             if (ACTIVITY_TOOL_NAMES.has(call.name)) {
               const result = runActivityTool(call);
               if (result.event) write({ type: "activity", ...result.event });
+              return result.output;
+            }
+            if (NOTIFICATION_TOOL_NAMES.has(call.name)) {
+              const result = runNotificationTool(call);
+              if (result.event) write({ type: "notification_settings", changes: result.event });
               return result.output;
             }
             const result = await executeServerToolCall(call);
