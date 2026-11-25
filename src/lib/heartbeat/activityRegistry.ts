@@ -158,7 +158,7 @@ export const ACTIVITY_REGISTRY = {
   lesson: define({
     serves: ["learn"],
     guidance:
-      "A short teaching prepared ahead for a Learn goal. Teach the next step on the goal's path, in order, building on what the thread shows they have already read. Your message is one or two plain sentences that lead into it. payload is the lesson itself: a short title, a category (historical, cultural, literary or geographic) and a body of 2 to 3 sentences of well-established background that helps the passage read the way its first readers heard it. Where scholars differ, say so plainly. Never state a fact you are not sure of; leave it out. No quiz, no homework.",
+      "A short teaching prepared ahead for a Learn goal. Teach the next step on the goal's path, in order, building on what the thread shows they have already read. Your message is one or two plain sentences that say plainly what the background is about. payload is the lesson itself: a short title, a category (historical, cultural, literary or geographic) and a body of 2 to 3 sentences of well-established background that helps the passage read the way its first readers heard it. Where scholars differ, say so plainly. Never state a fact you are not sure of; leave it out. No quiz, no homework.",
     doneWhen: "The person has read it. The app marks it done when the card is opened or the person replies.",
     expiresAfterDays: 2,
     plannable: true,

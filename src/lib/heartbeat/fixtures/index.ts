@@ -515,7 +515,7 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal after a slip, with Psalm 51 among the recent readings.",
     brief: makeBrief([stepGrow], { pulse: personPulse }),
     trigger: "app_open",
-    expect: "One small, practical thing that comes out of Psalm 51, as an invitation. Quick to grace. No measuring.",
+    expect: "One small, practical thing that comes out of a recent reading (Psalm 51 or Matthew 5), as an invitation. Quick to grace. No measuring.",
   },
 ];
 

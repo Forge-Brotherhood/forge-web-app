@@ -148,7 +148,8 @@ const cardTextDrop = (type: ActivityType, payload: Record<string, unknown>, stat
               ? "figures_in_message"
               : scores(text, state, type)
                 ? "grow_scoring"
-                : [...sensitiveFamilies(text)].some((f) => !known.has(f))
+                : // A lesson's background is about the passage, not the person, so it may speak of death or grief.
+                  !(type === "lesson" && text === payload.body) && [...sensitiveFamilies(text)].some((f) => !known.has(f))
                   ? "opens_sensitive_subject"
                   : null;
     if (code) return `card_${code}`;
@@ -464,6 +465,12 @@ export async function validateBeat(args: {
       }
       if (state.quiet) {
         drop("plan", "goal_quiet");
+        continue;
+      }
+      // A goal that has backed off is offered things at the lighter rhythm, and plans keep to it too.
+      const lastPost = postedGoals.has(p.goalId) ? today : state.lastPostedDay;
+      if (state.backedOff && lastPost && p.date < addDays(lastPost, state.gapDays)) {
+        drop("plan", "backed_off_too_soon");
         continue;
       }
       if (!def.plannable) {

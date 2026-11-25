@@ -397,6 +397,16 @@ test("after three unanswered posts the gap grows; after six the goal goes quiet 
   // Five unanswered: lighter, but a very small check-in is still allowed once the longer gap has passed.
   assert.equal(run.output.posts.length, 1);
   assert.equal(run.output.posts[0].card?.kind, "quick_replies");
+  // Plans keep to the lighter rhythm (weekly here): two days after today's post is too soon, a week is not.
+  const planned = await beat(brief, {
+    posts: [checkIn("g-prayer", { message: "How are mornings going? A word is plenty." })],
+    plan: [
+      { action: "create", goalId: "g-prayer", type: "prayer", date: "2026-11-25" },
+      { action: "create", goalId: "g-prayer", type: "prayer", date: "2026-11-30" },
+    ],
+  });
+  assert.deepEqual(codes(planned), ["backed_off_too_soon"]);
+  assert.deepEqual(planned.output.activities.filter((a) => a.action === "create" && a.activity.status === "planned").map((a) => a.action === "create" && a.activity.scheduledFor), ["2026-11-30"]);
 
   const goalFile = brief.goals[0];
   const sixth = makeBrief([{ ...goalFile, activities: [entry("g-prayer", "prayer", -19, "expired"), ...goalFile.activities] }]);
