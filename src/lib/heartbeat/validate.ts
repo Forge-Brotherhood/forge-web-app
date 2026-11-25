@@ -184,7 +184,8 @@ export async function validateBeat(args: {
   const raw = parsed.data;
 
   const planningOpen = decision.mode === "normal";
-  const inQuiet = isQuietAt(now, brief.person);
+  // On a heads-up run the send time decides, not quiet hours: the device chose it as a time the person is up.
+  const inQuiet = !decision.headsUp && isQuietAt(now, brief.person);
   let activitiesPosted = 0;
   const notifiesByDay = new Map<string, number>();
   const newOnDay = new Map<string, number>([[today, 0]]);
@@ -195,7 +196,7 @@ export async function validateBeat(args: {
     const date = localParts(at, tz).date;
     const used = notificationsOn(brief, date) + (notifiesByDay.get(date) ?? 0);
     if (used >= MAX_NOTIFICATIONS_PER_DAY) return drop(what, "notify_budget"), null;
-    if (isQuietAt(at, brief.person)) return drop(what, "notify_quiet_hours"), null;
+    if (!(decision.headsUp && at === now) && isQuietAt(at, brief.person)) return drop(what, "notify_quiet_hours"), null;
     const plain =
       !state.discreet &&
       text.length <= MAX_NOTIFY_CHARS &&

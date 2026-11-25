@@ -28,9 +28,11 @@ export async function runBeat(
     userId?: string;
     /** Asked just before a model call. False skips the call (a daily limit, for one). */
     allowModel?: () => Promise<boolean>;
+    /** A server run at one of the device's send times. */
+    headsUp?: boolean;
   }
 ): Promise<BeatOutput> {
-  const decision = decide(brief, now, options.trigger);
+  const decision = decide(brief, now, options.trigger, { headsUp: options.headsUp });
 
   let raw: unknown = {};
   let modelCalled = false;

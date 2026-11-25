@@ -357,6 +357,8 @@ model HeartbeatState {
   sendTimes    DateTime[] @default([])
   /// No notifications until then.
   pausedUntil  DateTime?
+  /// The local day (YYYY-MM-DD) a heads-up was last pushed. At most one a day.
+  lastHeadsUpDay String?
 
   nextBeatAt   DateTime
   lastBeatAt   DateTime?
@@ -379,6 +381,8 @@ model HeartbeatBrief {
   ciphertext      String   @db.Text
   keyId           String
   deviceWrittenAt DateTime
+  /// When a device last wrote the brief, by the server's clock. A server run does not move it.
+  receivedAt      DateTime?
   revision        Int      @default(1)
 
   createdAt       DateTime @default(now())

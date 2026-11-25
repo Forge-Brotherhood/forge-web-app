@@ -19,6 +19,10 @@ export interface PushPayload {
   body: string;
   data?: Record<string, string>;
   imageUrl?: string;
+  /** Apple drops the push if the device cannot be reached by then. Absent: Apple's default. */
+  expiresAt?: Date;
+  /** A newer push with the same id replaces the older one on the device. */
+  collapseId?: string;
 }
 
 export interface PushResult {
@@ -157,6 +161,8 @@ export async function sendPushWith(config: ApnsConfig, tokens: string[], payload
         "apns-topic": config.bundleId,
         "apns-push-type": "alert",
         "apns-priority": "10",
+        ...(payload.expiresAt ? { "apns-expiration": String(Math.floor(payload.expiresAt.getTime() / 1000)) } : {}),
+        ...(payload.collapseId ? { "apns-collapse-id": payload.collapseId } : {}),
       };
       const replies = await sendToHost(host.url, pending, headers, body);
       const wrongHost: string[] = [];

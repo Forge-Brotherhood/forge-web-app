@@ -94,6 +94,19 @@ test("a production token is sent once, with Apple's headers, a valid provider to
   });
 });
 
+test("an expiry and a collapse id go as Apple's headers, never in the body; without them neither header is sent", async () => {
+  const { production, config } = await hosts();
+  await sendPushWith(config, [PROD_TOKEN], PAYLOAD);
+  await sendPushWith(config, [PROD_TOKEN], { ...PAYLOAD, expiresAt: new Date("2026-11-26T12:20:00.900Z"), collapseId: "headsup-2026-11-26" });
+
+  const [plain, headsUp] = production.seen;
+  assert.equal(plain.headers["apns-expiration"], undefined);
+  assert.equal(plain.headers["apns-collapse-id"], undefined);
+  assert.equal(headsUp.headers["apns-expiration"], String(Date.parse("2026-11-26T12:20:00Z") / 1000));
+  assert.equal(headsUp.headers["apns-collapse-id"], "headsup-2026-11-26");
+  assert.equal(headsUp.body, plain.body);
+});
+
 test("a sandbox token production refuses is delivered through the sandbox, signed with the sandbox key", async () => {
   const { production, sandbox, config } = await hosts();
   const result = await sendPushWith(config, [SANDBOX_TOKEN, PROD_TOKEN], PAYLOAD);
