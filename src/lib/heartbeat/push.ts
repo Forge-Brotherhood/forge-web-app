@@ -71,12 +71,35 @@ export function buildHeartbeatPush(args: { key: Buffer; userId: string; keyId: s
 }
 
 /** A code for the log. Never text. */
-export type PushCode = "none" | "off" | "no_tokens" | "sent" | "failed" | "error";
+export type PushCode =
+  | "none"
+  | "off"
+  | "no_tokens"
+  | "sent"
+  | "failed"
+  | "error"
+  // Held back by the heads-up rules (push-engagement-plan.md §4.2).
+  | "paused"
+  | "superseded"
+  | "here_today"
+  | "late"
+  | "already_today";
 
 /** Sends the push this run earned, if any. Never throws. */
 export async function sendHeartbeatPush(
   deps: PushDeps,
-  args: { key: Buffer; userId: string; keyId: string; brief: Brief; output: Pick<BeatOutput, "posts">; pushEnabled: boolean }
+  args: {
+    key: Buffer;
+    userId: string;
+    keyId: string;
+    brief: Brief;
+    output: Pick<BeatOutput, "posts">;
+    pushEnabled: boolean;
+    /** Records the day's push just before it goes. False: one already went today, so this one does not. */
+    claimDay?: () => Promise<boolean>;
+    /** How Apple should treat a heads-up: when it is no longer worth delivering, and what it replaces. */
+    delivery?: { expiresAt: Date; collapseId: string };
+  }
 ): Promise<{ pushed: number; code: PushCode }> {
   try {
     if (!notifyPost(args.output)) return { pushed: 0, code: "none" };
@@ -86,7 +109,8 @@ export async function sendHeartbeatPush(
 
     const payload = buildHeartbeatPush(args);
     if (!payload) return { pushed: 0, code: "none" };
-    const result = await deps.send(tokens, payload);
+    if (args.claimDay && !(await args.claimDay())) return { pushed: 0, code: "already_today" };
+    const result = await deps.send(tokens, { ...payload, ...args.delivery });
     if (result.failedTokens.length > 0) await deps.cleanup(result.failedTokens).catch(() => undefined);
     return result.successCount > 0 ? { pushed: 1, code: "sent" } : { pushed: 0, code: "failed" };
   } catch {

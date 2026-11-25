@@ -1,10 +1,10 @@
 import { applyBeat, outboxItemFor } from "@/lib/heartbeat/apply";
-import { DAY_MS, GRANT_DAYS, HOUR_MS, LEASE_MS, MAX_OUTBOX_ITEMS, RETRY } from "@/lib/heartbeat/config";
+import { DAY_MS, GRANT_DAYS, HEADS_UP_LATE_MS, HEADS_UP_WINDOW_MS, HOUR_MS, LEASE_MS, MAX_OUTBOX_ITEMS, RETRY } from "@/lib/heartbeat/config";
 import { BRIEF_COLLECTION, OUTBOX_COLLECTION, openJson, sealJson } from "@/lib/heartbeat/crypto";
 import type { BriefKeyVault } from "@/lib/heartbeat/kms";
 import type { BeatModel } from "@/lib/heartbeat/model";
 import { sendHeartbeatPush, type PushCode, type PushDeps } from "@/lib/heartbeat/push";
-import { AFTER_QUIET_MINUTES, addDays, isQuietMinute, localParts, zonedInstant } from "@/lib/heartbeat/rules";
+import { AFTER_QUIET_MINUTES, addDays, dueSendTime, isQuietMinute, localParts, nextSendTime, zonedInstant } from "@/lib/heartbeat/rules";
 import { runBeat } from "@/lib/heartbeat/runBeat";
 import { HEARTBEAT_TRIGGER, briefSchema } from "@/lib/heartbeat/schemas";
 import type { Claimed, HeartbeatStore, RunRecord } from "@/lib/heartbeat/store";
@@ -60,6 +60,44 @@ export function quietEndsAt(now: Date, user: Pick<Claimed, "timezone" | "quietSt
   return today.getTime() > now.getTime() ? today : zonedInstant(addDays(local.date, 1), user.quietEnd, user.timezone);
 }
 
+/**
+ * When a run that is due now should wait until instead, or null to run now. A run at a send time
+ * goes ahead, even in quiet hours. On a day with a send time still to come, the run waits for it, so
+ * an earlier run does not take the day's post from the heads-up. Otherwise quiet hours hold it back,
+ * never past the next send time.
+ */
+export function holdUntil(now: Date, user: Pick<Claimed, "timezone" | "quietStart" | "quietEnd" | "sendTimes">): Date | null {
+  if (dueSendTime(user.sendTimes, now)) return null;
+  const send = nextSendTime(user.sendTimes, now);
+  if (send && localParts(send, user.timezone).date === localParts(now, user.timezone).date) return send;
+  const end = quietEndsAt(now, user);
+  return end && new Date(Math.min(end.getTime() + AFTER_QUIET_MINUTES * 60_000, send?.getTime() ?? Infinity));
+}
+
+/**
+ * Why a push the run earned is held back, or null to send it (push-engagement-plan.md §4.2). A pause
+ * holds back every push. A heads-up also waits on the person: none once they have been in the app
+ * today or wrote the brief during the run, and none once it is too late to be a heads-up.
+ */
+export function heldBack(args: {
+  now: Date;
+  finishedAt: Date;
+  /** The send time a heads-up run serves; null for any other run. */
+  sendAt: Date | null;
+  briefWritten: boolean;
+  pausedUntil: Date | null;
+  /** When a device last wrote the brief, by the server's clock. */
+  receivedAt: Date | null;
+  startOfDay: Date;
+}): PushCode | null {
+  if (args.pausedUntil && args.pausedUntil.getTime() > args.now.getTime()) return "paused";
+  if (!args.sendAt) return null;
+  if (!args.briefWritten) return "superseded";
+  if (args.receivedAt && args.receivedAt.getTime() >= args.startOfDay.getTime()) return "here_today";
+  if (args.finishedAt.getTime() - args.sendAt.getTime() > HEADS_UP_LATE_MS) return "late";
+  return null;
+}
+
 export async function runHeartbeat(deps: RunDeps): Promise<RunSummary> {
   const { store, log } = deps;
   const clock = deps.now ?? (() => new Date());
@@ -101,8 +139,7 @@ export async function runHeartbeat(deps: RunDeps): Promise<RunSummary> {
     for (const user of claimed) {
       let until: Date | null = null;
       try {
-        const end = quietEndsAt(now, user);
-        until = end && new Date(end.getTime() + AFTER_QUIET_MINUTES * 60_000);
+        until = holdUntil(now, user);
       } catch {
         until = new Date(now.getTime() + RETRY.stuck);
       }
@@ -152,6 +189,13 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
   const { userId } = user;
   const startedAt = Date.now();
   const now = clock();
+  // A run at one of the device's send times is a heads-up run (push-engagement-plan.md §4).
+  const sendAt = dueSendTime(user.sendTimes, now);
+  const nextSend = nextSendTime(user.sendTimes, now);
+  /** When to look again: after `ms`, or at the next send time if that comes first. */
+  const lookAgain = (ms: number) => new Date(Math.min(now.getTime() + ms, nextSend?.getTime() ?? Infinity));
+  // A heads-up run that hit a passing failure tries again soon, while there is still time to be a heads-up.
+  const transient = sendAt ? RETRY.headsUp : RETRY.transient;
   let key: Buffer | null = null;
   let counts: Partial<RunRecord> = {};
   let pushCode: PushCode | undefined;
@@ -161,7 +205,7 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
   const end = async (outcome: string, retryInMs?: number): Promise<string> => {
     const row = record(userId, outcome, { ...counts, durationMs: Date.now() - startedAt });
     try {
-      if (retryInMs !== undefined) await store.release(userId, new Date(now.getTime() + retryInMs), now);
+      if (retryInMs !== undefined) await store.release(userId, lookAgain(retryInMs), now);
       await store.recordRun(row, now);
     } catch (error) {
       log({ tag: "heartbeat.run", userId, outcome: "error", error: errorName(error) });
@@ -193,13 +237,13 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
     }
     if (!input.grant || !input.brief) return await end("no_grant", RETRY.stuck);
     // A rotation is in flight: the grant has a new key, the brief is still under the old one.
-    if (input.grant.keyId !== input.brief.keyId) return await end("key_mismatch", RETRY.transient);
+    if (input.grant.keyId !== input.brief.keyId) return await end("key_mismatch", transient);
     if (input.outboxCount >= MAX_OUTBOX_ITEMS) return await end("outbox_full", RETRY.stuck);
 
     try {
       key = await kms.unwrap(userId, input.grant.wrappedKey);
     } catch {
-      return await end("kms_failed", RETRY.transient);
+      return await end("kms_failed", transient);
     }
 
     let brief;
@@ -217,6 +261,7 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
       callModel: deps.callModel,
       userId,
       allowModel: () => deps.allowModel(userId, localDay),
+      headsUp: sendAt !== null,
     });
     counts = {
       staleness: output.meta.staleness,
@@ -231,27 +276,51 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
     const item = outboxItemFor(output, now);
     const { briefWritten } = await store.finishRun(userId, {
       now,
-      nextBeatAt: new Date(output.nextBeatAt),
+      nextBeatAt: new Date(Math.min(Date.parse(output.nextBeatAt), nextSend?.getTime() ?? Infinity)),
       ...(next ? { brief: { ciphertext: sealJson(key, userId, BRIEF_COLLECTION, next), expectedRevision: input.brief.revision } } : {}),
       ...(item ? { outbox: [{ ciphertext: sealJson(key, userId, OUTBOX_COLLECTION, item), keyId: input.grant.keyId }] } : {}),
     });
 
     // The push goes last, once the result is stored, and only while the key is still in memory and the
     // grant it belongs to still stands (a revoke or a rotation during the run means no push). Whatever
-    // happens here, the run and the outbox item are already done.
-    if (deps.push && item) {
+    // happens here, the run and the outbox item are already done. A device that sends send times gets
+    // its push from the heads-up run only; one that sends none keeps the older behaviour.
+    if (deps.push && item && (sendAt || user.sendTimes.length === 0)) {
       const grant = await store.getGrant(userId).catch(() => null);
       if (grant?.keyId === input.grant.keyId) {
-        const sent = await sendHeartbeatPush(deps.push, { key, userId, keyId: input.grant.keyId, brief, output, pushEnabled: input.pushEnabled });
-        counts = { ...counts, pushed: sent.pushed };
-        pushCode = sent.code;
+        const tz = brief.person.timezone;
+        const held = heldBack({
+          now,
+          finishedAt: clock(),
+          sendAt,
+          briefWritten,
+          pausedUntil: input.pausedUntil,
+          receivedAt: input.brief.receivedAt,
+          startOfDay: zonedInstant(localDay, "00:00", tz),
+        });
+        if (held) {
+          pushCode = held;
+        } else {
+          const sent = await sendHeartbeatPush(deps.push, {
+            key,
+            userId,
+            keyId: input.grant.keyId,
+            brief,
+            output,
+            pushEnabled: input.pushEnabled,
+            claimDay: () => store.claimHeadsUpDay(userId, localDay, now),
+            ...(sendAt ? { delivery: { expiresAt: new Date(sendAt.getTime() + HEADS_UP_WINDOW_MS), collapseId: `headsup-${localDay}` } } : {}),
+          });
+          counts = { ...counts, pushed: sent.pushed };
+          pushCode = sent.code;
+        }
       }
     }
     // finishRun already moved nextBeatAt and released the lease, so only the record is written.
     return await end(next === null ? "apply_failed" : briefWritten ? "ok" : "ok_superseded");
   } catch (error) {
     log({ tag: "heartbeat.run", userId, outcome: "error", error: errorName(error) });
-    return await end("error", RETRY.transient);
+    return await end("error", transient);
   } finally {
     key?.fill(0);
   }

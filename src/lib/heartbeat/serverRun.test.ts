@@ -240,7 +240,7 @@ test("a device brief written during the run wins; the outbox item is still kept"
   const summary = await runHeartbeat({
     ...deps,
     callModel: async () => {
-      await store.putBrief("u1", { ciphertext: newer, keyId: "k1", deviceWrittenAt: NOW });
+      await store.putBrief("u1", { ciphertext: newer, keyId: "k1", deviceWrittenAt: NOW }, NOW);
       return SCRIPT;
     },
   });
