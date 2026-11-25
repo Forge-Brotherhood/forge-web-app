@@ -5,11 +5,13 @@ import { test } from "node:test";
 import { FIXTURES, FIXTURE_NOW, TIME_ZONE, TODAY, at, entry, fixture, goal, makeBrief } from "./fixtures";
 import {
   activityId,
+  afterQuietEnd,
   decide,
   effectiveStatus,
   isCareMode,
   isQuietMinute,
   localParts,
+  nextBeatAt,
   stalenessOf,
   unansweredCount,
   zonedInstant,
@@ -140,4 +142,14 @@ test("a back-off lengthens the gap, and enough unanswered posts silence the goal
   assert.equal(decide(makeBrief([sixth]), FIXTURE_NOW, "app_open").needsModel, false);
   const lightGoal = goal({ id: "g", title: "t", shape: "practice", category: "prayer", rhythm: "daily", activities: [entry("g", "prayer", -3, "done")] });
   assert.equal(state(lightGoal).gapDays, 1);
+});
+
+test("a beat waiting for the morning starts 15 minutes after quiet hours end, never on the minute", () => {
+  assert.equal(afterQuietEnd("07:00"), "07:15");
+  assert.equal(afterQuietEnd("23:50"), "00:05");
+  // Today's reading is posted and tomorrow's is planned with no time: the next beat is tomorrow at
+  // 07:15 New York (quiet hours end at 07:00), not 07:00.
+  const brief = fixture("nothing-due").brief;
+  const decision = decide(brief, FIXTURE_NOW, "app_open");
+  assert.equal(nextBeatAt({ brief, now: FIXTURE_NOW, decision, added: [] }).toISOString(), "2026-11-24T12:15:00.000Z");
 });
