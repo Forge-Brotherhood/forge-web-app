@@ -352,6 +352,11 @@ model HeartbeatState {
   quietEnd     String
   /// Whether a push may be sent for this user (used from Phase 5).
   pushEnabled  Boolean   @default(false)
+  /// The next heads-up send times, worked out on the device from when the user tends to open the
+  /// app (push-engagement-plan.md §3.4). Instants only: the session times stay on the device.
+  sendTimes    DateTime[] @default([])
+  /// No notifications until then.
+  pausedUntil  DateTime?
 
   nextBeatAt   DateTime
   lastBeatAt   DateTime?

@@ -33,6 +33,9 @@ export const putStateSchema = z.object({
   timezone: timeZone,
   quietHours: z.object({ start: clock, end: clock }),
   pushEnabled: z.boolean(),
+  /** The next heads-up send times, worked out on the device (push-engagement-plan.md §3.4). */
+  sendTimes: z.array(instant).max(7).optional(),
+  pausedUntil: instant.nullable().optional(),
 });
 
 export const ackOutboxSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(100) });
