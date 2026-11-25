@@ -1,6 +1,7 @@
 import { heartbeatRoute, briefKeyVaultIfAvailable, noStore, readBody, unavailable } from "@/lib/heartbeat/http";
 import { putGrant, putGrantSchema } from "@/lib/heartbeat/deviceApi";
 import { prismaHeartbeatStore as store } from "@/lib/heartbeat/prismaStore";
+import { appNow } from "@/lib/devClock";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,7 @@ export const PUT = heartbeatRoute("api.heartbeat.grant.put", async ({ userId, re
   const kms = briefKeyVaultIfAvailable();
   if (!kms) return unavailable();
 
-  const result = await putGrant({ store, kms }, userId, body, new Date());
+  const result = await putGrant({ store, kms }, userId, body, appNow());
   if (!result.ok) return noStore({ error: "Set the heartbeat state first", code: result.reason }, 409);
   log({ event: "granted" });
   return noStore({ userId, expiresAt: result.expiresAt });

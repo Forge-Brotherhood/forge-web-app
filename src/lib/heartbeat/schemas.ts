@@ -104,6 +104,18 @@ const goalFileSchema = z.object({
   openLoops: z.array(openLoopSchema).max(5),
   relatedMemory: z.array(z.string().max(200)).max(6),
   noteExcerpts: z.array(z.string().max(240)).max(5),
+  /**
+   * What the person made on this goal's readings in the last 7 days, written on the device, so a
+   * reading's lead-in can build on it. Highlights are references only.
+   */
+  recentWork: z
+    .object({
+      highlights: z.array(z.object({ ref: z.string().max(30), at: instant })).max(5),
+      notes: z.array(z.object({ ref: z.string().max(30), text: z.string().max(240), at: instant })).max(3),
+      journal: z.array(z.object({ title: z.string().max(80), excerpt: z.string().max(240), at: instant })).max(2),
+      reflections: z.array(z.object({ text: z.string().max(300), at: instant })).max(2),
+    })
+    .optional(),
 });
 
 export const briefSchema = z
@@ -185,8 +197,8 @@ export const activitySchema = z.object({
   scheduledFor: day,
   scheduledTime: clock.optional(),
   expiresAt: instant,
-  /** What the Guide says in the thread. Set when the activity is posted. */
-  message: z.string().max(400).optional(),
+  /** What the Guide says in the thread. Set when the activity is posted. A reading's lead-in runs to 600. */
+  message: z.string().max(600).optional(),
   /** The card shown with it. Set when the activity is posted. */
   card: cardSchema.optional(),
   /** Set if this one earns a notification. */

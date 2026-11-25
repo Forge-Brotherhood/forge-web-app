@@ -2,6 +2,7 @@ import { putStateSchema } from "@/lib/heartbeat/deviceApi";
 import { briefKeyVaultIfAvailable, heartbeatRoute, noStore, readBody } from "@/lib/heartbeat/http";
 import { prismaHeartbeatStore as store } from "@/lib/heartbeat/prismaStore";
 import type { StateRow } from "@/lib/heartbeat/store";
+import { appNow } from "@/lib/devClock";
 
 export const runtime = "nodejs";
 
@@ -34,7 +35,7 @@ export const PUT = heartbeatRoute("api.heartbeat.state.put", async ({ userId, re
   const row = await store.putState(
     userId,
     { enabled: body.enabled, timezone: body.timezone, quietStart: body.quietHours.start, quietEnd: body.quietHours.end, pushEnabled: body.pushEnabled },
-    new Date()
+    appNow()
   );
   log({ event: "state_saved", enabled: body.enabled });
   return noStore({ userId, state: view(row) });

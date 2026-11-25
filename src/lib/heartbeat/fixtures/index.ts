@@ -301,6 +301,17 @@ const memorizeReview = {
 
 const stepGrow = { ...growAfterFailure, activities: [entry("g-free", "check_in", -4, "done")] };
 
+/** Yesterday's reading left something behind: a highlight, a note and a reflection. */
+const readingWithWork: GoalFile = {
+  ...bibleInAYear,
+  recentWork: {
+    highlights: [{ ref: "NUM:13:30", at: at(-1, "20:05") }],
+    notes: [{ ref: "NUM:13:33", text: "We were like grasshoppers in our own sight. That is me at work most days.", at: at(-1, "20:08") }],
+    journal: [],
+    reflections: [{ text: "Caleb saw the same giants and still trusted God. I want that kind of nerve.", at: at(-1, "20:15") }],
+  },
+};
+
 const personPulse = { daysOpened: 6, passagesRead: ["PSA:51", "MAT:5"], conversations: [] as Brief["pulse"]["conversations"] };
 
 const reviewGriefBrief = makeBrief([{ ...reviewBible, thread: grievingGoal.thread }], {
@@ -314,7 +325,15 @@ export const FIXTURES: Fixture[] = [
     description: "A Finish goal on track, today's reading planned.",
     brief: makeBrief([bibleInAYear]),
     trigger: "app_open",
-    expect: "A short post that says today's reading is Numbers 14, with a reading card. No pace talk, no 'you haven't'. No notification.",
+    expect: "A lead-in to Numbers 14 in terms of the goal, with a reading card and a line to read for. No pace talk, no 'you haven't'. No notification.",
+  },
+  {
+    name: "reading-lead-in",
+    description: "A Finish goal with today's reading planned, and what Sam marked, noted and wrote on Numbers 13.",
+    brief: makeBrief([readingWithWork]),
+    trigger: "app_open",
+    expect:
+      "A lead-in to Numbers 14 that builds on what Sam marked and wrote about the spies' report (Caleb, the grasshoppers) in Lumen's own words, without quoting the note at length or saying Sam read anything. One thing to read for, in focus. No figures beyond the passage's own.",
   },
   {
     name: "practice-rhythm",

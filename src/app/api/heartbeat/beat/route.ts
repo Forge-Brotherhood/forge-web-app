@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "@/lib/auth";
+import { appNow } from "@/lib/devClock";
 import { takeModelCall } from "@/lib/heartbeat/dailyCap";
 import { callBeatModel } from "@/lib/heartbeat/model";
 import { runBeat } from "@/lib/heartbeat/runBeat";
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     const text = await request.text();
     const input = beatRequestSchema.parse(JSON.parse(text || "{}"));
-    const now = new Date();
+    const now = appNow();
     const day = localParts(now, input.brief.person.timezone).date;
 
     const output = await runBeat(input.brief, now, {

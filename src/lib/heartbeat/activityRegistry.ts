@@ -80,13 +80,13 @@ export const ACTIVITY_REGISTRY = {
   reading: define({
     serves: ["finish", "practice", "learn", "grow"],
     guidance:
-      "The next reading toward the goal. If the goal has nextReadings, offer one of those exactly. Otherwise pick one short passage that fits the goal. Say what the reading is ('Today's is Numbers 14.'). Never say or hint whether they have already read it, and never say they have not: you cannot see that. No figures, days or counts.",
+      "The next reading toward the goal. If the goal has nextReadings, offer one of those exactly. Otherwise pick one short passage that fits the goal. The message is a lead-in to the reading, two short paragraphs at most: why this passage today, in terms of the goal and their own reason for it; then one thing to read for and how to read it (slowly, aloud, stopping at a line that holds them). Build on what the goal's recentWork and thread show they marked, noted or wrote, in your own words: say 'you wrote' or 'you marked', never 'I noticed', and never say they read something. Never say or hint whether they have already read it, and never say they have not: you cannot see that. No figures, days or counts. In payload.focus, give the one thing to read for as a short plain line ('What the shepherd does for his sheep.'); the card shows it.",
     doneWhen: "The passage is read.",
     expiresAfterDays: 1,
     plannable: true,
-    payload: z.object({ ref: z.string().trim().min(1).max(30) }),
-    payloadHint: '{"ref": "NUM:14" | "NUM:14-16" | "PSA:23:1-6"}',
-    card: ({ goalId, payload }) => ({ kind: "reading_card", goalId, ref_key: payload.ref }),
+    payload: z.object({ ref: z.string().trim().min(1).max(30), focus: z.string().trim().min(1).max(120).optional() }),
+    payloadHint: '{"ref": "NUM:14" | "NUM:14-16" | "PSA:23:1-6", "focus"?: "one line to read for"}',
+    card: ({ goalId, payload }) => ({ kind: "reading_card", goalId, ref_key: payload.ref, ...(payload.focus ? { focus: payload.focus } : {}) }),
     check: (payload, { goal }) => {
       const ref = parseReadingRef(payload.ref);
       if (!ref) return "invalid_ref";

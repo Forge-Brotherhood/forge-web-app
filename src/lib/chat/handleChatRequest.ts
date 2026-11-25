@@ -11,6 +11,7 @@ import { GOAL_TOOL_NAMES, buildGoalTools, createGoalToolRunner, type GoalEvent, 
 import type { ContextToolCall } from "@/lib/openai/responsesClient";
 import { extractUiActionsDeterministic, type AIAction } from "@/lib/openai/structuredActions";
 import {
+  GOAL_THREAD_REFLECT_MESSAGE,
   buildChatContextBundle,
   chatContextSchema,
   goalThreadSchema,
@@ -309,7 +310,12 @@ export async function handleChatRequest(args: {
         // The greeting gets no model-chosen cards; at most a rule-based chapter map after its text.
         // A reopened guide reuses its conversation, so detect the greeting by its start message.
         const isGreeting = entrypoint === "bible_reader" && message === "BIBLE_CHAT_START";
-        const modelBlockKinds = isGreeting ? [] : blockKinds.filter((k) => !HEARTBEAT_ONLY_BLOCK_KINDS.includes(k));
+        // The start of a reflection is Lumen's own words and one question: no card, and verses are links in the text.
+        const isReflecting = Boolean(args.input.goalThread) && message === GOAL_THREAD_REFLECT_MESSAGE;
+        // Verses in an answer are links in its text, so the model never shows them as a passage card
+        // (the heartbeat's verse to carry still uses one).
+        const modelBlockKinds =
+          isGreeting || isReflecting ? [] : blockKinds.filter((k) => !HEARTBEAT_ONLY_BLOCK_KINDS.includes(k) && k !== "passage_card");
         const passagePlaces =
           blockKinds.includes("map_card") && entrypoint === "bible_reader"
             ? await getPassagePlaces(args.input.verseReference, args.input.selectionState).catch(() => null)

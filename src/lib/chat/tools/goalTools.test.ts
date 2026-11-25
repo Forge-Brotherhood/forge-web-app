@@ -239,7 +239,9 @@ test("the prompt and tools tell the model to work out dates and books itself, an
 
   const updateProps = (update.parameters as any).properties;
   assert.deepEqual(updateProps.shape.enum, ["finish", "practice", "learn"]);
-  assert.deepEqual(updateProps.reading.required, ["books"]);
+  // Books are optional now: a plan may read passages only.
+  assert.equal(updateProps.reading.required, undefined);
+  assert.ok(readingProps.passages && updateProps.reading.properties.passages);
 });
 
 test("a reading pace is a whole number of chapters a day from 1 to 20, for set_goal and update_goal alike", () => {
@@ -360,12 +362,12 @@ test("status next to any other change is ignored, the other changes still apply,
   assert.deepEqual(changesOf(renamed), { title: "Read Exodus slowly" });
   assert.equal(renamed.statusIgnored, true);
 
-  // Each other field counts, even one that turns out to be an echo; then nothing is left to change.
+  // Each other field that really changes counts.
   for (const extra of [
     { path: ["Keep going"] },
     { rhythm: "weekly" },
     { endDate: "2027-03-01" },
-    { reading: { books: ["GEN"] } },
+    { reading: { books: ["LEV"] } },
     { shape: "learn" },
     { workingNotes: "Likes mornings" },
   ]) {
@@ -373,9 +375,16 @@ test("status next to any other change is ignored, the other changes still apply,
     assert.ok(!("status" in changesOf(result)), JSON.stringify(extra));
     assert.equal(result.statusIgnored, true, JSON.stringify(extra));
   }
+  // The goal's current values repeated next to a pause change nothing, so the pause stands.
   const echoes = runCurrent({ rhythm: "daily", status: "paused" });
-  assert.equal((echoes).output, '{"ok":true,"unchanged":true}');
+  assert.deepEqual(changesOf(echoes), { status: "paused" });
   assert.equal(echoes.statusIgnored, undefined);
+  // As seen in the app: the goal's own plan sent back with the default spread filled in.
+  const planEcho = runCurrent({
+    status: "paused",
+    reading: { books: ["exo"], endDate: "2027-01-31", chaptersPerDay: 2, unit: "chapter", period: "day", order: "in_order" },
+  });
+  assert.deepEqual(changesOf(planEcho), { status: "paused" });
 });
 
 test("status alone is applied as before, and a call without status is not marked", () => {
@@ -535,4 +544,82 @@ test("saving steps the goal already holds is done, not a failure, and changes no
   const result = runCurrent({ path });
   assert.deepEqual(JSON.parse(result.output), { ok: true, unchanged: true });
   assert.equal(result.event, undefined);
+});
+
+test("a plan can read whole books by the week, in any order, and the date is left to the app", () => {
+  const letters = { books: ["php", "COL", "phm"], unit: "book", period: "week", perPeriod: 1, order: "any", endDate: "2027-03-01" };
+  assert.deepEqual(run("set_goal", { ...newGoal, title: "Read Paul's letters", reading: letters }).event, {
+    action: "create",
+    goal: {
+      title: "Read Paul's letters",
+      shape: "finish",
+      category: "reading",
+      reading: { books: ["PHP", "COL", "PHM"], unit: "book", period: "week", perPeriod: 1, order: "any" },
+      status: "active",
+    },
+  });
+  for (const [field, bad] of [["unit", "verse"], ["period", "month"], ["order", "random"], ["perPeriod", 0], ["perPeriod", 21]] as const) {
+    assert.equal(reason(run("set_goal", { ...newGoal, reading: { ...letters, [field]: bad } })), `invalid_arguments: reading.${field}`, `${field} ${bad}`);
+  }
+});
+
+test("a plan can read passages instead of books, each checked and tidied", () => {
+  const prayers = { passages: ["mat:6:9-13", "JHN:17", "LUK:22:39-46", "JHN:17", "MAT:5-7"], perPeriod: 1, unit: "book" };
+  assert.deepEqual((run("set_goal", { ...newGoal, shape: "learn", reading: prayers }).event as any).goal.reading, {
+    // A repeat is dropped, and a unit means nothing for passages.
+    passages: ["MAT:6:9-13", "JHN:17", "LUK:22:39-46", "MAT:5-7"],
+    perPeriod: 1,
+  });
+  for (const bad of ["Matthew 6", "MAT:6:13-9", "MAT:7-5", "XYZ:1", "MAT:6:9-13:2"]) {
+    assert.equal(reason(run("set_goal", { ...newGoal, reading: { passages: [bad] } })), `invalid_passage: ${bad}`, bad);
+  }
+  // A plan with nothing to read is no plan, so the goal is made without one.
+  assert.ok(!("reading" in (run("set_goal", { ...newGoal, reading: { endDate: "2027-01-31" } }).event as any).goal));
+});
+
+test("with a pace in chapters a day, a run of chapters is read a chapter at a time", () => {
+  const ascents = (run("set_goal", { ...newGoal, reading: { passages: ["PSA:120-134"], chaptersPerDay: 1 } }).event as any).goal.reading;
+  assert.equal(ascents.passages.length, 15);
+  assert.deepEqual(ascents.passages.slice(0, 2), ["PSA:120", "PSA:121"]);
+  assert.equal(ascents.passages.at(-1), "PSA:134");
+  // Without that pace a run stays one sitting (the Sermon on the Mount in a day).
+  assert.deepEqual((run("set_goal", { ...newGoal, reading: { passages: ["MAT:5-7"], perPeriod: 1 } }).event as any).goal.reading.passages, ["MAT:5-7"]);
+  assert.match(JSON.stringify(buildGoalTools()), /list each chapter as its own passage/);
+});
+
+test("update_goal leaves out a plan that only repeats the goal's current one, passages and spread included", () => {
+  const current: ContextGoal = {
+    ...goal("g3", "Pray like Jesus"),
+    shape: "learn",
+    category: "reading",
+    reading: { passages: ["MAT:6:9-13", "JHN:17"], period: "week", perPeriod: 1, order: "any" },
+  };
+  const same = { passages: ["mat:6:9-13", "JHN:17"], period: "week", perPeriod: 1, order: "any" };
+  assert.deepEqual(JSON.parse(run("update_goal", { goalId: "g3", reading: same }, { goals: [current] }).output), { ok: true, unchanged: true });
+  assert.deepEqual(
+    (run("update_goal", { goalId: "g3", reading: { ...same, perPeriod: 2 } }, { goals: [current] }).event as any).changes.reading,
+    { ...same, passages: ["MAT:6:9-13", "JHN:17"], perPeriod: 2 }
+  );
+});
+
+test("a pause with placeholder plan fields is still a pause, and makes room for a new goal in the same reply", () => {
+  const three = [goal("g1", "Pray every morning"), goal("g2", "Read Mark"), goal("g3", "Read Acts")];
+  const runner = createGoalToolRunner({ goals: three, today });
+  const call = (name: string, args: object) => runner({ callId: "c", name, argumentsJson: JSON.stringify(args) });
+
+  assert.equal(reason(call("set_goal", newGoal)), "goal_limit_reached");
+  const pause = call("update_goal", { goalId: "g3", status: "paused", reading: { unit: "chapter", period: "day", order: "in_order" } });
+  assert.deepEqual(pause.event, { action: "update", goalId: "g3", changes: { status: "paused" } });
+  assert.equal(pause.statusIgnored, undefined);
+  assert.equal(call("set_goal", newGoal).event?.action, "create");
+  // Pausing the same goal again frees nothing more.
+  call("update_goal", { goalId: "g3", status: "paused" });
+  assert.equal(reason(call("set_goal", { ...newGoal, title: "Another" })), "goal_limit_reached");
+});
+
+test("a plan's default spread is left out, so the same plan repeated with it changes nothing", () => {
+  const defaults = { books: ["exo"], unit: "chapter", period: "day", order: "in_order" };
+  assert.deepEqual((run("set_goal", { ...newGoal, reading: defaults }).event as any).goal.reading, { books: ["EXO"] });
+  const current: ContextGoal = { ...goal("g4", "Read Exodus"), category: "reading", reading: { books: ["EXO"] } };
+  assert.deepEqual(JSON.parse(run("update_goal", { goalId: "g4", reading: defaults }, { goals: [current] }).output), { ok: true, unchanged: true });
 });

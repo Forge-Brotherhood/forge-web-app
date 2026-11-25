@@ -59,6 +59,9 @@ import { parseReadingRef, resolveShowBlockCall, type GuideBlock } from "@/lib/gu
 const MAX_MESSAGE_CHARS = 320;
 const MAX_WORD_CHARS = 220;
 const MAX_SENTENCES = 3;
+/** A reading's message is a lead-in to the passage, so it may run longer than other posts. */
+const MAX_LEAD_IN_CHARS = 600;
+const MAX_LEAD_IN_SENTENCES = 6;
 const MAX_NOTIFY_CHARS = 100;
 
 export type Validated = Pick<BeatOutput, "goalChanges" | "activities" | "posts" | "workingNotes"> & {
@@ -129,7 +132,9 @@ const cardTextDrop = (type: ActivityType, payload: Record<string, unknown>, stat
     const excerpt = state.goal.noteExcerpts[Number(payload.excerptIndex)] ?? "";
     return [...sensitiveFamilies(excerpt)].some((f) => !known.has(f)) ? "card_opens_sensitive_subject" : null;
   }
-  const texts = (type === "review" ? [payload.note] : type === "lesson" ? [payload.title, payload.body] : []).filter((t): t is string => typeof t === "string");
+  const texts = (type === "review" ? [payload.note] : type === "lesson" ? [payload.title, payload.body] : type === "reading" ? [payload.focus] : []).filter(
+    (t): t is string => typeof t === "string"
+  );
   for (const text of texts) {
     const code = DASHES.test(text)
       ? "dash"
@@ -282,7 +287,8 @@ export async function validateBeat(args: {
 
     // Wording.
     const message = p.message.replace(/\s+/g, " ").trim();
-    const limit = isWord || !type ? MAX_WORD_CHARS : MAX_MESSAGE_CHARS;
+    const limit = isWord || !type ? MAX_WORD_CHARS : type === "reading" ? MAX_LEAD_IN_CHARS : MAX_MESSAGE_CHARS;
+    const maxSentences = type === "reading" ? MAX_LEAD_IN_SENTENCES : MAX_SENTENCES;
     let payload: Record<string, unknown> | undefined;
     if (type && def) {
       const checked = def.payload.safeParse(p.payload ?? {});
@@ -303,11 +309,23 @@ export async function validateBeat(args: {
     }
 
     // The only digits a message may carry are those of the passage it is about.
-    const allowedNumbers = new Set(typeof payload?.ref === "string" ? numbersIn(parseReadingRef(payload.ref)?.reference ?? "") : []);
+    // A reading's lead-in may also name the passages it builds on, those the brief already holds.
+    const leadInRefs =
+      type === "reading"
+        ? [
+            ...(state.goal.recentWork?.highlights ?? []).map((h) => h.ref),
+            ...(state.goal.recentWork?.notes ?? []).map((n) => n.ref),
+            ...(state.goal.nextReadings ?? []),
+            ...brief.pulse.passagesRead,
+          ]
+        : [];
+    const allowedNumbers = new Set(
+      [...(typeof payload?.ref === "string" ? [payload.ref] : []), ...leadInRefs].flatMap((ref) => numbersIn(ref.split(":").slice(1).join(":")))
+    );
     const families = sensitiveFamilies(message);
     const known = sensitiveFamilies(threadCorpus(state));
     const wording =
-      message.length > limit || sentenceCount(message) > MAX_SENTENCES
+      message.length > limit || sentenceCount(message) > maxSentences
         ? "too_long"
         : DASHES.test(message)
           ? "dash"

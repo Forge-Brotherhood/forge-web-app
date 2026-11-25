@@ -150,8 +150,10 @@ test("goal_proposal can carry what a reading goal reads, with book ids checked",
   assert.ok(!("reading" in wire(without.block)));
 
   const unknownBook = await resolve({ kind: "goal_proposal", title: "Read", shape: "finish", category: "reading", reading: { books: ["XYZ"] } });
-  assert.deepEqual(unknownBook, { ok: false, reason: "unknown book XYZ" });
-  assert.equal((await resolve({ kind: "goal_proposal", title: "Read", shape: "finish", category: "reading", reading: { books: [] } })).ok, false);
+  assert.deepEqual(unknownBook, { ok: false, reason: "unknown_book: XYZ" });
+  // Nothing to read is no plan: the card goes out without one.
+  const empty = await resolve({ kind: "goal_proposal", title: "Read", shape: "finish", category: "reading", reading: { books: [] } });
+  assert.ok(empty.ok && !("reading" in wire(empty.block)));
   assert.equal((await resolve({ kind: "goal_proposal", title: "Read", shape: "finish", category: "reading", reading: { books: ["GEN"], endDate: "2027-02-30" } })).ok, false);
 
   const properties = (buildShowBlockTool(kinds).parameters as any).properties;
@@ -180,4 +182,21 @@ test("goal_proposal can carry a pace, a whole number of chapters a day from 1 to
   const props = (buildShowBlockTool(kinds).parameters as any).properties.reading.properties;
   assert.deepEqual([props.chaptersPerDay.type, props.chaptersPerDay.minimum, props.chaptersPerDay.maximum], ["integer", 1, 20]);
   assert.match(buildUiBlocksSystemPrompt(kinds), /chaptersPerDay if they named a pace/);
+});
+
+test("goal_proposal can carry a plan of passages or of whole books by the week, checked like a goal tool's", async () => {
+  const proposal = (reading: object) => resolve({ kind: "goal_proposal", title: "Pray like Jesus", shape: "learn", category: "reading", reading });
+
+  const prayers = await proposal({ passages: ["mat:6:9-13", "JHN:17"], perPeriod: 1 });
+  assert.ok(prayers.ok);
+  assert.deepEqual(wire(prayers.block).reading, { passages: ["MAT:6:9-13", "JHN:17"], perPeriod: 1 });
+
+  const letters = await proposal({ books: ["PHP", "COL"], unit: "book", period: "week", perPeriod: 1, order: "any" });
+  assert.ok(letters.ok);
+  assert.deepEqual(wire(letters.block).reading, { books: ["PHP", "COL"], unit: "book", period: "week", perPeriod: 1, order: "any" });
+
+  assert.deepEqual(await proposal({ passages: ["Matthew 6"] }), { ok: false, reason: "invalid_passage: Matthew 6" });
+  assert.equal((await proposal({ period: "month", books: ["PHP"] })).ok, false);
+  const props = (buildShowBlockTool(kinds).parameters as any).properties.reading.properties;
+  for (const key of ["passages", "unit", "period", "perPeriod", "order"]) assert.ok(props[key], key);
 });

@@ -154,6 +154,8 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
   let key: Buffer | null = null;
   let counts: Partial<RunRecord> = {};
   let pushCode: PushCode | undefined;
+  // Reason codes only, as the app's own beat route logs them: never what the model wrote.
+  let droppedCodes: string[] = [];
 
   const end = async (outcome: string, retryInMs?: number): Promise<string> => {
     const row = record(userId, outcome, { ...counts, durationMs: Date.now() - startedAt });
@@ -171,6 +173,7 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
       posts: row.posts,
       activities: row.activities,
       dropped: row.dropped,
+      ...(droppedCodes.length ? { droppedCodes } : {}),
       pushed: row.pushed,
       ...(pushCode ? { push: pushCode } : {}),
       ...(row.staleness ? { staleness: row.staleness } : {}),
@@ -221,6 +224,7 @@ async function processUser(deps: RunDeps, kms: BriefKeyVault, user: Claimed, clo
       activities: output.activities.length,
       dropped: output.meta.dropped.length,
     };
+    droppedCodes = output.meta.dropped.map((d) => d.code);
 
     const next = applyBeat(brief, output, now);
     const item = outboxItemFor(output, now);
