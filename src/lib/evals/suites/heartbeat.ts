@@ -104,13 +104,17 @@ const fixtureFor = (caseId: string): Fixture => {
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 8);
 
+/** Everything the model is sent across the fixtures: the system prompt and each beat's own input, so a change to either shows. */
+const everythingSent = () =>
+  BEAT_SYSTEM_PROMPT + FIXTURES.map((f) => renderBeatInput(f.brief, decide(f.brief, FIXTURE_NOW, f.trigger), FIXTURE_NOW)).join("\n");
+
 export const heartbeatSuite: EvalSuite = {
   id: "heartbeat",
   title: "Heartbeat beats",
   description:
     "Every heartbeat fixture through a beat with the real model, at a fixed clock. Checks are the beat's own code checks; the grader reads the kept posts and notifications against guide-soul.md §2.3 and §2.4.",
   repeats: 3,
-  version: `${BEAT_MODEL}, prompt ${hash(BEAT_SYSTEM_PROMPT)}, rubric ${hash(RUBRIC)}`,
+  version: `${BEAT_MODEL}, input ${hash(everythingSent())}, rubric ${hash(RUBRIC)}`,
   rubric: RUBRIC,
   cases: FIXTURES.map((f) => ({ id: f.name, title: f.name, input: f.description, expect: f.expect })),
   promptChars: (caseId) => {
