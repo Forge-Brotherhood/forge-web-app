@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { PushPayload } from "@/lib/apns";
+import { OUTBOX_COLLECTION, PUSH_COLLECTION, openJson } from "./crypto";
 import { FIXTURE_NOW, TIME_ZONE, entry, fixture } from "./fixtures";
 import { FakeKms, MemoryStore, seedUser } from "./fixtures/fakes";
 import { decide, dueSendTime, nextSendTime, zonedInstant } from "./rules";
@@ -209,4 +210,42 @@ test("new send times bring the next beat forward, never back", async () => {
   assert.equal(store.states.get("u1")!.nextBeatAt.getTime(), SEND.getTime());
   await store.putState("u1", { ...state, sendTimes: [TOMORROW] }, now);
   assert.equal(store.states.get("u1")!.nextBeatAt.getTime(), SEND.getTime(), "a later send time does not push the beat back");
+});
+
+test("the heads-up carries the app's own words with the model's line about the passage; the model's notify is not used", async () => {
+  const s = setup();
+  const { key } = await seedHeadsUp(s);
+  s.deps.callModel = async () => ({
+    posts: [{ ...SCRIPT.posts[0], notify: { text: "Come read!" }, about: "where the spies come back from the land" }],
+  });
+  await runHeartbeat(s.deps);
+
+  assert.equal(s.sent.length, 1);
+  const sealed: any = openJson(key, "u1", PUSH_COLLECTION, s.sent[0].data!.sealed);
+  assert.deepEqual(sealed, {
+    goalId: "g-bible",
+    activityId: "g-bible:reading:2026-11-23",
+    text: "This morning we're reading Numbers 14, where the spies come back from the land.",
+  });
+  const item: any = openJson(key, "u1", OUTBOX_COLLECTION, s.store.outbox[0].ciphertext);
+  assert.equal(item.posts[0].notify, undefined, "the post carries no notify of its own");
+  assert.equal(item.headsUp, undefined, "the heads-up never goes to the outbox");
+});
+
+test("a goal with notifications off still gets its post, and no heads-up names it", async () => {
+  const s = setup();
+  await seedHeadsUp(s);
+  const { key } = await seedUser(s.store, s.kms, { userId: "off", brief: (() => {
+    const b = brief();
+    b.goals[0].notificationsOn = false;
+    return b;
+  })(), now: SEND, nextBeatAt: SEND, pushEnabled: true });
+  s.store.states.get("off")!.sendTimes = [SEND, TOMORROW];
+  s.store.briefs.get("off")!.receivedAt = new Date(SEND.getTime() - DAY);
+  await runHeartbeat(s.deps);
+
+  assert.equal(s.sent.length, 1, "only the user whose goal has notifications on");
+  const theirs = s.store.outbox.filter((o) => o.userId === "off");
+  assert.equal(theirs.length, 1);
+  assert.equal((openJson(key, "off", OUTBOX_COLLECTION, theirs[0].ciphertext) as any).posts.length, 1);
 });
