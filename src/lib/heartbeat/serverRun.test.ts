@@ -120,9 +120,9 @@ test("only users who are due are run: disabled, not yet due, expired grant, no b
   const summary = await runHeartbeat(deps);
   assert.deepEqual(kms.unwrapCalls, ["due"]);
   assert.equal(summary.deferred, 1);
-  // The quiet user is put back until quiet hours end (11:00 New York), with the lease released.
+  // The quiet user is put back until 15 minutes after quiet hours end (11:15 New York), with the lease released.
   const quiet = store.states.get("quiet")!;
-  assert.equal(quiet.nextBeatAt.toISOString(), "2026-11-23T16:00:00.000Z");
+  assert.equal(quiet.nextBeatAt.toISOString(), "2026-11-23T16:15:00.000Z");
   assert.equal(quiet.claimedUntil, null);
   assert.equal(store.states.get("later")!.claimedUntil, null);
 });

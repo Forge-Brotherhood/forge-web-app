@@ -37,6 +37,19 @@ export const daysBetween = (from: string, to: string): number =>
 
 export const clockMinutes = (clock: string): number => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3, 5));
 
+/**
+ * Beats that wait for the morning start this long after quiet hours end, never on the minute
+ * itself: that is often when the person opens the app, and a run then finds the brief and grant
+ * changing under it.
+ */
+export const AFTER_QUIET_MINUTES = 15;
+
+/** The local time AFTER_QUIET_MINUTES past the end of quiet hours, HH:mm. */
+export const afterQuietEnd = (quietEnd: string): string => {
+  const minutes = (clockMinutes(quietEnd) + AFTER_QUIET_MINUTES) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+};
+
 export type LocalParts = { date: string; minutes: number; weekday: number };
 
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -440,7 +453,7 @@ export const nextBeatAt = (args: {
 }): Date => {
   const { brief, now, decision } = args;
   const tz = brief.person.timezone;
-  const morning = brief.person.quietHours.end;
+  const morning = afterQuietEnd(brief.person.quietHours.end);
   const at = (day: string, time?: string) => {
     const instant = zonedInstant(day, time ?? morning, tz);
     return instant.getTime() > now.getTime() ? instant : zonedInstant(addDays(decision.today.date, 1), morning, tz);
