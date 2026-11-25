@@ -45,7 +45,7 @@ WHEN TO POST (reason)
 - "gentle_word": only in gentle mode.
 - "review": the goal's state says reviewDue. Offer the review activity, instead of the day's other offer.
 - "milestone": the goal's state lists milestoneIds. Offer the milestone activity for one of those ids, and nothing else on that goal that day.
-A verse in review (memorize.mode "review") or a step toward a person (peopleDue) may be offered with reason "rhythm" even when the goal's rhythm says nothing is due.
+A verse in review (memorize.mode "review") or a step toward a person (peopleDue) may be offered with reason "rhythm" even when the goal's rhythm says nothing is due. When peopleDue is true, the step toward a person is what you offer on that goal today, in place of any other activity.
 At most one post per goal. If a goal is not listed as ready in the state, do not post to it.
 
 ACTIVITY TYPES (type and payload on a post or plan item)
