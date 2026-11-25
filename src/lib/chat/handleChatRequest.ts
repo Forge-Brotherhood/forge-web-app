@@ -30,6 +30,7 @@ import {
   isQuickRepliesCall,
   parseClientBlockKinds,
   pendingBlockLabel,
+  requestedCardRule,
   resolveShowBlockCall,
   type GuideBlock,
 } from "@/lib/guide/uiBlocks";
@@ -83,6 +84,8 @@ export const chatRequestFields = {
   includeSuggestedQuestions: z.boolean().optional(),
   // Inline UI block kinds the client can render.
   uiBlocks: z.array(z.string().max(40)).max(20).optional(),
+  /** The card the user asked to see, by tapping its example in Lumen's menu. */
+  requestedBlock: z.string().max(40).optional(),
 };
 
 /** A request either starts a turn with a message or continues one with tool outputs, never both. */
@@ -195,6 +198,8 @@ export type HandleChatInput = {
   goalThread?: z.infer<typeof goalThreadSchema>;
   /** Inline UI block kinds the client can render. */
   uiBlocks?: string[];
+  /** The card the user asked to see, by tapping its example in Lumen's menu. */
+  requestedBlock?: string;
 };
 
 export async function handleChatRequest(args: {
@@ -236,6 +241,7 @@ export async function handleChatRequest(args: {
     selectionState: args.input.selectionState ?? null,
     includeSuggestedQuestions: Boolean(args.input.includeSuggestedQuestions),
     goals: args.input.context?.goals?.length ?? 0,
+    requestedBlock: args.input.requestedBlock ?? null,
   });
 
   const jsonResponse = (body: unknown, status: number) =>
@@ -316,6 +322,8 @@ export async function handleChatRequest(args: {
         // (the heartbeat's verse to carry still uses one).
         const modelBlockKinds =
           isGreeting || isReflecting ? [] : blockKinds.filter((k) => !HEARTBEAT_ONLY_BLOCK_KINDS.includes(k) && k !== "passage_card");
+        // Honored only when it is a card the model may show in this reply.
+        const requestedKind = modelBlockKinds.find((k) => k === args.input.requestedBlock);
         const passagePlaces =
           blockKinds.includes("map_card") && entrypoint === "bible_reader"
             ? await getPassagePlaces(args.input.verseReference, args.input.selectionState).catch(() => null)
@@ -364,6 +372,8 @@ export async function handleChatRequest(args: {
               bundle.instructions[0],
               { role: "system" as const, content: buildUiBlocksSystemPrompt(modelBlockKinds, passagePlaces) },
               ...bundle.instructions.slice(1),
+              // Last, so it outweighs what the conversation so far has shown.
+              ...(requestedKind ? [{ role: "system" as const, content: requestedCardRule(requestedKind) }] : []),
             ]
           : bundle.instructions;
 

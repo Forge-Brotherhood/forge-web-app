@@ -622,6 +622,10 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
   ].join("\n");
 };
 
+/** For an example tapped in Lumen's menu: the reply must show that example's card. */
+export const requestedCardRule = (kind: GuideBlockKind): string =>
+  `The user's latest message is an example they tapped in Lumen's menu to see a ${kind} card. Your reply to it must show one ${kind} card with show_block, even if one was shown earlier in the conversation: write your lead-in sentence, then show it. If show_block returns "Rejected", correct what it names and call it once more. If you have already shown it after their latest message, do not show it again.`;
+
 // MARK: - Resolution
 
 type ParsedRefKey = { bookId: string; chapter: number; verseStart?: number; verseEnd?: number };
