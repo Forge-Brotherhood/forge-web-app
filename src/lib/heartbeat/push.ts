@@ -1,4 +1,4 @@
-import type { PushPayload, PushResult } from "@/lib/fcm";
+import type { PushPayload, PushResult } from "@/lib/apns";
 import { PUSH_COLLECTION, sealJson } from "@/lib/heartbeat/crypto";
 import { isDiscreet } from "@/lib/heartbeat/rules";
 import type { BeatOutput, Brief } from "@/lib/heartbeat/schemas";
