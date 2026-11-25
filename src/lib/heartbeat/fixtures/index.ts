@@ -437,7 +437,7 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal a week in, after a few check-ins.",
     brief: makeBrief([reviewGrow]),
     trigger: "app_open",
-    expect: "A look back in words only: no figures, no streaks, no 'progress'. Honest and warm. If it mentions a person it is an invitation.",
+    expect: "A look back in words only: no figures, no streaks, no 'progress'. Honest and warm. It may recall what Sam did with the people in his life; anything it suggests doing with a person is an invitation.",
   },
   {
     name: "review-while-grieving",
@@ -458,7 +458,7 @@ export const FIXTURES: Fixture[] = [
     description: "A review would be due, but the brief was written three days ago.",
     brief: makeBrief([reviewBible], {}, 3),
     trigger: "app_open",
-    expect: "No review: it waits for a fresh brief. Things that still make sense, nothing called recent.",
+    expect: "No review: it waits for a fresh brief. Today's planned reading may still be offered; nothing called recent.",
   },
   {
     name: "milestone-finish",
