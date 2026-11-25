@@ -86,7 +86,7 @@ test("the grader is given the rubric, the input, what good looks like and the ou
     context: "The brief: {}",
     output: "Hello.",
   });
-  for (const part of ["RUBRIC:\nNo dashes.", "THE INPUT: A brief.", "The brief: {}", "A GOOD OUTPUT: Say little.", "THE OUTPUT:\nHello."]) {
+  for (const part of ["RUBRIC:\nNo dashes.", "THE INPUT: A brief.", "The brief: {}", "A GOOD OUTPUT: Say little.", "THE OUTPUT:\nHello.", "JSON"]) {
     assert.ok(input.includes(part), part);
   }
   assert.ok(!graderInput({ rubric: "r", evalCase: { id: "x", title: "x", input: "i", expect: "e" }, context: "", output: "o" }).includes("DETAILS"));

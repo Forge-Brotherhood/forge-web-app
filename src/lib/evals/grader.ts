@@ -16,6 +16,8 @@ export const graderInput = (args: { rubric: string; evalCase: EvalCase; context:
     args.context ? `DETAILS OF THE INPUT:\n${args.context}` : "",
     `A GOOD OUTPUT: ${args.evalCase.expect}`,
     `THE OUTPUT:\n${args.output}`,
+    // JSON mode needs the word in the input itself, not only in the instructions.
+    "Return the JSON.",
   ]
     .filter(Boolean)
     .join("\n\n");
