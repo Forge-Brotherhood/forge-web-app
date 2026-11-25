@@ -438,8 +438,17 @@ test("reading wording holds whether or not they read today", async () => {
     const run = await beat(brief, { posts: [reading({ message })] });
     assert.deepEqual(run.output.posts, [], message);
   }
-  for (const message of ["Today's is Numbers 14.", "Numbers 14 is up next, whenever you are ready."]) {
+  for (const message of [
+    "Today's is Numbers 14.",
+    "Numbers 14 is up next, whenever you are ready.",
+    // Saying how to read is not a claim that they read.
+    "Today's is Numbers 14. As you read, listen for Caleb's voice.",
+    "Numbers 14 is next. When you read it, take it slowly.",
+  ]) {
     assert.equal((await beat(brief, { posts: [reading({ message })] })).output.posts.length, 1, message);
+  }
+  for (const message of ["You've read Numbers 13, so Numbers 14 is next.", "You just read Numbers 13. Numbers 14 is next."]) {
+    assert.deepEqual((await beat(brief, { posts: [reading({ message })] })).output.posts, [], message);
   }
   assert.match(ACTIVITY_REGISTRY.reading.guidance, /whether they have already read it/);
 });
@@ -488,6 +497,14 @@ test("a reading's message is a lead-in that builds on what they made, and its fo
     const dropped = await beat(brief, { posts: [reading({ payload: { ref: "NUM:14", focus } })] });
     assert.deepEqual(codes(dropped), [code], focus);
   }
+  // It may name the passages it builds on (the brief holds them), but no other figure.
+  const builds = await beat(brief, {
+    posts: [reading({ message: "In Numbers 13:33 you wrote about grasshoppers, and Numbers 13:30 is where Caleb spoke. Numbers 14 is what follows." })],
+  });
+  assert.deepEqual(codes(builds), []);
+  const counts = await beat(brief, { posts: [reading({ message: "Numbers 14 is next. You are 3 days into this." })] });
+  assert.deepEqual(codes(counts), ["figures_in_message"]);
+
   // Without a focus the card is as before.
   const plain = await beat(brief, { posts: [reading()] });
   assert.equal("focus" in (plain.output.posts[0].card as object), false);

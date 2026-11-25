@@ -105,8 +105,12 @@ export const checkGoalReading = (input: z.infer<typeof goalReadingSchema>): { re
   for (const raw of input.passages ?? []) {
     const ref = parsePassageRef(raw);
     if (!ref) return { refused: `invalid_passage: ${raw}` };
-    if (!passages.includes(ref)) passages.push(ref);
+    // A pace in chapters a day reads a run of chapters one chapter at a time, not in one sitting.
+    const run = input.chaptersPerDay ? ref.match(/^([^:]+):(\d+)-(\d+)$/) : null;
+    const refs = run ? Array.from({ length: Number(run[3]) - Number(run[2]) + 1 }, (_, i) => `${run[1]}:${Number(run[2]) + i}`) : [ref];
+    for (const one of refs) if (!passages.includes(one)) passages.push(one);
   }
+  if (passages.length > MAX_READING_PASSAGES) return { refused: "too_many_passages" };
   if (!books.length && !passages.length) return {};
   return {
     reading: {
@@ -130,7 +134,7 @@ export const READING_PLAN_JSON_PROPERTIES = {
     type: "array",
     maxItems: MAX_READING_PASSAGES,
     description:
-      "For a study of chosen passages rather than whole books (Jesus' prayers, the parables), the passages in the order to read them: BOOK:CHAPTER (JHN:17), a run of chapters BOOK:FIRST-LAST (MAT:5-7) or verses of one chapter BOOK:CHAPTER:FIRST-LAST (MAT:6:9-13). Leave books out unless whole books are read too.",
+      "For a study of chosen passages rather than whole books (Jesus' prayers, the parables), the passages in the order to read them: BOOK:CHAPTER (JHN:17), a run of chapters BOOK:FIRST-LAST (MAT:5-7) or verses of one chapter BOOK:CHAPTER:FIRST-LAST (MAT:6:9-13). Each passage is one sitting, so a run of chapters is read all at once: to go through a run one chapter at a time (\"Psalm 120 to 134, one a day\"), list each chapter as its own passage (PSA:120, PSA:121, and so on). Leave books out unless whole books are read too.",
     items: { type: "string", maxLength: 20 },
   },
   unit: {

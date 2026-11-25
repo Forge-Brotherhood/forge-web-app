@@ -44,7 +44,7 @@ export const FALSE_PROMISE =
 
 /** Wording about whether something was read. The beat cannot see that, so a reading post never says. */
 export const READING_STATE_CLAIM =
-  /\b(haven'?t|have not|hasn'?t|didn'?t|did not|not yet|yet to|still need(?:s)? to|already|finished|completed|missed|skipped|nice work|well done|great job|good job)\b|\byou(?:'ve| have)? (?:just |already )?read\b/i;
+  /\b(haven'?t|have not|hasn'?t|didn'?t|did not|not yet|yet to|still need(?:s)? to|already|finished|completed|missed|skipped|nice work|well done|great job|good job)\b|\byou(?:'ve| have) (?:just )?read\b|\byou just read\b|\bdid you (?:finish|read|get to|get through)\b|(?<!\b(?:as|when|while|before|after|once|if|until) )\byou read\b/i;
 
 /** Words that make something sound recent, for when the brief is a few days old. */
 export const RECENCY_WORDS =

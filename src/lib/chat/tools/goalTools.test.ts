@@ -577,6 +577,16 @@ test("a plan can read passages instead of books, each checked and tidied", () =>
   assert.ok(!("reading" in (run("set_goal", { ...newGoal, reading: { endDate: "2027-01-31" } }).event as any).goal));
 });
 
+test("with a pace in chapters a day, a run of chapters is read a chapter at a time", () => {
+  const ascents = (run("set_goal", { ...newGoal, reading: { passages: ["PSA:120-134"], chaptersPerDay: 1 } }).event as any).goal.reading;
+  assert.equal(ascents.passages.length, 15);
+  assert.deepEqual(ascents.passages.slice(0, 2), ["PSA:120", "PSA:121"]);
+  assert.equal(ascents.passages.at(-1), "PSA:134");
+  // Without that pace a run stays one sitting (the Sermon on the Mount in a day).
+  assert.deepEqual((run("set_goal", { ...newGoal, reading: { passages: ["MAT:5-7"], perPeriod: 1 } }).event as any).goal.reading.passages, ["MAT:5-7"]);
+  assert.match(JSON.stringify(buildGoalTools()), /list each chapter as its own passage/);
+});
+
 test("update_goal leaves out a plan that only repeats the goal's current one, passages and spread included", () => {
   const current: ContextGoal = {
     ...goal("g3", "Pray like Jesus"),

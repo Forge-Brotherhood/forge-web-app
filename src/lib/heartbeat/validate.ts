@@ -309,7 +309,19 @@ export async function validateBeat(args: {
     }
 
     // The only digits a message may carry are those of the passage it is about.
-    const allowedNumbers = new Set(typeof payload?.ref === "string" ? numbersIn(parseReadingRef(payload.ref)?.reference ?? "") : []);
+    // A reading's lead-in may also name the passages it builds on, those the brief already holds.
+    const leadInRefs =
+      type === "reading"
+        ? [
+            ...(state.goal.recentWork?.highlights ?? []).map((h) => h.ref),
+            ...(state.goal.recentWork?.notes ?? []).map((n) => n.ref),
+            ...(state.goal.nextReadings ?? []),
+            ...brief.pulse.passagesRead,
+          ]
+        : [];
+    const allowedNumbers = new Set(
+      [...(typeof payload?.ref === "string" ? [payload.ref] : []), ...leadInRefs].flatMap((ref) => numbersIn(ref.split(":").slice(1).join(":")))
+    );
     const families = sensitiveFamilies(message);
     const known = sensitiveFamilies(threadCorpus(state));
     const wording =
