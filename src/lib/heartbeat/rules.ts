@@ -1,5 +1,6 @@
 import type { GoalRhythm } from "@/lib/goals/goalTypes";
 import { ACTIVITY_REGISTRY, NOTE_PREFIX, excerptKey, type ActivityType } from "@/lib/heartbeat/activityRegistry";
+import { HEADS_UP_AHEAD_MINUTES, HEADS_UP_WINDOW_MS } from "@/lib/heartbeat/config";
 import type { Brief, BeatTrigger, GoalFile, LedgerEntry, Staleness } from "@/lib/heartbeat/schemas";
 import { CARE_FAMILIES, blockedWeekdays, sensitiveFamilies } from "@/lib/heartbeat/terms";
 
@@ -36,6 +37,19 @@ export const daysBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
 
 export const clockMinutes = (clock: string): number => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3, 5));
+
+/**
+ * Beats that wait for the morning start this long after quiet hours end, never on the minute
+ * itself: that is often when the person opens the app, and a run then finds the brief and grant
+ * changing under it.
+ */
+export const AFTER_QUIET_MINUTES = 15;
+
+/** The local time AFTER_QUIET_MINUTES past the end of quiet hours, HH:mm. */
+export const afterQuietEnd = (quietEnd: string): string => {
+  const minutes = (clockMinutes(quietEnd) + AFTER_QUIET_MINUTES) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+};
 
 export type LocalParts = { date: string; minutes: number; weekday: number };
 
@@ -88,6 +102,24 @@ export const isQuietMinute = (minutes: number, quiet: { start: string; end: stri
 
 export const isQuietAt = (at: Date, person: Brief["person"]): boolean =>
   isQuietMinute(localParts(at, person.timezone).minutes, person.quietHours);
+
+// MARK: - Send times
+
+/**
+ * The send time a run now serves, if any: the latest one that has come and is not yet an hour old.
+ * The device only sends a time it has reason to think the person is up for, so it may fall inside
+ * quiet hours (push-engagement-plan.md §3.4).
+ */
+export const dueSendTime = (sendTimes: Date[], now: Date): Date | null => {
+  const due = sendTimes.filter((t) => t.getTime() <= now.getTime() && now.getTime() - t.getTime() < HEADS_UP_WINDOW_MS);
+  return due.length ? new Date(Math.max(...due.map((t) => t.getTime()))) : null;
+};
+
+/** The next send time after now, if any. */
+export const nextSendTime = (sendTimes: Date[], now: Date): Date | null => {
+  const later = sendTimes.filter((t) => t.getTime() > now.getTime());
+  return later.length ? new Date(Math.min(...later.map((t) => t.getTime()))) : null;
+};
 
 // MARK: - Activities
 
@@ -289,7 +321,14 @@ export type GoalState = {
 /** A discreet goal is never named in a notification. When unset, Grow goals are discreet. */
 export const isDiscreet = (goal: GoalFile): boolean => goal.discreet ?? goal.shape === "grow";
 
-export const assessGoal = (brief: Brief, goal: GoalFile, now: Date, today: { date: string; minutes: number; weekday: number }): GoalState => {
+export const assessGoal = (
+  brief: Brief,
+  goal: GoalFile,
+  now: Date,
+  today: { date: string; minutes: number; weekday: number },
+  /** How far ahead a planned time still counts as due: a heads-up looks ahead to what is about to start. */
+  aheadMinutes = 0
+): GoalState => {
   const tz = brief.person.timezone;
   const unanswered = unansweredCount(goal, now);
   const quiet = unanswered >= QUIET_AFTER;
@@ -306,7 +345,7 @@ export const assessGoal = (brief: Brief, goal: GoalFile, now: Date, today: { dat
 
   const planned = goal.activities.filter((a) => effectiveStatus(a, now) === "planned");
   const isDue = (a: LedgerEntry) =>
-    a.scheduledFor < today.date || (a.scheduledFor === today.date && (!a.scheduledTime || clockMinutes(a.scheduledTime) <= today.minutes));
+    a.scheduledFor < today.date || (a.scheduledFor === today.date && (!a.scheduledTime || clockMinutes(a.scheduledTime) <= today.minutes + aheadMinutes));
   const dueTypes = planned.filter(isDue).map((a) => a.type);
 
   const nextDue = lastPostedDay ? addDays(lastPostedDay, gapDays) : today.date;
@@ -357,6 +396,8 @@ export type Decision = {
   mode: BeatMode;
   today: LocalParts;
   trigger: BeatTrigger;
+  /** A server run at one of the device's send times (push-engagement-plan.md §4.1). */
+  headsUp: boolean;
   /** Only a beat run because the app was opened, or by the server's own clock, may post. */
   canPost: boolean;
   goals: GoalState[];
@@ -374,11 +415,12 @@ export const notificationsOn = (brief: Brief, date: string): number =>
   brief.outreach.recent.filter((o) => localParts(new Date(o.at), brief.person.timezone).date === date).length;
 
 /** Rules first: is anything due, is the next few days planned, is there budget. No model, no key. */
-export const decide = (brief: Brief, now: Date, trigger: BeatTrigger): Decision => {
+export const decide = (brief: Brief, now: Date, trigger: BeatTrigger, options: { headsUp?: boolean } = {}): Decision => {
   const { tier } = stalenessOf(brief, now);
   const careMode = isCareMode(brief);
   const today = localParts(now, brief.person.timezone);
-  const goals = brief.goals.map((g) => assessGoal(brief, g, now, today));
+  const headsUp = options.headsUp ?? false;
+  const goals = brief.goals.map((g) => assessGoal(brief, g, now, today, headsUp ? HEADS_UP_AHEAD_MINUTES : 0));
   const postedToday = brief.goals.reduce(
     (n, g) => n + g.activities.filter((a) => a.postedAt && localParts(new Date(a.postedAt), brief.person.timezone).date === today.date).length,
     0
@@ -425,7 +467,7 @@ export const decide = (brief: Brief, now: Date, trigger: BeatTrigger): Decision 
             s.needsPlan
         );
 
-  return { staleness: tier, careMode, mode, today, trigger, canPost, goals, wordGoalIds, budget, needsModel };
+  return { staleness: tier, careMode, mode, today, trigger, headsUp, canPost, goals, wordGoalIds, budget, needsModel };
 };
 
 // MARK: - When to look again
@@ -440,7 +482,7 @@ export const nextBeatAt = (args: {
 }): Date => {
   const { brief, now, decision } = args;
   const tz = brief.person.timezone;
-  const morning = brief.person.quietHours.end;
+  const morning = afterQuietEnd(brief.person.quietHours.end);
   const at = (day: string, time?: string) => {
     const instant = zonedInstant(day, time ?? morning, tz);
     return instant.getTime() > now.getTime() ? instant : zonedInstant(addDays(decision.today.date, 1), morning, tz);
