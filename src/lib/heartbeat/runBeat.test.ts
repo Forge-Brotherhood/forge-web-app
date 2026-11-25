@@ -441,6 +441,8 @@ test("reading wording holds whether or not they read today", async () => {
   for (const message of [
     "Today's is Numbers 14.",
     "Numbers 14 is up next, whenever you are ready.",
+    // Saying how to read is not a claim that they read, and what God has already done is not about the reading.
+    "Today's is Numbers 14, where the Lord has already promised the land.",
     // Saying how to read is not a claim that they read.
     "Today's is Numbers 14. As you read, listen for Caleb's voice.",
     "Numbers 14 is next. When you read it, take it slowly.",
