@@ -517,6 +517,15 @@ test("a reading's message is a lead-in that builds on what they made, and its fo
   assert.deepEqual(codes(builds), []);
   const counts = await beat(brief, { posts: [reading({ message: "Numbers 14 is next. You are 3 days into this." })] });
   assert.deepEqual(codes(counts), ["figures_in_message"]);
+  // Any Bible reference is words, not figures, and the dash in its range is not a dash; other figures and dashes still are.
+  const refs = await beat(brief, {
+    posts: [reading({ message: "Numbers 14 is next. Psalm 143:8 and 1 Thessalonians 1:2–10 speak of the same trust." })],
+  });
+  assert.deepEqual(codes(refs), []);
+  const stillDash = await beat(brief, { posts: [reading({ message: "Numbers 14 is next — a hard one." })] });
+  assert.deepEqual(codes(stillDash), ["dash"]);
+  const stillCount = await beat(brief, { posts: [reading({ message: "Numbers 14 is next. Read 3 chapters of Psalms." })] });
+  assert.deepEqual(codes(stillCount), ["figures_in_message"]);
 
   // Without a focus the card is as before.
   const plain = await beat(brief, { posts: [reading()] });

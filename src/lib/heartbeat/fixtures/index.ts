@@ -377,7 +377,7 @@ export const FIXTURES: Fixture[] = [
     description: "Five posts unanswered over two weeks on a Practice goal.",
     brief: makeBrief([ignoredPrayer]),
     trigger: "app_open",
-    expect: "At most one very gentle, small check-in with no guilt. The rhythm is already lighter, so anything planned is a week or more away.",
+    expect: "At most one very gentle, small check-in with no guilt. The rhythm is already lighter (weekly), so nothing is planned sooner than a week after the last post, which is today's if it posts today.",
   },
   {
     name: "finish-20-days-behind",

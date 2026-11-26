@@ -1,3 +1,5 @@
+import { BOOK_NAME_TO_CODE } from "@/lib/bible/bookCodes";
+
 /**
  * Words the code looks for around the model: subjects that are heavy, and ways of speaking that
  * a pastor who starts a conversation does not use. Plain patterns, checked the same way each time.
@@ -51,6 +53,17 @@ export const RECENCY_WORDS =
   /\b(recent(?:ly)?|lately|last (?:time|week|night|visit)|yesterday|earlier (?:today|this week)|the other day|this week|few days ago|since we (?:last )?(?:talked|spoke))\b/i;
 
 export const DASHES = /[—–]/;
+
+const BOOK_NAMES = Object.keys(BOOK_NAME_TO_CODE)
+  .map((name) => name.replace(/\b[a-z]/g, (c) => c.toUpperCase()).replace(" Of ", " of "))
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+
+/** A Bible reference as people write it ("Psalm 143:8", "1 Thessalonians 1:2–10"). Its numbers are not figures, and the dash in its range is not a dash. */
+const BIBLE_REFERENCE = new RegExp(`\\b(?:${BOOK_NAMES}) \\d{1,3}(?::\\d{1,3})?(?:[–-]\\d{1,3}(?::\\d{1,3})?)?\\b`, "g");
+
+/** The text with each Bible reference in it replaced by words, for the number and dash checks. */
+export const withoutReferences = (text: string): string => text.replace(BIBLE_REFERENCE, "the passage");
 
 const WEEKDAY_STEMS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 } as const;
 
