@@ -1,3 +1,4 @@
+import type { HeadsUpFact } from "@/lib/heartbeat/headsUpText";
 import { looksInstructional, looksSensitive } from "@/lib/chat/tools/contextTools";
 import { activityDefinition, type ActivityType } from "@/lib/heartbeat/activityRegistry";
 import {
@@ -67,6 +68,8 @@ const MAX_NOTIFY_CHARS = 100;
 
 export type Validated = Pick<BeatOutput, "goalChanges" | "activities" | "posts" | "workingNotes"> & {
   dropped: BeatOutput["meta"]["dropped"];
+  /** On a heads-up run, each activity posted, for the heads-up to choose from. */
+  headsUpFacts: HeadsUpFact[];
   /** Everything this beat planned or posted, for working out when to look again. */
   added: Array<{ goalId: string; day: string; time?: string; posted: boolean }>;
 };
@@ -176,7 +179,7 @@ export async function validateBeat(args: {
   const goalIds = [...states.keys()];
   const goalShapes = Object.fromEntries(decision.goals.map((s) => [s.goal.id, s.goal.shape]));
 
-  const out: Validated = { goalChanges: [], activities: [], posts: [], workingNotes: [], dropped: [], added: [] };
+  const out: Validated = { goalChanges: [], activities: [], posts: [], workingNotes: [], dropped: [], added: [], headsUpFacts: [] };
   const drop = (what: string, code: string) => out.dropped.push({ what, code });
 
   const parsed = modelOutputSchema.safeParse(args.raw);
@@ -187,7 +190,8 @@ export async function validateBeat(args: {
   const raw = parsed.data;
 
   const planningOpen = decision.mode === "normal";
-  const inQuiet = isQuietAt(now, brief.person);
+  // On a heads-up run the send time decides, not quiet hours: the device chose it as a time the person is up.
+  const inQuiet = !decision.headsUp && isQuietAt(now, brief.person);
   let activitiesPosted = 0;
   const notifiesByDay = new Map<string, number>();
   const newOnDay = new Map<string, number>([[today, 0]]);
@@ -198,7 +202,7 @@ export async function validateBeat(args: {
     const date = localParts(at, tz).date;
     const used = notificationsOn(brief, date) + (notifiesByDay.get(date) ?? 0);
     if (used >= MAX_NOTIFICATIONS_PER_DAY) return drop(what, "notify_budget"), null;
-    if (isQuietAt(at, brief.person)) return drop(what, "notify_quiet_hours"), null;
+    if (!(decision.headsUp && at === now) && isQuietAt(at, brief.person)) return drop(what, "notify_quiet_hours"), null;
     const plain =
       !state.discreet &&
       text.length <= MAX_NOTIFY_CHARS &&
@@ -407,9 +411,10 @@ export async function validateBeat(args: {
       };
     }
 
-    // A word never notifies. An activity may, once, and never at night.
+    // A word never notifies. An activity may, once, and never at night. On a heads-up run the app writes the notification.
     let notify: { at: string; text: string } | undefined;
-    if (p.notify && (isWord || inQuiet)) drop("notify", isWord ? "word_does_not_notify" : "notify_quiet_hours");
+    if (p.notify && decision.headsUp) drop("notify", "heads_up_run");
+    else if (p.notify && (isWord || inQuiet)) drop("notify", isWord ? "word_does_not_notify" : "notify_quiet_hours");
     else if (p.notify) notify = notifyFor(state, p.notify.text, now, "notify") ?? undefined;
     if (activity && notify) activity.notify = notify;
 
@@ -422,6 +427,18 @@ export async function validateBeat(args: {
     if (activity) {
       out.activities.push({ action: "create", activity });
       out.added.push({ goalId: p.goalId, day: today, posted: true });
+      if (decision.headsUp && type) {
+        const completion = type === "milestone" ? state.goal.completions?.find((c) => c.id === payload?.completionId) : undefined;
+        out.headsUpFacts.push({
+          goalId: p.goalId,
+          activityId: id,
+          type,
+          ...(typeof payload?.ref === "string" ? { ref: payload.ref } : {}),
+          ...(type === "reading" && p.about ? { about: p.about } : {}),
+          timed: activity.scheduledFor === today && activity.scheduledTime !== undefined,
+          ...(completion ? { completion: { kind: completion.kind, label: completion.label } } : {}),
+        });
+      }
     }
     out.posts.push({
       id,

@@ -1,5 +1,6 @@
 import { BEAT_SYSTEM_PROMPT, renderBeatInput } from "@/lib/heartbeat/prompt";
 import type { BeatModel } from "@/lib/heartbeat/model";
+import { composeHeadsUp } from "@/lib/heartbeat/headsUpText";
 import { decide, nextBeatAt } from "@/lib/heartbeat/rules";
 import type { BeatOutput, BeatTrigger, Brief } from "@/lib/heartbeat/schemas";
 import { validateBeat } from "@/lib/heartbeat/validate";
@@ -28,9 +29,11 @@ export async function runBeat(
     userId?: string;
     /** Asked just before a model call. False skips the call (a daily limit, for one). */
     allowModel?: () => Promise<boolean>;
+    /** A server run at one of the device's send times. */
+    headsUp?: boolean;
   }
 ): Promise<BeatOutput> {
-  const decision = decide(brief, now, options.trigger);
+  const decision = decide(brief, now, options.trigger, { headsUp: options.headsUp });
 
   let raw: unknown = {};
   let modelCalled = false;
@@ -63,12 +66,17 @@ export async function runBeat(
     }
   }
 
+  const headsUp = decision.headsUp
+    ? composeHeadsUp({ brief, facts: checked.headsUpFacts, careMode: decision.careMode, sendMinutes: decision.today.minutes })
+    : null;
+
   return {
     v: 1,
     goalChanges: checked.goalChanges,
     activities: checked.activities,
     posts: checked.posts,
     workingNotes,
+    ...(headsUp ? { headsUp } : {}),
     nextBeatAt: nextBeatAt({ brief, now, decision, added: checked.added }).toISOString(),
     meta: { staleness: decision.staleness, careMode: decision.careMode, modelCalled, dropped: [...pre, ...checked.dropped] },
   };

@@ -12,6 +12,8 @@ const view = (row: StateRow | null) =>
     timezone: row.timezone,
     quietHours: { start: row.quietStart, end: row.quietEnd },
     pushEnabled: row.pushEnabled,
+    sendTimes: row.sendTimes.map((t) => t.toISOString()),
+    pausedUntil: row.pausedUntil?.toISOString() ?? null,
     nextBeatAt: row.nextBeatAt.toISOString(),
     lastBeatAt: row.lastBeatAt?.toISOString() ?? null,
   };
@@ -34,7 +36,15 @@ export const PUT = heartbeatRoute("api.heartbeat.state.put", async ({ userId, re
   const body = await readBody(request, putStateSchema);
   const row = await store.putState(
     userId,
-    { enabled: body.enabled, timezone: body.timezone, quietStart: body.quietHours.start, quietEnd: body.quietHours.end, pushEnabled: body.pushEnabled },
+    {
+      enabled: body.enabled,
+      timezone: body.timezone,
+      quietStart: body.quietHours.start,
+      quietEnd: body.quietHours.end,
+      pushEnabled: body.pushEnabled,
+      sendTimes: (body.sendTimes ?? []).map((t) => new Date(t)),
+      pausedUntil: body.pausedUntil ? new Date(body.pausedUntil) : null,
+    },
     appNow()
   );
   log({ event: "state_saved", enabled: body.enabled });

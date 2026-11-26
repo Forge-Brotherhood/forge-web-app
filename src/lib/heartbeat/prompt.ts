@@ -66,13 +66,17 @@ When something is worth keeping, write a short note on the goal (under 1000 char
 OUTPUT
 Return ONLY valid JSON:
 {
-  "posts": [{"goalId": string, "reason": ${POST_REASONS.map((r) => `"${r}"`).join(" | ")}, "message": string, "type"?: string, "payload"?: object, "notify"?: {"text": string}}],
+  "posts": [{"goalId": string, "reason": ${POST_REASONS.map((r) => `"${r}"`).join(" | ")}, "message": string, "type"?: string, "payload"?: object, "notify"?: {"text": string}, "about"?: string}],
   "plan": [{"action": "create", "goalId": string, "type": string, "date": "yyyy-MM-dd", "time"?: "HH:mm", "note"?: string} | {"action": "reschedule", "activityId": string, "date": "yyyy-MM-dd", "time"?: "HH:mm"} | {"action": "cancel", "activityId": string}],
   "workingNotes": [{"goalId": string, "notes": string}],
   "goalChanges": [{"goalId": string, "rhythm": "few_per_week" | "weekly"}]
 }
 Every list may be empty, and usually is. A notify is rare: only for something the person would be glad to be told about, and never for a goal marked discreet. Use goalChanges only to lighten a rhythm.
 `.trim();
+
+/** Only on a heads-up run: the app writes the notification itself and asks the model for one line about the passage. */
+const HEADS_UP_NOTE =
+  'HEADS-UP: This run is the person\'s daily heads-up, a little before they usually open the app. Leave out "notify": the app writes the notification. For a reading post, add "about": a short clause about the passage itself that completes "This morning we\'re reading John 3, ...", such as "where Jesus talks with Nicodemus at night". Only what happens or is said in the passage. Never the person, their notes, goals or life, never "you", and no numbers.';
 
 const weekdayName = (weekday: number) => ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][weekday];
 
@@ -122,6 +126,7 @@ export const renderBeatInput = (brief: Brief, decision: Decision, now: Date): st
     `BRIEF AGE: ${decision.staleness}.`,
     `MODE: ${MODE_NOTE[decision.mode]} ${wordTargets}`.trim(),
     `CAN POST: ${decision.canPost ? "yes" : "no, plan only"}. Activities still allowed today: ${decision.budget.activitiesLeft}. Notifications still allowed today: ${decision.budget.notificationsLeft}.`,
+    ...(decision.headsUp ? [HEADS_UP_NOTE] : []),
     "",
     "GOAL STATE (worked out by the app, trust it):",
     ...decision.goals.map((s) => describeGoalState(s, decision)),

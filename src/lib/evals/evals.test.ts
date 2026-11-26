@@ -8,6 +8,7 @@ import { caseUsd, estimateUsd } from "./cost";
 import { graderInput, parseGrade } from "./grader";
 import { runItem } from "./runner";
 import { EVAL_SUITES, evalSuite } from "./suites";
+import { chatChecks, chatNotificationsSuite, describeChat, type ChatTurn } from "./suites/chatNotifications";
 import { beatChecks, heartbeatSuite, runHeartbeatCase } from "./suites/heartbeat";
 import type { EvalSuite } from "./types";
 import { FIXTURES, fixture } from "@/lib/heartbeat/fixtures";
@@ -155,4 +156,38 @@ test("comparing two runs puts what got worse first, then what got better", () =>
     ]
   );
   assert.deepEqual(cases[0], { caseId: "a", before: { passed: 2, total: 2 }, after: { passed: 1, total: 2 }, change: "worse" });
+});
+
+test("a chat case fails on any change not asked for, and on an empty reply", () => {
+  const turn = (t: Partial<ChatTurn>): ChatTurn => ({ said: "x", looked: false, changes: [], reply: "Done, it comes at 8 now.", ...t });
+  const failed = (checks: ReturnType<typeof chatChecks>) => checks.filter((c) => !c.pass).map((c) => c.name);
+
+  assert.deepEqual(failed(chatChecks("at-eight", [turn({ changes: [{ time: { mode: "chosen", at: "08:00", days: "all" } }] })])), []);
+  assert.deepEqual(
+    failed(chatChecks("at-eight", [turn({ changes: [{ time: { mode: "chosen", at: "08:00", days: "all" } }, { reflectReminders: false }] })])),
+    ["Changed only what was asked"]
+  );
+  assert.deepEqual(failed(chatChecks("too-early", [turn({ reply: "" })])), ["Replied in words", "Asked"]);
+  assert.deepEqual(failed(chatChecks("next-one", [turn({ looked: true, reply: "Thursday at 6:40." })])), []);
+
+  // Turning everything off: nothing on the first turn, both off on the yes, and where to turn them back on.
+  const allOff = [turn({ reply: "Turn off the heads-up and reminders?" }), turn({ changes: [{ headsUp: false, reflectReminders: false }], reply: "Both are off. You can turn them on in You, then Lumen, then Notifications." })];
+  assert.deepEqual(failed(chatChecks("all-off-confirmed", allOff)), []);
+  assert.deepEqual(failed(chatChecks("all-off-confirmed", [allOff[1], allOff[0]])), ["Changed only what was asked", "Asked", "Said where to turn them back on"]);
+
+  // A hard moment: one pause of about a week, nothing else.
+  assert.deepEqual(failed(chatChecks("stop-hard-moment", [turn({ changes: [{ pausedUntil: "2026-12-02" }] })])), []);
+  assert.deepEqual(failed(chatChecks("stop-hard-moment", [turn({ changes: [{ pausedUntil: "2026-12-20" }] })])), ["Paused about a week, and nothing else"]);
+  assert.deepEqual(failed(chatChecks("stop-hard-moment", [turn({ changes: [{ pausedUntil: "2026-12-02" }, { headsUp: false }] })])), ["Paused about a week, and nothing else"]);
+});
+
+test("the chat suite shows what was looked at and changed, and costs something for every case", () => {
+  const text = describeChat([{ said: "Nothing this week.", looked: true, changes: [{ pausedUntil: "2026-11-30" }], reply: "Paused until Monday." }]);
+  assert.equal(
+    text,
+    'Daniel: Nothing this week.\n  (Lumen looked at the notification settings; the phone answered)\n  (Lumen changed: {"pausedUntil":"2026-11-30"})\nLumen: Paused until Monday.'
+  );
+  for (const c of chatNotificationsSuite.cases) assert.ok(chatNotificationsSuite.promptChars(c.id) > 0, c.id);
+  assert.equal(chatNotificationsSuite.cases.length, 11);
+  assert.match(chatNotificationsSuite.version, /^gpt-5\.5, input [0-9a-f]{8}, rubric [0-9a-f]{8}$/);
 });

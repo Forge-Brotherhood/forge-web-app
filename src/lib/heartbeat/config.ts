@@ -13,8 +13,18 @@ export const MAX_BRIEF_CIPHERTEXT_CHARS = 200_000;
 /** How long a claimed user is held for one run. A run that dies without releasing frees them after this. */
 export const LEASE_MS = 5 * 60_000;
 
-/** How long to wait before looking again at a user whose run could not go ahead, by cause. */
-export const RETRY = { transient: HOUR_MS, stuck: 6 * HOUR_MS, lapsed: DAY_MS } as const;
+/** How long to wait before looking again at a user whose run could not go ahead, by cause. A heads-up run that hit a passing failure tries again sooner. */
+export const RETRY = { transient: HOUR_MS, stuck: 6 * HOUR_MS, lapsed: DAY_MS, headsUp: 5 * 60_000 } as const;
+
+/**
+ * The heads-up (push-engagement-plan.md §4). A send time from the device stays due this long, so a
+ * run that failed can try again; it is also how long the push may wait on a phone that is off.
+ */
+export const HEADS_UP_WINDOW_MS = HOUR_MS;
+/** A heads-up run that finishes later than this after its send time still posts, but sends no push. */
+export const HEADS_UP_LATE_MS = 10 * 60_000;
+/** On a heads-up run, an activity planned for this soon counts as today's subject. */
+export const HEADS_UP_AHEAD_MINUTES = 60;
 
 /** Nothing runs unless the switch is on. Off by default: the heartbeat does nothing until the owner turns it on. */
 export const isHeartbeatEnabled = (env: Record<string, string | undefined> = process.env): boolean =>

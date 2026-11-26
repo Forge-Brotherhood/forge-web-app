@@ -77,6 +77,8 @@ const goalFileSchema = z.object({
   targetDate: day.optional(),
   /** True: never named in a notification. When absent, Grow goals are discreet and others are not. */
   discreet: z.boolean().optional(),
+  /** False: no notifications about this goal, though Lumen still posts in its thread. Absent means on. */
+  notificationsOn: z.boolean().optional(),
   /** Step titles, in order. */
   path: z.array(z.string().max(120)).max(12),
   /** Written on the device. */
@@ -253,6 +255,8 @@ export const beatOutputSchema = z.object({
     })
   ),
   workingNotes: z.array(z.object({ goalId: z.string(), workingNotes: z.string().max(1000) })),
+  /** A server run at a send time: the daily heads-up the push carries (push-engagement-plan.md §5). Never in the outbox. */
+  headsUp: z.object({ goalId: z.string(), activityId: z.string(), text: z.string() }).optional(),
   /** The earliest time another beat could have something to do. */
   nextBeatAt: instant,
   /** Counts and codes only. Nothing the user wrote. */
@@ -284,6 +288,8 @@ export const modelPostSchema = z.object({
   type: z.enum(ACTIVITY_TYPES).nullish(),
   payload: z.record(z.string(), z.unknown()).nullish(),
   notify: z.object({ text: z.string().trim().min(1).max(200) }).nullish(),
+  /** On a heads-up run, for a reading: a short clause about the passage itself. */
+  about: z.string().trim().min(1).max(100).nullish(),
 });
 
 export const modelPlanSchema = z.discriminatedUnion("action", [

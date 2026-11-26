@@ -116,6 +116,8 @@ export const goalThreadSchema = z.object({
       }),
     })
     .optional(),
+  /** The last three reminders to reflect on this goal went unopened; Lumen asks once whether they help. */
+  remindersUnopened: z.boolean().optional(),
 });
 
 /**
@@ -292,7 +294,8 @@ const describeReading = (reading: NonNullable<ContextGoal["reading"]>): string =
 };
 
 const buildGoalsBlock = (goals: ContextGoal[], today: string): string => {
-  const lines: string[] = ["<goals>", `Today: ${today}.`];
+  const weekday = new Date(`${today}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+  const lines: string[] = ["<goals>", `Today: ${today}, a ${weekday}.`];
   if (!goals.length) lines.push("No active goals.");
   for (const goal of goals) {
     const facts = [goal.shape, goal.category, goal.rhythm].filter(Boolean).join(", ");
@@ -455,6 +458,12 @@ const buildGoalThreadSection = (args: {
   }
   if (args.reflecting) {
     lines.push("", buildReflectionSection(thread.reflection));
+  }
+  if (thread.remindersUnopened) {
+    lines.push(
+      "",
+      "The last three reminders to reflect on this goal went unopened. Somewhere in this reply, ask once, plainly, whether those reminders help them, and offer to stop them. Don't argue for them. If they say to stop, call update_notification_settings with reflect_reminders_off."
+    );
   }
   return lines.join("\n");
 };

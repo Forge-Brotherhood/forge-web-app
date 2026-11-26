@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { BRIEF_COLLECTION, sealJson } from "@/lib/heartbeat/crypto";
+import { nextSendTime } from "@/lib/heartbeat/rules";
 import type { BriefKeyVault } from "@/lib/heartbeat/kms";
 import type { Brief } from "@/lib/heartbeat/schemas";
 import type { Claimed, HeartbeatStore, OutboxRow, PutBriefResult, RunInput, RunRecord, StateInput, StateRow } from "@/lib/heartbeat/store";
@@ -40,13 +41,14 @@ export class FakeKms implements BriefKeyVault {
   }
 }
 
-type StateData = StateRow & { claimedUntil: Date | null };
+type StateData = StateRow & { claimedUntil: Date | null; lastHeadsUpDay?: string | null };
+type BriefData = { ciphertext: string; keyId: string; deviceWrittenAt: Date; revision: number; receivedAt: Date | null };
 type OutboxData = OutboxRow & { userId: string };
 
 export class MemoryStore implements HeartbeatStore {
   states = new Map<string, StateData>();
   grants = new Map<string, { wrappedKey: string; keyId: string; expiresAt: Date }>();
-  briefs = new Map<string, { ciphertext: string; keyId: string; deviceWrittenAt: Date; revision: number }>();
+  briefs = new Map<string, BriefData>();
   outbox: OutboxData[] = [];
   runs: RunRecord[] = [];
   private nextId = 1;
@@ -59,7 +61,17 @@ export class MemoryStore implements HeartbeatStore {
 
   async putState(userId: string, input: StateInput, now: Date) {
     const current = this.states.get(userId);
-    const row: StateData = { ...input, nextBeatAt: current?.nextBeatAt ?? now, lastBeatAt: current?.lastBeatAt ?? null, claimedUntil: current?.claimedUntil ?? null };
+    const soonest = nextSendTime(input.sendTimes ?? [], now);
+    const nextBeatAt = current && soonest && soonest < current.nextBeatAt ? soonest : current?.nextBeatAt ?? now;
+    const row: StateData = {
+      ...input,
+      sendTimes: input.sendTimes ?? [],
+      pausedUntil: input.pausedUntil ?? null,
+      lastHeadsUpDay: current?.lastHeadsUpDay ?? null,
+      nextBeatAt,
+      lastBeatAt: current?.lastBeatAt ?? null,
+      claimedUntil: current?.claimedUntil ?? null,
+    };
     this.states.set(userId, row);
     return row;
   }
@@ -75,11 +87,11 @@ export class MemoryStore implements HeartbeatStore {
     return true;
   }
 
-  async putBrief(userId: string, brief: { ciphertext: string; keyId: string; deviceWrittenAt: Date }, _now?: Date): Promise<PutBriefResult> {
+  async putBrief(userId: string, brief: { ciphertext: string; keyId: string; deviceWrittenAt: Date }, now: Date): Promise<PutBriefResult> {
     const grant = this.grants.get(userId);
     if (!grant) return "no_grant";
     if (grant.keyId !== brief.keyId) return "key_mismatch";
-    this.briefs.set(userId, { ...brief, revision: (this.briefs.get(userId)?.revision ?? 0) + 1 });
+    this.briefs.set(userId, { ...brief, receivedAt: now, revision: (this.briefs.get(userId)?.revision ?? 0) + 1 });
     return "ok";
   }
 
@@ -118,7 +130,7 @@ export class MemoryStore implements HeartbeatStore {
       .slice(0, limit);
     // Synchronous, like the single SQL statement: nothing can claim between the pick and the lease.
     for (const [, s] of picked) s.claimedUntil = leaseUntil;
-    return picked.map(([userId, s]) => ({ userId, timezone: s.timezone, quietStart: s.quietStart, quietEnd: s.quietEnd }));
+    return picked.map(([userId, s]) => ({ userId, timezone: s.timezone, quietStart: s.quietStart, quietEnd: s.quietEnd, sendTimes: s.sendTimes }));
   }
 
   async findLapsed(now: Date, writtenBefore: Date, limit: number) {
@@ -129,12 +141,15 @@ export class MemoryStore implements HeartbeatStore {
   }
 
   async loadForRun(userId: string): Promise<RunInput | null> {
-    if (!this.states.has(userId)) return null;
+    const state = this.states.get(userId);
+    if (!state) return null;
     return {
       grant: this.grants.get(userId) ?? null,
       brief: this.briefs.get(userId) ?? null,
       outboxCount: this.outbox.filter((o) => o.userId === userId).length,
-      pushEnabled: this.states.get(userId)!.pushEnabled,
+      pushEnabled: state.pushEnabled,
+      pausedUntil: state.pausedUntil,
+      lastHeadsUpDay: state.lastHeadsUpDay ?? null,
     };
   }
 
@@ -164,6 +179,13 @@ export class MemoryStore implements HeartbeatStore {
     if (s) Object.assign(s, { nextBeatAt, claimedUntil: null });
   }
 
+  async claimHeadsUpDay(userId: string, day: string) {
+    const s = this.states.get(userId);
+    if (!s || s.lastHeadsUpDay === day) return false;
+    s.lastHeadsUpDay = day;
+    return true;
+  }
+
   async recordRun(run: RunRecord) {
     this.runs.push(run);
   }
@@ -185,6 +207,8 @@ export function seedUser(
       quietStart: options.quiet?.start ?? brief.person.quietHours.start,
       quietEnd: options.quiet?.end ?? brief.person.quietHours.end,
       pushEnabled: options.pushEnabled ?? false,
+      sendTimes: [],
+      pausedUntil: null,
       nextBeatAt: options.nextBeatAt ?? new Date(now.getTime() - 3_600_000),
       lastBeatAt: null,
       claimedUntil: null,
@@ -194,6 +218,7 @@ export function seedUser(
       ciphertext: sealJson(key, userId, BRIEF_COLLECTION, brief),
       keyId,
       deviceWrittenAt: new Date(now.getTime() - 3_600_000),
+      receivedAt: new Date(now.getTime() - 3_600_000),
       revision: 1,
     });
     return { key, keyId };
