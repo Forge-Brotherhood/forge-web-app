@@ -77,6 +77,8 @@ test("the cost estimate grows with the cases and repeats chosen", () => {
   assert.equal(estimateUsd(heartbeatSuite, ["finish-due", "nothing-due"], 1), one);
   const all = estimateUsd(heartbeatSuite, heartbeatSuite.cases.map((c) => c.id), heartbeatSuite.repeats);
   assert.ok(all > one * 3);
+  // The case model's own price: the same case costs less on a cheaper model.
+  assert.ok(caseUsd({ ...heartbeatSuite, model: "gpt-6.2-sol" }, "finish-due") < caseUsd({ ...heartbeatSuite, model: "gpt-5.5" }, "finish-due"));
 });
 
 test("the grader is given the rubric, the input, what good looks like and the output; its answer must be pass or fail with a reason", () => {
@@ -102,6 +104,7 @@ const fakeSuite = (run: EvalSuite["run"]): EvalSuite => ({
   title: "Fake",
   description: "",
   repeats: 1,
+  model: "gpt-5.5",
   version: "v",
   rubric: "Be kind.",
   cases: [{ id: "a", title: "a", input: "in", expect: "kind" }],

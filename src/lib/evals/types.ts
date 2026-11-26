@@ -32,6 +32,8 @@ export type EvalSuite = {
   description: string;
   /** How many times each case runs by default: the wording varies from run to run. */
   repeats: number;
+  /** The model the cases call, for the cost estimate. */
+  model: string;
   /** Changes when the model or the prompt does, so runs before and after a change can be told apart. */
   version: string;
   /** What the grader holds the output to. */
