@@ -8,6 +8,12 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  // Apple's root certificates, read at runtime to verify App Store purchases.
+  outputFileTracingIncludes: {
+    "/api/subscription/sync": ["./src/lib/subscription/certs/*"],
+    "/api/webhooks/app-store": ["./src/lib/subscription/certs/*"],
+  },
+
   // Experimental features for better performance
   experimental: {
     // Better tree shaking and optimization

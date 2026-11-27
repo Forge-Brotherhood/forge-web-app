@@ -6,6 +6,7 @@ import { BRIEF_COLLECTION, OUTBOX_COLLECTION, openJson, sealJson } from "./crypt
 import { FIXTURE_NOW, fixture } from "./fixtures";
 import { FakeKms, MemoryStore, seedUser } from "./fixtures/fakes";
 import { isHeartbeatEnabled } from "./config";
+import { heartbeatModelAllowed } from "./dailyCap";
 import { beatRequestSchema, briefSchema, type Brief } from "./schemas";
 import { passageSource } from "@/lib/guide/uiBlocks";
 import { quietEndsAt, runHeartbeat, type LogEvent, type RunDeps } from "./serverRun";
@@ -278,6 +279,21 @@ test("per-user limits: a full outbox waits, a rotation in flight waits, the dail
   assert.equal(modelCalls.length, 0);
   assert.equal(store.outbox.filter((o) => o.userId === "capped").length, 0, "no model call, nothing to post");
   assert.ok(store.states.get("full")!.nextBeatAt > NOW && store.states.get("rotating")!.nextBeatAt > NOW);
+});
+
+test("a free account's run uses the rules only: no model call, and none taken from its day", async () => {
+  const { store, kms, deps, modelCalls } = setup();
+  await seedUser(store, kms, { userId: "free", brief: brief(), now: NOW });
+  await seedUser(store, kms, { userId: "plus", brief: brief(), now: NOW });
+  const taken: string[] = [];
+  const allowModel = heartbeatModelAllowed(async (userId) => userId === "plus", async (userId) => (taken.push(userId), true));
+
+  const summary = await runHeartbeat({ ...deps, allowModel });
+  assert.deepEqual(summary.outcomes, { ok: 2 });
+  assert.equal(modelCalls.length, 1);
+  assert.deepEqual(taken, ["plus"]);
+  const free = store.runs.find((r) => r.userId === "free")!;
+  assert.equal(free.modelCalled, false);
 });
 
 test("a beat with nothing to say leaves no outbox item", async () => {

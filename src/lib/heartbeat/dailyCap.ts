@@ -8,7 +8,7 @@ import { CacheKeys, getKVClient } from "@/lib/kv";
  * limit off.
  */
 
-export const HEARTBEAT_MODEL_CALLS_PER_DAY = 8;
+export const HEARTBEAT_MODEL_CALLS_PER_DAY = 4;
 
 const KV_TIMEOUT_MS = 1000;
 const TTL_SECONDS = 2 * 24 * 60 * 60;
@@ -34,3 +34,12 @@ export async function takeModelCall(userId: string, day: string, limit = HEARTBE
   local.set(key, used + 1);
   return true;
 }
+
+/**
+ * The heartbeat's allowance with the plan: a free account never calls the model here (pricing-plan.md
+ * §4), and gets the rules and the plain reminders. If the plan cannot be looked up, no model either.
+ */
+export const heartbeatModelAllowed =
+  (isPlus: (userId: string) => Promise<boolean>, take: typeof takeModelCall = takeModelCall) =>
+  async (userId: string, day: string): Promise<boolean> =>
+    (await isPlus(userId).catch(() => false)) && take(userId, day);

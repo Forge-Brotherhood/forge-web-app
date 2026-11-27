@@ -132,12 +132,12 @@ const CASES: ChatCase[] = [
     id: "all-off-confirmed",
     title: "Turn them all off. Then: Yes.",
     input: '"Turn them all off." Then, after Lumen asks: "Yes."',
-    expect: "Asks once first and changes nothing. After yes, turns the heads-up and reminders off and says they can turn them back on in You, then Lumen, then Notifications. No persuasion.",
+    expect: "Asks once first and changes nothing. After yes, turns the heads-up and reminders off and says they can turn them back on in Profile, then Lumen, then Notifications. No persuasion.",
     messages: [{ message: "Turn them all off." }, { message: "Yes." }],
     checks: (t) => [
       changedOnly(t, [[], [{ headsUp: false, reflectReminders: false }]]),
       asks(t, 0),
-      says(t, 1, "Said where to turn them back on", /You[\s\S]*Lumen[\s\S]*Notifications/),
+      says(t, 1, "Said where to turn them back on", /Profile[\s\S]*Lumen[\s\S]*Notifications/),
     ],
   },
   {

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "@/lib/auth";
 import { appNow } from "@/lib/devClock";
-import { takeModelCall } from "@/lib/heartbeat/dailyCap";
+import { heartbeatModelAllowed } from "@/lib/heartbeat/dailyCap";
 import { callBeatModel } from "@/lib/heartbeat/model";
 import { runBeat } from "@/lib/heartbeat/runBeat";
 import { localParts } from "@/lib/heartbeat/rules";
 import { beatRequestSchema } from "@/lib/heartbeat/schemas";
+import { isPlusAccount } from "@/lib/subscription/status";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
       trigger: input.trigger,
       callModel: callBeatModel,
       userId: authResult.userId,
-      allowModel: () => takeModelCall(authResult.userId, day),
+      allowModel: () => heartbeatModelAllowed(isPlusAccount)(authResult.userId, day),
     });
 
     console.info(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cleanupInvalidTokens, sendPushNotification } from "@/lib/apns";
-import { takeModelCall } from "@/lib/heartbeat/dailyCap";
+import { heartbeatModelAllowed } from "@/lib/heartbeat/dailyCap";
 import { appNow } from "@/lib/devClock";
 import { isHeartbeatEnabled } from "@/lib/heartbeat/config";
 import { isCronAuthorized } from "@/lib/heartbeat/cronAuth";
@@ -9,6 +9,7 @@ import { callBeatModel } from "@/lib/heartbeat/model";
 import { prismaHeartbeatStore } from "@/lib/heartbeat/prismaStore";
 import { runHeartbeat } from "@/lib/heartbeat/serverRun";
 import { prisma } from "@/lib/prisma";
+import { isPlusAccount } from "@/lib/subscription/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
         send: sendPushNotification,
         cleanup: cleanupInvalidTokens,
       },
-      allowModel: takeModelCall,
+      allowModel: heartbeatModelAllowed(isPlusAccount),
       log: (event) => console.info(JSON.stringify(event)),
       now: appNow,
       enabled,

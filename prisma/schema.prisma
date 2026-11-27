@@ -91,6 +91,10 @@ model User {
   heartbeatRuns             HeartbeatRun[]
   modelUsage                ModelUsage[]
 
+  // Paid plan and the free weekly allowance: states and counts only
+  subscription              Subscription?
+  chatAllowance             ChatAllowance?
+
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   deletedAt  DateTime?
@@ -513,7 +517,7 @@ model ModelUsage {
   id           String   @id @default(uuid())
   userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  feature      String // "chat" | "explain" | "heartbeat"
+  feature      String // "chat" | "explain" | "heartbeat" | "gate_check"
   model        String
   inputTokens  Int // cached included
   cachedTokens Int
@@ -522,4 +526,41 @@ model ModelUsage {
 
   @@index([userId, createdAt])
   @@index([createdAt])
+}
+
+// The paid plan, one row per person. Apple's states and dates, or complimentary access. No payment details.
+model Subscription {
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source                String // "app_store" | "comp"
+  productId             String
+  isTrial               Boolean   @default(false)
+  willRenew             Boolean   @default(true)
+  /// Null: complimentary access with no end.
+  expiresAt             DateTime?
+  /// Apple's billing grace period: the plan stays on until then while Apple retries payment.
+  graceExpiresAt        DateTime?
+  revokedAt             DateTime?
+  originalTransactionId String?   @unique
+  environment           String? // Apple's: "Production" | "Sandbox" | "Xcode"
+  /// The paywall it started from: "first_session" | "gate" | "profile". Set only when the row is made.
+  startedFrom           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+// The free weekly allowance of Lumen replies, one row per person. Counts and times only.
+model ChatAllowance {
+  userId       String    @id
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The first counted reply of the current 7-day window. Null until one is counted.
+  windowStart  DateTime?
+  used         Int       @default(0)
+  /// Replies on the account's first day, which are not counted against the week (capped).
+  firstDayUsed Int       @default(0)
+  gateHits     Int       @default(0)
+  lastGateAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }

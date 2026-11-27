@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export type UsageFeature = "chat" | "explain" | "heartbeat";
+export type UsageFeature = "chat" | "explain" | "heartbeat" | "gate_check";
 
 type UsageCounts = { inputTokens: number; cachedTokens: number; outputTokens: number };
 
