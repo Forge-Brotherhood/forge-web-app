@@ -5,10 +5,12 @@
  * ignored what the person had made on their readings.
  */
 
+import { CHAT_MODEL } from "@/lib/chat/chatModel";
+
 export type BeatModelInput = { system: string; user: string };
 export type BeatModel = (input: BeatModelInput) => Promise<unknown>;
 
-export const BEAT_MODEL = "gpt-5.5";
+export const BEAT_MODEL = CHAT_MODEL;
 
 export const callBeatModel: BeatModel = async ({ system, user }) => {
   const openaiApiKey = process.env.OPENAI_API_KEY;
