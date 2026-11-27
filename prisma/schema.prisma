@@ -89,6 +89,7 @@ model User {
   heartbeatGrant            HeartbeatGrant?
   heartbeatOutbox           HeartbeatOutbox[]
   heartbeatRuns             HeartbeatRun[]
+  modelUsage                ModelUsage[]
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -505,4 +506,20 @@ model EvalResult {
   createdAt  DateTime @default(now())
 
   @@unique([runId, caseId, repeat])
+}
+
+// Tokens per model call, to know what each person costs. Counts only: never what was sent or said.
+model ModelUsage {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature      String // "chat" | "explain" | "heartbeat"
+  model        String
+  inputTokens  Int // cached included
+  cachedTokens Int
+  outputTokens Int // reasoning included
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

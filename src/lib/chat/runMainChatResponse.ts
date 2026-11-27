@@ -27,6 +27,7 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
   responseId: string | null;
   items: unknown[];
   pendingToolCalls: ContextToolCall[];
+  usage: unknown[];
 }> {
   let finalText = "";
 
@@ -73,5 +74,6 @@ export async function runMainChatResponse(args: RunMainChatResponseArgs): Promis
     responseId: result.responseId ?? null,
     items: result.items,
     pendingToolCalls: result.pendingToolCalls,
+    usage: result.usage,
   };
 }

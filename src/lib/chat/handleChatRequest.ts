@@ -1,4 +1,5 @@
 import { CHAT_MODEL } from "@/lib/chat/chatModel";
+import { recordModelUsage } from "@/lib/modelUsage";
 import { z } from "zod";
 import { NextRequest } from "next/server";
 import {
@@ -396,7 +397,7 @@ export async function handleChatRequest(args: {
           : bundle.instructions;
 
         stage = "run_main_response";
-        const { finalText, responseId, items, pendingToolCalls } = await runMainChatResponse({
+        const { finalText, responseId, items, pendingToolCalls, usage } = await runMainChatResponse({
           openaiApiKey,
           model: CHAT_MODEL,
           // Low effort cuts time to first text by more than half; answers are short single paragraphs.
@@ -511,6 +512,10 @@ export async function handleChatRequest(args: {
           },
         });
         markStage("model_done");
+        // Written while the rest of the reply is put together; waited for before the stream ends.
+        // Explain on selected verses opens the reader's chat with them; it is told apart from the rest of chat.
+        const feature = isGreeting && args.input.selectionState === "selected" ? "explain" : "chat";
+        const usageWrite = recordModelUsage({ userId, feature, model: CHAT_MODEL, usage });
 
         // Calls only the app can answer are pending: the reply continues in a follow-up request.
         const finished = pendingToolCalls.length === 0;
@@ -567,6 +572,7 @@ export async function handleChatRequest(args: {
         }
 
         if (finished) write({ type: "actions", actions });
+        await usageWrite;
         write({ type: "done", conversationId, items, ...(finished ? {} : { pendingToolCalls }) });
         stage = "done";
         chatLog("info", "stream_success", {
