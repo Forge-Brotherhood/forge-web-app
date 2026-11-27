@@ -6,13 +6,15 @@
  */
 
 import { CHAT_MODEL } from "@/lib/chat/chatModel";
+import { recordModelUsage } from "@/lib/modelUsage";
 
-export type BeatModelInput = { system: string; user: string };
+/** userId, when given, is whose beat it is, for recording its tokens. */
+export type BeatModelInput = { system: string; user: string; userId?: string };
 export type BeatModel = (input: BeatModelInput) => Promise<unknown>;
 
 export const BEAT_MODEL = CHAT_MODEL;
 
-export const callBeatModel: BeatModel = async ({ system, user }) => {
+export const callBeatModel: BeatModel = async ({ system, user, userId }) => {
   const openaiApiKey = process.env.OPENAI_API_KEY;
   if (!openaiApiKey) throw new Error("OPENAI_API_KEY not configured");
 
@@ -32,7 +34,9 @@ export const callBeatModel: BeatModel = async ({ system, user }) => {
   // The error body can echo the prompt, so only the status is kept.
   if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
 
-  const output = ((await response.json()) as any)?.output ?? [];
+  const body = (await response.json()) as any;
+  if (userId) await recordModelUsage({ userId, feature: "heartbeat", model: BEAT_MODEL, usage: [body?.usage] });
+  const output = body?.output ?? [];
   const content = output.flatMap((item: any) => item?.content ?? []).find((c: any) => c?.type === "output_text")?.text;
   if (typeof content !== "string") throw new Error("No content in OpenAI response");
   return JSON.parse(content);
