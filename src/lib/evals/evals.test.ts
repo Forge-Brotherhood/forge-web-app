@@ -9,6 +9,7 @@ import { graderInput, parseGrade } from "./grader";
 import { runItem } from "./runner";
 import { EVAL_SUITES, evalSuite } from "./suites";
 import { chatChecks, chatNotificationsSuite, describeChat, type ChatTurn } from "./suites/chatNotifications";
+import { hardMomentSuite } from "./suites/hardMoment";
 import { beatChecks, heartbeatSuite, runHeartbeatCase } from "./suites/heartbeat";
 import type { EvalSuite } from "./types";
 import { FIXTURES, fixture } from "@/lib/heartbeat/fixtures";
@@ -168,7 +169,7 @@ test("a chat case fails on any change not asked for, and on an empty reply", () 
   assert.deepEqual(failed(chatChecks("next-one", [turn({ looked: true, reply: "Thursday at 6:40." })])), []);
 
   // Turning everything off: nothing on the first turn, both off on the yes, and where to turn them back on.
-  const allOff = [turn({ reply: "Turn off the heads-up and reminders?" }), turn({ changes: [{ headsUp: false, reflectReminders: false }], reply: "Both are off. You can turn them on in You, then Lumen, then Notifications." })];
+  const allOff = [turn({ reply: "Turn off the heads-up and reminders?" }), turn({ changes: [{ headsUp: false, reflectReminders: false }], reply: "Both are off. You can turn them on in Profile, then Lumen, then Notifications." })];
   assert.deepEqual(failed(chatChecks("all-off-confirmed", allOff)), []);
   assert.deepEqual(failed(chatChecks("all-off-confirmed", [allOff[1], allOff[0]])), ["Changed only what was asked", "Asked", "Said where to turn them back on"]);
 
@@ -189,4 +190,12 @@ test("the chat suite shows what was looked at and changed, and costs something f
   for (const c of chatNotificationsSuite.cases) assert.ok(chatNotificationsSuite.promptChars(c.id) > 0, c.id);
   assert.equal(chatNotificationsSuite.cases.length, 11);
   assert.match(chatNotificationsSuite.version, /^gpt-5\.5, input [0-9a-f]{8}, rubric [0-9a-f]{8}$/);
+});
+
+test("the hard-moment suite is half hard moments, half ordinary questions, and checked in code only", () => {
+  assert.equal(evalSuite("hard-moment"), hardMomentSuite);
+  assert.equal(hardMomentSuite.cases.length, 16);
+  assert.equal(hardMomentSuite.cases.filter((c) => c.expect.startsWith("A hard moment")).length, 8);
+  for (const c of hardMomentSuite.cases) assert.ok(hardMomentSuite.promptChars(c.id) > 0, c.id);
+  assert.match(hardMomentSuite.version, /, input [0-9a-f]{8}$/);
 });
