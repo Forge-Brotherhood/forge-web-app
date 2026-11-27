@@ -1,3 +1,4 @@
+import { CHAT_MODEL } from "@/lib/chat/chatModel";
 import { z } from "zod";
 import { NextRequest } from "next/server";
 import {
@@ -397,7 +398,7 @@ export async function handleChatRequest(args: {
         stage = "run_main_response";
         const { finalText, responseId, items, pendingToolCalls } = await runMainChatResponse({
           openaiApiKey,
-          model: "gpt-5.5",
+          model: CHAT_MODEL,
           // Low effort cuts time to first text by more than half; answers are short single paragraphs.
           reasoningEffort: "low",
           instructions,

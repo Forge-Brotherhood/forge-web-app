@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import { buildChatContextBundle, type ChatContext, type GoalThread } from "@/lib/chat/chatContextBundle";
+import { CHAT_MODEL } from "@/lib/chat/chatModel";
 import { handleChatRequest } from "@/lib/chat/handleChatRequest";
 import { buildNotificationTools, GET_NOTIFICATION_SETTINGS, type NotificationSettingsEvent } from "@/lib/chat/tools/notificationTools";
 import type { EvalCase, EvalCheck, EvalSuite } from "@/lib/evals/types";
@@ -12,7 +13,7 @@ import type { EvalCase, EvalCheck, EvalSuite } from "@/lib/evals/types";
  * and the grader reads the replies against guide-soul.md §2.10, §2.3 and §2.4.
  */
 
-const MODEL = "gpt-5.5";
+const MODEL = CHAT_MODEL;
 const TODAY = "2026-11-25"; // a Wednesday
 
 const goals: NonNullable<ChatContext["goals"]> = [
@@ -43,8 +44,8 @@ export const PHONE_ANSWER = JSON.stringify({
   ],
 });
 
-/** What happened in one turn of a case: what the person said, and what Lumen looked at, changed and said. */
-export type ChatTurn = { said: string; looked: boolean; changes: NotificationSettingsEvent[]; reply: string };
+/** What happened in one turn of a case: what the person said, and what Lumen looked at, changed, otherwise did (goal and activity tools) and said. */
+export type ChatTurn = { said: string; looked: boolean; changes: NotificationSettingsEvent[]; alsoDid: Record<string, unknown>[]; reply: string };
 
 type Message = { message: string; goalThread?: GoalThread };
 
@@ -183,6 +184,8 @@ Every reply must hold to all of these:
 8. True to what it was given: claims nothing the settings did not show.
 9. It does what "a good output" describes.`;
 
+const GRADER_CONTEXT = `The lines in square brackets are the test's notes of what Lumen did out of sight; the person never sees them, so grade only the lines that start "Lumen:", and take the notes as what Lumen really did (a reply may say what a note shows it did). The person's name is ${context.profile?.name}, from their profile. Today is Wednesday ${TODAY}. The person's goals: ${show(goals)}. What the phone answered when Lumen looked: ${PHONE_ANSWER}. The app sends only two kinds of notification, the daily heads-up and reminders to reflect; a goal's switch only narrows the reminders, so with both off nothing is sent.`;
+
 const hash = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 8);
 
 const caseFor = (caseId: string): ChatCase => {
@@ -208,7 +211,7 @@ const TOOLS_TEXT = JSON.stringify(buildNotificationTools());
 
 /** One message sent to the chat, the phone answering any call for the settings, until Lumen's reply is finished. */
 async function sendMessage(m: Message, history: unknown[]): Promise<{ turn: ChatTurn; history: unknown[] }> {
-  const turn: ChatTurn = { said: m.message, looked: false, changes: [], reply: "" };
+  const turn: ChatTurn = { said: m.message, looked: false, changes: [], alsoDid: [], reply: "" };
   let body: Record<string, unknown> = { message: m.message, history, context, goalThread: m.goalThread };
   // Each round answers the calls the phone would; three is more than any case needs.
   for (let round = 0; round < 3; round++) {
@@ -226,6 +229,7 @@ async function sendMessage(m: Message, history: unknown[]): Promise<{ turn: Chat
     for (const e of events) {
       if (e.type === "delta") turn.reply += e.text;
       if (e.type === "notification_settings") turn.changes.push(e.changes);
+      if (e.type === "goal" || e.type === "activity") turn.alsoDid.push(e);
       if (e.type === "error") throw new Error(`Chat error: ${e.message}`);
     }
     const done = events.find((e) => e.type === "done");
@@ -244,13 +248,14 @@ async function sendMessage(m: Message, history: unknown[]): Promise<{ turn: Chat
   throw new Error("Lumen kept calling tools without replying");
 }
 
-/** The conversation as a person reads it (and as the grader sees it). */
+/** The conversation as the grader sees it: what each said, with what Lumen did out of sight as bracketed notes the person never sees. */
 export const describeChat = (turns: ChatTurn[]): string =>
   turns
     .flatMap((t) => [
       `Daniel: ${t.said}`,
-      ...(t.looked ? ["  (Lumen looked at the notification settings; the phone answered)"] : []),
-      ...t.changes.map((c) => `  (Lumen changed: ${show(c)})`),
+      ...(t.looked ? ["  [not shown to Daniel: Lumen looked at the notification settings; the phone answered]"] : []),
+      ...t.changes.map((c) => `  [not shown to Daniel: Lumen changed the notification settings: ${show(c)}]`),
+      ...t.alsoDid.map((e) => `  [not shown to Daniel: Lumen used a ${e.type} tool: ${show(e)}]`),
       `Lumen: ${t.reply || "(nothing)"}`,
     ])
     .join("\n");
@@ -267,14 +272,13 @@ export const chatNotificationsSuite: EvalSuite = {
   description:
     "The sentences of push-engagement-plan.md §7.3 sent to Lumen in chat with the real model, the phone's answer fixed. Checks are what was changed; the grader reads the replies against guide-soul.md §2.10, §2.3 and §2.4.",
   repeats: 3,
-  version: `${MODEL}, input ${hash(TOOLS_TEXT + CASES.flatMap((c) => c.messages.map(sentFor)).join("\n"))}, rubric ${hash(RUBRIC)}`,
+  version: `${MODEL}, input ${hash(TOOLS_TEXT + CASES.flatMap((c) => c.messages.map(sentFor)).join("\n"))}, rubric ${hash(RUBRIC + GRADER_CONTEXT)}`,
   rubric: RUBRIC,
   cases: CASES.map(({ id, title, input, expect }) => ({ id, title, input, expect })),
   // Two model rounds a message (a look or a change, then the reply), each sent everything again.
   promptChars: (caseId) =>
     caseFor(caseId).messages.reduce((sum, m) => sum + 2 * (sentFor(m).length + TOOLS_TEXT.length) + PHONE_ANSWER.length, 0),
-  graderContext: () =>
-    `Today is Wednesday ${TODAY}. The person's goals: ${show(goals)}. What the phone answered when Lumen looked: ${PHONE_ANSWER}. The app sends only two kinds of notification, the daily heads-up and reminders to reflect; a goal's switch only narrows the reminders, so with both off nothing is sent.`,
+  graderContext: () => GRADER_CONTEXT,
   run: async (caseId) => {
     const turns: ChatTurn[] = [];
     let history: unknown[] = [];
