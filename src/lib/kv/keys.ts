@@ -60,6 +60,14 @@ export const CacheKeys = {
   heartbeatModelCalls: (userId: string, day: string): string => `heartbeat:model-calls:v1:${userId}:${day}`,
 
   /**
+   * Quick actions for selected verses (public Bible text only, nothing about the reader).
+   * v2: questions ranked up front; v1 answers are not reused.
+   * e.g., "bible:quick-actions:v2:BSB:romans 8:14-15"
+   */
+  quickActions: (translation: string, reference: string): string =>
+    `bible:quick-actions:v2:${translation.toUpperCase()}:${reference.trim().toLowerCase()}`,
+
+  /**
    * (rollups removed) Intentionally no rollup cache keys.
    */
 };
