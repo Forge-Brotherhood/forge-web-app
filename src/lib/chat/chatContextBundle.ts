@@ -118,6 +118,8 @@ export const goalThreadSchema = z.object({
     .optional(),
   /** The last three reminders to reflect on this goal went unopened; Lumen asks once whether they help. */
   remindersUnopened: z.boolean().optional(),
+  /** Sent with GOAL_THREAD_START when the goal was named while setting up the app: the user's first conversation. */
+  welcome: z.boolean().optional(),
 });
 
 /**
@@ -445,7 +447,12 @@ const buildGoalThreadSection = (args: {
       "Because this is a Grow goal: the path must include at least one step toward a real person (a friend, a pastor, a group). Don't become the only one who knows about the struggle. If the path you propose or change has no such step, add one."
     );
   }
-  if (args.opening && args.afterSetup) {
+  if (args.opening && thread.welcome && !args.afterSetup) {
+    lines.push(
+      "",
+      "This is the start of the thread and their first conversation with you. They named this goal a moment ago while setting up the app, and they have not written anything yet, so do not refer to a message of theirs. Greet them by name if <user_profile> gives one, and say the goal back in their own words in one sentence. Then offer one short first reading that speaks to the goal (a single chapter, or a passage of about 10 to 30 verses): say in a sentence of your own what it is and why you would start there, show it with reading_card, and ask them to tell you what stood out to them once they have read it. Do not show goal_path in this reply and ask no other question. Keep it to a few sentences."
+    );
+  } else if (args.opening && args.afterSetup) {
     lines.push(
       "",
       "This is the start of the thread. The goal was just made in the conversation above, and you have already said it is set. Do not say the goal back or greet them again. In a sentence of your own, say how you would go about it, show goal_path with the steps you propose, then ask one question that will help you start well (how much time they have on a normal day, or when in the day suits them), unless the conversation above already answered it. Keep it to a few sentences."
@@ -458,6 +465,12 @@ const buildGoalThreadSection = (args: {
   }
   if (args.reflecting) {
     lines.push("", buildReflectionSection(thread.reflection));
+  }
+  if (!args.opening && !args.reflecting && goal && goal.path.length === 0) {
+    lines.push(
+      "",
+      "This goal has no path yet. When it fits the conversation, propose one with goal_path, after a sentence of your own about how you would go about it."
+    );
   }
   if (thread.remindersUnopened) {
     lines.push(
