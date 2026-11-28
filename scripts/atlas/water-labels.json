@@ -1,0 +1,15 @@
+[
+  { "text": "The Great Sea", "lat": 34.0, "lon": 19.0, "rot": 0, "minZoom": 3, "maxZoom": 5, "testament": "both" },
+  { "text": "The Great Sea", "lat": 33.6, "lon": 28.5, "rot": 0, "minZoom": 5, "maxZoom": 7, "testament": "both" },
+  { "text": "The Great Sea", "lat": 32.6, "lon": 34.35, "rot": -72, "minZoom": 7, "maxZoom": 9, "testament": "both" },
+  { "text": "The Great Sea", "lat": 32.15, "lon": 34.6, "rot": -72, "minZoom": 9, "testament": "both" },
+  { "text": "Sea of Galilee", "lat": 32.82, "lon": 35.59, "rot": -80, "minZoom": 8, "testament": "nt" },
+  { "text": "Sea of Chinnereth", "lat": 32.82, "lon": 35.59, "rot": -80, "minZoom": 8, "testament": "ot" },
+  { "text": "Salt Sea", "lat": 31.5, "lon": 35.48, "rot": -88, "minZoom": 8, "testament": "ot" },
+  { "text": "Jordan", "lat": 32.31, "lon": 35.585, "rot": -88, "minZoom": 8, "testament": "both" },
+  { "text": "Nile", "lat": 27.0, "lon": 31.75, "rot": -78, "minZoom": 5, "maxZoom": 8, "testament": "both" },
+  { "text": "Euphrates", "lat": 34.65, "lon": 40.8, "rot": 38, "minZoom": 5, "maxZoom": 8, "testament": "both" },
+  { "text": "Tigris", "lat": 35.3, "lon": 43.75, "rot": 70, "minZoom": 5, "maxZoom": 8, "testament": "ot" },
+  { "text": "Red Sea", "lat": 21.5, "lon": 38.4, "rot": 55, "minZoom": 4, "testament": "both" },
+  { "text": "Sea of Adria", "lat": 37.0, "lon": 18.0, "rot": 0, "minZoom": 5, "testament": "nt" }
+]

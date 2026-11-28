@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { bibleService, getBookDisplayNameFromCode } from "@/lib/bible";
 import type { BibleContentElement, BibleInline } from "@/core/models/bibleModels";
 import type { ResponsesTool } from "@/lib/openai/responsesClient";
-import { buildMapBlockFromModel, describePassagePlaces, type MapCardBlock, type PassagePlaces } from "@/lib/guide/places";
+import { buildMapBlockFromModel, buildRouteMapBlock, describePassagePlaces, describeRoutes, type MapCardBlock, type PassagePlaces } from "@/lib/guide/places";
 import { getAvailableTranslations, getCurrentProviderType, getDefaultTranslation } from "@/lib/bible/providers";
 import {
   GOAL_CATEGORIES,
@@ -58,6 +58,7 @@ export const SHOW_BLOCK_TOOL_NAME = "show_block";
 const MAX_PASSAGE_VERSES = 6;
 const MAX_READING_CHAPTERS = 10;
 const MAX_COMPARE_VERSES = 3;
+const MAX_MODEL_MAP_PLACES = 8;
 const MAX_COMPARE_TRANSLATIONS = 3;
 
 const CONTEXT_CATEGORIES = ["historical", "cultural", "literary", "geographic"] as const;
@@ -356,7 +357,9 @@ const showBlockArgsSchema = z.discriminatedUnion("kind", [
     kind: z.literal("map_card"),
     title: optionalText(80),
     caption: optionalText(200),
-    places: z.array(z.string().trim().min(1)).min(1).max(8),
+    // Counts are fixed up when the card is built, so a fixable count never loses the card.
+    places: z.array(z.string().trim().min(1)).optional(),
+    route: optionalText(80),
   }),
   z.object({
     kind: z.literal("quick_replies"),
@@ -546,9 +549,10 @@ export const buildShowBlockTool = (kinds: GuideBlockKind[]): ResponsesTool => ({
       caption: { type: "string", description: "map_card only, optional: one short sentence on what the map shows." },
       places: {
         type: "array",
-        description: "map_card only: 1 to 8 place ids from the places list (or exact place names), most important first.",
+        description: "map_card only: 1 to 8 place ids from the places list (or exact place names), most important first. Not needed with route.",
         items: { type: "string" },
       },
+      route: { type: "string", description: "map_card only, optional: the slug of a journey from the journeys list, to draw that route." },
       body: {
         type: "string",
         description:
@@ -586,7 +590,7 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
     cross_refs:
       "- cross_refs: when pointing the user to 2 to 6 other passages on the same theme, each with a short reason. Use this instead of listing those references in your prose.",
     map_card:
-      "- map_card: when the user asks where something happened, how far apart places are, or about travel, or when seeing the places genuinely helps. Pass the places that matter to the answer (not every place mentioned), by id from the places list when one is given. The app draws the map from its own place data; do not give coordinates.",
+      "- map_card: when the user asks where something happened, how far apart places are, or about travel, or when seeing the places genuinely helps. Pass the places that matter to the answer (not every place mentioned), by id from the places list when one is given. When the user asks about a journey, travels or a voyage that matches one in the journeys list, pass its slug as route instead, and use plain places for everything else. The app draws the map from its own place data; do not give coordinates.",
     quick_replies:
       "- quick_replies: the app can show answer buttons under your closing question. Call quick_replies whenever your reply ends with a question that offers the user choices (\"integrity, courage, or patience?\", \"go deeper or move on?\", \"which of these...?\") or that has 2 to 4 obvious short answers (for example which part of life this touches, or whether to go deeper or move on). This is required, not optional: if your question names its choices, the user must get them as buttons. When you offer choices, offer at most 4, and make each option one of the choices you named, written as the user's own answer (first person, under 8 words). Ask the question in your prose, then call quick_replies as the very last thing and write nothing after it; the user can still type their own answer. It does not count toward the card limit. Skip it only for open reflection questions that ask the user to put something personal in their own words (for example \"What is one thing you sense God asking of you?\"); a canned answer would cheapen that. A personal topic is not a reason to skip it when your question itself offers choices.",
     context_callout:
@@ -611,6 +615,7 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
     note_recall: "- note_recall: only the heartbeat posts this, from the user's brief. Never use it in a conversation.",
   };
   const placesList = kinds.includes("map_card") ? describePassagePlaces(passage) : "";
+  const routesList = kinds.includes("map_card") ? describeRoutes(passage) : "";
   return [
     "INLINE CARDS (show_block tool):",
     "You can show the user an inline card by calling show_block. The card appears inside your reply exactly where you call it. Always write a short lead-in sentence BEFORE calling show_block; never call it before writing any text. After the card, add at most one closing sentence. Never repeat the card's content in your prose.",
@@ -619,6 +624,7 @@ export const buildUiBlocksSystemPrompt = (kinds: GuideBlockKind[], passage: Pass
     "ref_key uses three-letter book codes: GEN, EXO, PSA, PRO, ISA, MAT, MRK, LUK, JHN, ACT, ROM, 1CO, 2CO, GAL, EPH, PHP, COL, HEB, JAS, 1PE, 1JN, REV, and so on.",
     'If show_block returns "Rejected", continue your reply without that card.',
     ...(placesList ? [placesList] : []),
+    ...(routesList ? [routesList] : []),
   ].join("\n");
 };
 
@@ -974,9 +980,17 @@ export async function resolveShowBlockCall(args: {
   }
 
   if (input.kind === "map_card") {
+    if (input.route) {
+      return buildRouteMapBlock({ blockId: args.blockId, route: input.route, title: input.title, caption: input.caption });
+    }
+    if (!input.places?.length) return { ok: false, reason: "places: give place ids, or a route slug" };
+    if (input.places.length > MAX_MODEL_MAP_PLACES) {
+      console.warn(JSON.stringify({ tag: "guide.map_card", event: "places_trimmed", given: input.places.length, kept: MAX_MODEL_MAP_PLACES }));
+    }
     const result = await buildMapBlockFromModel({
       blockId: args.blockId,
-      places: input.places,
+      // The model lists the most important first.
+      places: input.places.slice(0, MAX_MODEL_MAP_PLACES),
       title: input.title,
       caption: input.caption,
       passage: args.passage ?? null,
