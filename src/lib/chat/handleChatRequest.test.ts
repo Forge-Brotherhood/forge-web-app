@@ -450,6 +450,29 @@ test("a thread that opens after its goal was set up lays out the steps without s
   assert.ok(!prompt.includes("GOAL SETUP"));
 });
 
+test("a thread for a goal named while setting up the app opens with a first reading and no path", async () => {
+  const bodies = mockModel([{ output: [message("Good to have you here.")] }]);
+
+  await chat({ message: "GOAL_THREAD_START", context: goalContext, goalThread: { goalId: "goal-2", welcome: true } });
+
+  const prompt = personalPrompt(bodies[0]);
+  assert.ok(prompt.includes("their first conversation with you"));
+  assert.ok(prompt.includes("show it with reading_card"));
+  assert.ok(prompt.includes("Do not show goal_path in this reply"));
+  assert.ok(!prompt.includes("show goal_path with the steps you propose"), "the ordinary opening is replaced");
+  assert.ok(!prompt.includes("This goal has no path yet"), "not while opening");
+});
+
+test("a later turn in a thread with no path asks for one when it fits; a thread with a path does not", async () => {
+  const bodies = mockModel([{ output: [message("That makes sense.")] }, { output: [message("Good.")] }]);
+
+  await chat({ message: "Verse 19 stood out.", context: goalContext, goalThread: { goalId: "goal-2" } });
+  await chat({ message: "Done.", context: goalContext, goalThread: { goalId: "goal-1" } });
+
+  assert.ok(personalPrompt(bodies[0]).includes("This goal has no path yet"));
+  assert.ok(!personalPrompt(bodies[1]).includes("This goal has no path yet"));
+});
+
 test("goal setup requests are held to their limits", () => {
   const schema = z.object(chatRequestFields);
   assert.ok(schema.safeParse({ message: "GOAL_SETUP_START", goalSetup: {} }).success);
