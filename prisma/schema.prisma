@@ -89,6 +89,11 @@ model User {
   heartbeatGrant            HeartbeatGrant?
   heartbeatOutbox           HeartbeatOutbox[]
   heartbeatRuns             HeartbeatRun[]
+  modelUsage                ModelUsage[]
+
+  // Paid plan and the free weekly allowance: states and counts only
+  subscription              Subscription?
+  chatAllowance             ChatAllowance?
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -458,6 +463,7 @@ model BiblePlace {
   modernName  String?
   coordSource String?
   refs        BiblePlaceRef[]
+  routeStops  BibleRouteStop[]
 }
 
 model BiblePlaceRef {
@@ -470,6 +476,46 @@ model BiblePlaceRef {
 
   @@unique([placeId, bookId, chapter, verse])
   @@index([bookId, chapter])
+}
+
+// Curated journeys for guide maps (prisma/bible-routes.seed.json, later the admin editor).
+model BibleRoute {
+  id           String           @id @default(uuid())
+  slug         String           @unique // e.g. "paul-first-journey"
+  title        String
+  certainty    String // "traditional" | "probable" | "disputed"
+  passage      String // display range, e.g. "Acts 13–14"
+  // The chapters the route belongs to, so a chapter can list its routes.
+  bookId       String // app book code, e.g. "ACT"
+  chapterStart Int
+  chapterEnd   Int
+  sortOrder    Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  stops        BibleRouteStop[]
+
+  @@index([bookId, chapterStart])
+}
+
+model BibleRouteStop {
+  id        String     @id @default(uuid())
+  routeId   String
+  route     BibleRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  order     Int
+  // Not cascaded: replacing places must not silently drop the stops that use them.
+  placeId   String
+  place     BiblePlace @relation(fields: [placeId], references: [id])
+  // The verse where the travellers arrive here.
+  bookId    String
+  chapter   Int
+  verse     Int
+  by        String     @default("road") // "road" | "sea": how the leg arriving here was travelled
+  isReturn  Boolean    @default(false)
+  waypoints Json? // [[lat, lon], …] between the previous stop and this one
+  note      String?
+
+  @@unique([routeId, order])
+  @@index([placeId])
 }
 
 // Model-quality evals (src/lib/evals), run from the admin. Inputs are synthetic fixtures, never a
@@ -505,4 +551,57 @@ model EvalResult {
   createdAt  DateTime @default(now())
 
   @@unique([runId, caseId, repeat])
+}
+
+// Tokens per model call, to know what each person costs. Counts only: never what was sent or said.
+model ModelUsage {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature      String // "chat" | "explain" | "heartbeat" | "gate_check"
+  model        String
+  inputTokens  Int // cached included
+  cachedTokens Int
+  outputTokens Int // reasoning included
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// The paid plan, one row per person. Apple's states and dates, or complimentary access. No payment details.
+model Subscription {
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source                String // "app_store" | "comp"
+  productId             String
+  isTrial               Boolean   @default(false)
+  willRenew             Boolean   @default(true)
+  /// Null: complimentary access with no end.
+  expiresAt             DateTime?
+  /// Apple's billing grace period: the plan stays on until then while Apple retries payment.
+  graceExpiresAt        DateTime?
+  revokedAt             DateTime?
+  originalTransactionId String?   @unique
+  environment           String? // Apple's: "Production" | "Sandbox" | "Xcode"
+  /// The paywall it started from: "first_session" | "gate" | "profile". Set only when the row is made.
+  startedFrom           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+// The free weekly allowance of Lumen replies, one row per person. Counts and times only.
+model ChatAllowance {
+  userId       String    @id
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The first counted reply of the current 7-day window. Null until one is counted.
+  windowStart  DateTime?
+  used         Int       @default(0)
+  /// Replies on the account's first day, which are not counted against the week (capped).
+  firstDayUsed Int       @default(0)
+  gateHits     Int       @default(0)
+  lastGateAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }

@@ -44,7 +44,7 @@ export async function runBeat(
     } else {
       modelCalled = true;
       try {
-        raw = await options.callModel({ system: BEAT_SYSTEM_PROMPT, user: renderBeatInput(brief, decision, now) });
+        raw = await options.callModel({ system: BEAT_SYSTEM_PROMPT, user: renderBeatInput(brief, decision, now), userId: options.userId });
       } catch {
         pre.push({ what: "model", code: "failed" });
       }

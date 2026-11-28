@@ -1,3 +1,6 @@
+import { CHAT_MODEL } from "@/lib/chat/chatModel";
+import { recordModelUsage } from "@/lib/modelUsage";
+import { chatGate } from "@/lib/subscription/gate";
 import { z } from "zod";
 import { NextRequest } from "next/server";
 import {
@@ -267,6 +270,16 @@ export async function handleChatRequest(args: {
 
   const userId = args.userId;
 
+  // A reopened guide reuses its conversation, so detect the greeting by its start message.
+  const isGreeting = entrypoint === "bible_reader" && message === "BIBLE_CHAT_START";
+
+  // Free accounts: the weekly allowance, checked and taken before any model call or stream.
+  const gate = await chatGate({ userId, message, isContinuation, isGreeting, selectionState: args.input.selectionState });
+  if (gate) {
+    chatLog("info", "gated", { correlationId, userId: redactId(userId), error: gate.body.error });
+    return jsonResponse(gate.body, gate.status);
+  }
+
   // The app's own id for the conversation. It is echoed back and used in logs; nothing is stored.
   const conversationId = args.input.conversationId?.trim() || crypto.randomUUID();
   const isNewConversation = args.input.history.length === 0 && !isContinuation;
@@ -327,8 +340,6 @@ export async function handleChatRequest(args: {
 
         const blockKinds = parseClientBlockKinds(args.input.uiBlocks);
         // The greeting gets no model-chosen cards; at most a rule-based chapter map after its text.
-        // A reopened guide reuses its conversation, so detect the greeting by its start message.
-        const isGreeting = entrypoint === "bible_reader" && message === "BIBLE_CHAT_START";
         // The start of a reflection is Lumen's own words and one question: no card, and verses are links in the text.
         const isReflecting = Boolean(args.input.goalThread) && message === GOAL_THREAD_REFLECT_MESSAGE;
         // Verses in an answer are links in its text, so the model never shows them as a passage card
@@ -395,9 +406,9 @@ export async function handleChatRequest(args: {
           : bundle.instructions;
 
         stage = "run_main_response";
-        const { finalText, responseId, items, pendingToolCalls } = await runMainChatResponse({
+        const { finalText, responseId, items, pendingToolCalls, usage } = await runMainChatResponse({
           openaiApiKey,
-          model: "gpt-5.5",
+          model: CHAT_MODEL,
           // Low effort cuts time to first text by more than half; answers are short single paragraphs.
           reasoningEffort: "low",
           instructions,
@@ -510,6 +521,10 @@ export async function handleChatRequest(args: {
           },
         });
         markStage("model_done");
+        // Written while the rest of the reply is put together; waited for before the stream ends.
+        // Explain on selected verses opens the reader's chat with them; it is told apart from the rest of chat.
+        const feature = isGreeting && args.input.selectionState === "selected" ? "explain" : "chat";
+        const usageWrite = recordModelUsage({ userId, feature, model: CHAT_MODEL, usage });
 
         // Calls only the app can answer are pending: the reply continues in a follow-up request.
         const finished = pendingToolCalls.length === 0;
@@ -566,6 +581,7 @@ export async function handleChatRequest(args: {
         }
 
         if (finished) write({ type: "actions", actions });
+        await usageWrite;
         write({ type: "done", conversationId, items, ...(finished ? {} : { pendingToolCalls }) });
         stage = "done";
         chatLog("info", "stream_success", {

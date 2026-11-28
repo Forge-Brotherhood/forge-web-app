@@ -1,0 +1,5 @@
+numpy
+pillow
+shapely
+pyshp
+contourpy
