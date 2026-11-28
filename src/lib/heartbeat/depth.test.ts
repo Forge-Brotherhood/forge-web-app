@@ -416,6 +416,8 @@ test("people is an invitation: no deadline, no 'make sure', no report back, no n
     assert.deepEqual(run.output.posts, [], code);
     assert.deepEqual(codes(run), [code], code);
   }
+  // The thread says "my wife" and "his wife"; the model says "your wife".
+  assert.deepEqual(codes(await beat(brief, { posts: [people({ payload: { person: "your wife" } })] })), []);
 });
 
 test("people is never the only thing offered, and not more than once a review cycle", async () => {
@@ -533,9 +535,12 @@ test("lesson: a Learn goal gets a short teaching on a study card, and the card's
     [lesson({ payload: { ...lessonPayload, body: `${lessonPayload.body} You should read it again.` } }), "card_nudge_language"],
     [lesson({ payload: { ...lessonPayload, body: "A short body." } }), "invalid_payload"],
     [lesson({ payload: { ...lessonPayload, category: "gossip" } }), "invalid_payload"],
-    [lesson({ payload: { ...lessonPayload, body: `${lessonPayload.body} Some of the believers had also faced the funeral of a friend and the grief that followed.` } }), "card_opens_sensitive_subject"],
+    [lesson({ payload: { ...lessonPayload, title: "Grief in Thessalonica" } }), "card_opens_sensitive_subject"],
   ];
   for (const [post, code] of bad) assert.deepEqual(codes(await beat(brief, { posts: [post] })), [code], code);
+  // The background is about the passage, so it may speak of death: 1 Thessalonians answers grief for believers who had died.
+  const died = lesson({ payload: { ...lessonPayload, body: `${lessonPayload.body} Some in the church grieved for believers who had died.` } });
+  assert.deepEqual(codes(await beat(brief, { posts: [died] })), []);
   assert.deepEqual(codes(await beat(fixture("finish-due").brief, { posts: [lesson({ goalId: "g-bible" })] })), ["type_not_for_shape"]);
 });
 

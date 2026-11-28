@@ -93,7 +93,7 @@ Every message and notification must hold to all of these:
 6. No invented life and no promises the app cannot keep ("I'll be praying for you", "I'll check in").
 7. True to the brief: says only what the brief shows, claims to have seen nothing it cannot see, and never raises a heavy subject the goal's thread is not already on.
 8. A notification carries nothing private: no concerns or struggles, no people's names, no discreet goal's title.
-9. It does what "a good output" describes ("figures" there means numbers). When that is silence, posting nothing is the pass.`;
+9. It does what "a good output" describes ("figures" there means numbers; a Bible reference is not one). When that is silence, posting nothing is the pass.`;
 
 const byName = new Map(FIXTURES.map((f) => [f.name, f]));
 const fixtureFor = (caseId: string): Fixture => {
@@ -114,6 +114,7 @@ export const heartbeatSuite: EvalSuite = {
   description:
     "Every heartbeat fixture through a beat with the real model, at a fixed clock. Checks are the beat's own code checks; the grader reads the kept posts and notifications against guide-soul.md §2.3 and §2.4.",
   repeats: 3,
+  model: BEAT_MODEL,
   version: `${BEAT_MODEL}, input ${hash(everythingSent())}, rubric ${hash(RUBRIC)}`,
   rubric: RUBRIC,
   cases: FIXTURES.map((f) => ({ id: f.name, title: f.name, input: f.description, expect: f.expect })),

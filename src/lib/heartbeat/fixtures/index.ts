@@ -306,7 +306,8 @@ const memorizeReview = {
   activities: [entry("g-prayer", "prayer", -3, "done"), entry("g-prayer", "memorize", -2, "done", { note: "verse:PSA:23:1-3" })],
 };
 
-const stepGrow = { ...growAfterFailure, activities: [entry("g-free", "check_in", -4, "done")] };
+// A step toward Dan was offered three days ago, so today's offer is the step out of Psalm 51.
+const stepGrow = { ...growAfterFailure, activities: [entry("g-free", "check_in", -4, "done"), entry("g-free", "people", -3, "done")] };
 
 /** Yesterday's reading left something behind: a highlight, a note and a reflection. */
 const readingWithWork: GoalFile = {
@@ -354,7 +355,7 @@ export const FIXTURES: Fixture[] = [
     description: "A Learn goal due for the next step.",
     brief: makeBrief([learnPaul]),
     trigger: "app_open",
-    expect: "One reflection question or the next reading, building on Galatians.",
+    expect: "One reflection question, the next reading or a short background lesson, building on Galatians.",
   },
   {
     name: "grow-checkin",
@@ -376,7 +377,7 @@ export const FIXTURES: Fixture[] = [
     description: "Five posts unanswered over two weeks on a Practice goal.",
     brief: makeBrief([ignoredPrayer]),
     trigger: "app_open",
-    expect: "At most one very gentle, small check-in with no guilt. The rhythm is already lighter. Nothing more until they return.",
+    expect: "At most one very gentle, small check-in with no guilt. The rhythm is already lighter (weekly), so nothing is planned sooner than a week after the last post, which is today's if it posts today.",
   },
   {
     name: "finish-20-days-behind",
@@ -472,7 +473,7 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal whose brief lists a completed path step.",
     brief: makeBrief([{ ...growAnger, completions: [{ id: "c-pause", kind: "path_step" as const, label: "Pause and breathe before answering", at: at(-1, "20:00") }] }]),
     trigger: "app_open",
-    expect: "No milestone, ever, for a Grow goal. A plain check-in at most.",
+    expect: "No milestone, ever, for a Grow goal. At most one plain thing for the goal, such as a check-in or a step toward a person on its path.",
   },
   {
     name: "people-grow",
@@ -514,7 +515,7 @@ export const FIXTURES: Fixture[] = [
     description: "A Grow goal after a slip, with Psalm 51 among the recent readings.",
     brief: makeBrief([stepGrow], { pulse: personPulse }),
     trigger: "app_open",
-    expect: "One small, practical thing that comes out of Psalm 51, as an invitation. Quick to grace. No measuring.",
+    expect: "One small, practical thing that comes out of a recent reading (Psalm 51 or Matthew 5), as an invitation. Quick to grace. No measuring.",
   },
 ];
 

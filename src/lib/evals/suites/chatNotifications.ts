@@ -272,6 +272,7 @@ export const chatNotificationsSuite: EvalSuite = {
   description:
     "The sentences of push-engagement-plan.md §7.3 sent to Lumen in chat with the real model, the phone's answer fixed. Checks are what was changed; the grader reads the replies against guide-soul.md §2.10, §2.3 and §2.4.",
   repeats: 3,
+  model: MODEL,
   version: `${MODEL}, input ${hash(TOOLS_TEXT + CASES.flatMap((c) => c.messages.map(sentFor)).join("\n"))}, rubric ${hash(RUBRIC + GRADER_CONTEXT)}`,
   rubric: RUBRIC,
   cases: CASES.map(({ id, title, input, expect }) => ({ id, title, input, expect })),

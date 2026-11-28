@@ -1,18 +1,18 @@
 /**
  * The one model call of a beat. `store: false`, JSON out: the same way the other auxiliary calls
  * (thread summary, goal candidates) are made. Nothing the model is sent or says is logged here.
- * The same model as Lumen's chat, at low reasoning effort: a smaller model wrote lead-ins that
- * ignored what the person had made on their readings.
+ * At low reasoning effort: a smaller model wrote lead-ins that ignored what the person had made on
+ * their readings. gpt-6.2-sol replaced gpt-5.5 (Lumen's chat model) after the heartbeat evals: it
+ * kept closer to the rules (71 of 78 against 63) at about a third of the price.
  */
 
-import { CHAT_MODEL } from "@/lib/chat/chatModel";
 import { recordModelUsage } from "@/lib/modelUsage";
 
 /** userId, when given, is whose beat it is, for recording its tokens. */
 export type BeatModelInput = { system: string; user: string; userId?: string };
 export type BeatModel = (input: BeatModelInput) => Promise<unknown>;
 
-export const BEAT_MODEL = CHAT_MODEL;
+export const BEAT_MODEL = "gpt-6.2-sol";
 
 export const callBeatModel: BeatModel = async ({ system, user, userId }) => {
   const openaiApiKey = process.env.OPENAI_API_KEY;

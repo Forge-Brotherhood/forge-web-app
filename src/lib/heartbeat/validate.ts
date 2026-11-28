@@ -48,6 +48,7 @@ import {
   SCORING_LANGUAGE,
   goalCorpus,
   sensitiveFamilies,
+  withoutReferences,
 } from "@/lib/heartbeat/terms";
 import { parseReadingRef, resolveShowBlockCall, type GuideBlock } from "@/lib/guide/uiBlocks";
 
@@ -139,7 +140,8 @@ const cardTextDrop = (type: ActivityType, payload: Record<string, unknown>, stat
     (t): t is string => typeof t === "string"
   );
   for (const text of texts) {
-    const code = DASHES.test(text)
+    const plain = withoutReferences(text);
+    const code = DASHES.test(plain)
       ? "dash"
       : NUDGE_LANGUAGE.test(text)
         ? "nudge_language"
@@ -147,11 +149,12 @@ const cardTextDrop = (type: ActivityType, payload: Record<string, unknown>, stat
           ? "unseen_observation"
           : FALSE_PROMISE.test(text)
             ? "false_promise"
-            : type === "review" && numbersIn(text).length
+            : type === "review" && numbersIn(plain).length
               ? "figures_in_message"
               : scores(text, state, type)
                 ? "grow_scoring"
-                : [...sensitiveFamilies(text)].some((f) => !known.has(f))
+                : // A lesson's background is about the passage, not the person, so it may speak of death or grief.
+                  !(type === "lesson" && text === payload.body) && [...sensitiveFamilies(text)].some((f) => !known.has(f))
                   ? "opens_sensitive_subject"
                   : null;
     if (code) return `card_${code}`;
@@ -312,7 +315,7 @@ export async function validateBeat(args: {
       }
     }
 
-    // The only digits a message may carry are those of the passage it is about.
+    // Bible references aside, the only digits a message may carry are those of the passage it is about.
     // A reading's lead-in may also name the passages it builds on, those the brief already holds.
     const leadInRefs =
       type === "reading"
@@ -328,10 +331,11 @@ export async function validateBeat(args: {
     );
     const families = sensitiveFamilies(message);
     const known = sensitiveFamilies(threadCorpus(state));
+    const plain = withoutReferences(message);
     const wording =
       message.length > limit || sentenceCount(message) > maxSentences
         ? "too_long"
-        : DASHES.test(message)
+        : DASHES.test(plain)
           ? "dash"
           : NUDGE_LANGUAGE.test(message)
             ? "nudge_language"
@@ -339,7 +343,7 @@ export async function validateBeat(args: {
               ? "unseen_observation"
               : FALSE_PROMISE.test(message)
                 ? "false_promise"
-                : numbersIn(message).some((n) => !allowedNumbers.has(n))
+                : numbersIn(plain).some((n) => !allowedNumbers.has(n))
                   ? "figures_in_message"
                   : scores(message, state, type)
                     ? "grow_scoring"
@@ -481,6 +485,12 @@ export async function validateBeat(args: {
       }
       if (state.quiet) {
         drop("plan", "goal_quiet");
+        continue;
+      }
+      // A goal that has backed off is offered things at the lighter rhythm, and plans keep to it too.
+      const lastPost = postedGoals.has(p.goalId) ? today : state.lastPostedDay;
+      if (state.backedOff && lastPost && p.date < addDays(lastPost, state.gapDays)) {
+        drop("plan", "backed_off_too_soon");
         continue;
       }
       if (!def.plannable) {

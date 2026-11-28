@@ -61,6 +61,7 @@ export const hardMomentSuite: EvalSuite = {
   description:
     "The gate's distress-or-grief check (pricing-plan.md §5.3) on synthetic messages: half hard moments, plain and oblique, half ordinary Bible questions, some about death or suffering as a topic. Checked against the expected answer; not graded.",
   repeats: 3,
+  model: GATE_CHECK_MODEL,
   version: `${GATE_CHECK_MODEL}, input ${hash(HARD_MOMENT_INSTRUCTIONS + CASES.map((c) => c.message).join("\n"))}`,
   rubric: "",
   cases: CASES.map(({ id, title, input, expect }) => ({ id, title, input, expect })),
