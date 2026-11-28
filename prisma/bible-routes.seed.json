@@ -1,0 +1,409 @@
+{
+  "routes": [
+    {
+      "slug": "abraham-journey",
+      "title": "Abraham's journey to Canaan",
+      "certainty": "traditional",
+      "passage": "Genesis 11:31–13:18",
+      "bookId": "GEN",
+      "chapterStart": 11,
+      "chapterEnd": 13,
+      "sortOrder": 10,
+      "stops": [
+        { "place": "haran", "ref": "GEN:11:31", "note": "The family set out from Ur of the Chaldeans and settled at Haran." },
+        { "place": "shechem", "ref": "GEN:12:6" },
+        { "place": "bethel-1", "ref": "GEN:12:8" },
+        { "place": "hebron", "ref": "GEN:13:18", "note": "On the way, Abram went down to Egypt in a famine and came back to Bethel (Genesis 12:10–13:4)." }
+      ]
+    },
+    {
+      "slug": "jacob-journey",
+      "title": "Jacob's flight to Haran and return",
+      "certainty": "traditional",
+      "passage": "Genesis 28–33",
+      "bookId": "GEN",
+      "chapterStart": 28,
+      "chapterEnd": 33,
+      "sortOrder": 20,
+      "stops": [
+        { "place": "beersheba-2", "ref": "GEN:28:10" },
+        { "place": "bethel-1", "ref": "GEN:28:19" },
+        { "place": "haran", "ref": "GEN:29:4" },
+        { "place": "mahanaim", "ref": "GEN:32:2", "isReturn": true, "note": "Through the hill country of Gilead (Genesis 31:21–25)." },
+        { "place": "penuel", "ref": "GEN:32:30", "isReturn": true },
+        { "place": "succoth-1", "ref": "GEN:33:17", "isReturn": true },
+        { "place": "shechem", "ref": "GEN:33:18", "isReturn": true }
+      ]
+    },
+    {
+      "slug": "joseph-sold-into-egypt",
+      "title": "Joseph sold into Egypt",
+      "certainty": "probable",
+      "passage": "Genesis 37",
+      "bookId": "GEN",
+      "chapterStart": 37,
+      "chapterEnd": 37,
+      "sortOrder": 30,
+      "stops": [
+        { "place": "valley-of-hebron", "ref": "GEN:37:14" },
+        { "place": "shechem", "ref": "GEN:37:14" },
+        { "place": "dothan", "ref": "GEN:37:17" },
+        { "place": "egypt", "ref": "GEN:37:28", "note": "Genesis names only Egypt, not a town." }
+      ]
+    },
+    {
+      "slug": "exodus",
+      "title": "The Exodus",
+      "certainty": "disputed",
+      "passage": "Exodus 12–19",
+      "bookId": "EXO",
+      "chapterStart": 12,
+      "chapterEnd": 19,
+      "sortOrder": 40,
+      "stops": [
+        { "place": "rameses", "ref": "EXO:12:37" },
+        { "place": "succoth-2", "ref": "EXO:12:37" },
+        { "place": "etham", "ref": "EXO:13:20" },
+        { "place": "pi-hahiroth", "ref": "EXO:14:2" },
+        { "place": "marah", "ref": "EXO:15:23", "note": "After crossing the sea." },
+        { "place": "elim", "ref": "EXO:15:27" },
+        { "place": "sin", "ref": "EXO:16:1" },
+        { "place": "rephidim", "ref": "EXO:17:1" },
+        { "place": "mount-sinai", "ref": "EXO:19:2" }
+      ]
+    },
+    {
+      "slug": "ruth-and-naomi",
+      "title": "Ruth and Naomi, Moab to Bethlehem",
+      "certainty": "probable",
+      "passage": "Ruth 1",
+      "bookId": "RUT",
+      "chapterStart": 1,
+      "chapterEnd": 1,
+      "sortOrder": 50,
+      "stops": [
+        { "place": "moab-1", "ref": "RUT:1:6", "note": "Ruth names only the country of Moab, not a town." },
+        { "place": "bethlehem-1", "ref": "RUT:1:19" }
+      ]
+    },
+    {
+      "slug": "david-on-the-run",
+      "title": "David on the run from Saul",
+      "certainty": "probable",
+      "passage": "1 Samuel 21–27",
+      "bookId": "1SA",
+      "chapterStart": 21,
+      "chapterEnd": 27,
+      "sortOrder": 60,
+      "stops": [
+        { "place": "nob", "ref": "1SA:21:1", "note": "Nob's location is uncertain." },
+        { "place": "gath-1", "ref": "1SA:21:10" },
+        { "place": "adullam", "ref": "1SA:22:1" },
+        { "place": "keilah", "ref": "1SA:23:5" },
+        { "place": "ziph-1", "ref": "1SA:23:14", "note": "In the wilderness around Ziph." },
+        { "place": "maon", "ref": "1SA:23:25", "note": "In the wilderness of Maon." },
+        { "place": "engedi", "ref": "1SA:23:29" },
+        { "place": "gath-1", "ref": "1SA:27:2", "isReturn": true },
+        { "place": "ziklag", "ref": "1SA:27:6" }
+      ]
+    },
+    {
+      "slug": "elijah-flight-to-horeb",
+      "title": "Elijah's flight to Horeb",
+      "certainty": "disputed",
+      "passage": "1 Kings 19",
+      "bookId": "1KI",
+      "chapterStart": 19,
+      "chapterEnd": 19,
+      "sortOrder": 70,
+      "stops": [
+        { "place": "jezreel-2", "ref": "1KI:18:46" },
+        { "place": "beersheba-1", "ref": "1KI:19:3" },
+        { "place": "mount-horeb", "ref": "1KI:19:8", "note": "Where Horeb was is disputed; the marker shows the traditional site." }
+      ]
+    },
+    {
+      "slug": "return-from-exile",
+      "title": "The return from exile",
+      "certainty": "probable",
+      "passage": "Ezra 7–8",
+      "bookId": "EZR",
+      "chapterStart": 7,
+      "chapterEnd": 8,
+      "sortOrder": 80,
+      "stops": [
+        { "place": "babylon-1", "ref": "EZR:7:9", "note": "Ezra's company gathered first at the river that runs to Ahava (Ezra 8:15)." },
+        { "place": "jerusalem", "ref": "EZR:8:32", "note": "Ezra does not say which way they went." }
+      ]
+    },
+    {
+      "slug": "nehemiah-return",
+      "title": "Nehemiah's return",
+      "certainty": "probable",
+      "passage": "Nehemiah 1–2",
+      "bookId": "NEH",
+      "chapterStart": 1,
+      "chapterEnd": 2,
+      "sortOrder": 90,
+      "stops": [
+        { "place": "susa", "ref": "NEH:1:1" },
+        { "place": "jerusalem", "ref": "NEH:2:11", "note": "Nehemiah does not say which way he went." }
+      ]
+    },
+    {
+      "slug": "jonah-to-nineveh",
+      "title": "Jonah, Joppa to Nineveh",
+      "certainty": "probable",
+      "passage": "Jonah 1–3",
+      "bookId": "JON",
+      "chapterStart": 1,
+      "chapterEnd": 3,
+      "sortOrder": 100,
+      "stops": [
+        { "place": "joppa", "ref": "JON:1:3", "note": "He sailed for Tarshish and never reached it." },
+        { "place": "nineveh", "ref": "JON:3:3", "note": "He was put ashore at a place the text does not name, then went to Nineveh." }
+      ]
+    },
+    {
+      "slug": "flight-to-egypt",
+      "title": "The flight to Egypt",
+      "certainty": "probable",
+      "passage": "Matthew 2:13–23",
+      "bookId": "MAT",
+      "chapterStart": 2,
+      "chapterEnd": 2,
+      "sortOrder": 110,
+      "stops": [
+        { "place": "bethlehem-1", "ref": "MAT:2:1" },
+        { "place": "egypt", "ref": "MAT:2:14", "note": "Matthew names only Egypt, not a town." },
+        { "place": "nazareth", "ref": "MAT:2:23", "isReturn": true }
+      ]
+    },
+    {
+      "slug": "mary-and-joseph-to-bethlehem",
+      "title": "Mary and Joseph to Bethlehem",
+      "certainty": "traditional",
+      "passage": "Luke 2:1–7",
+      "bookId": "LUK",
+      "chapterStart": 2,
+      "chapterEnd": 2,
+      "sortOrder": 120,
+      "stops": [
+        { "place": "nazareth", "ref": "LUK:2:4" },
+        { "place": "bethlehem-1", "ref": "LUK:2:4" }
+      ]
+    },
+    {
+      "slug": "jesus-last-journey",
+      "title": "Jesus' last journey to Jerusalem",
+      "certainty": "probable",
+      "passage": "Luke 9:51–19:41",
+      "bookId": "LUK",
+      "chapterStart": 9,
+      "chapterEnd": 19,
+      "sortOrder": 130,
+      "stops": [
+        { "place": "jericho-2", "ref": "LUK:18:35", "note": "Luke names no town between Galilee and Jericho; he passed between Samaria and Galilee (Luke 17:11)." },
+        { "place": "bethany-1", "ref": "LUK:19:29", "note": "Near Bethphage, at the Mount of Olives." },
+        { "place": "mount-of-olives", "ref": "LUK:19:37" },
+        { "place": "jerusalem", "ref": "LUK:19:41" }
+      ]
+    },
+    {
+      "slug": "road-to-emmaus",
+      "title": "The road to Emmaus and back",
+      "certainty": "disputed",
+      "passage": "Luke 24:13–33",
+      "bookId": "LUK",
+      "chapterStart": 24,
+      "chapterEnd": 24,
+      "sortOrder": 140,
+      "stops": [
+        { "place": "jerusalem", "ref": "LUK:24:13" },
+        { "place": "emmaus", "ref": "LUK:24:13", "note": "Where Emmaus was is disputed." },
+        { "place": "jerusalem", "ref": "LUK:24:33", "isReturn": true }
+      ]
+    },
+    {
+      "slug": "jesus-through-samaria",
+      "title": "Jesus through Samaria",
+      "certainty": "probable",
+      "passage": "John 4",
+      "bookId": "JHN",
+      "chapterStart": 4,
+      "chapterEnd": 4,
+      "sortOrder": 150,
+      "stops": [
+        { "place": "sychar", "ref": "JHN:4:5", "note": "On the way from Judea to Galilee (John 4:3)." },
+        { "place": "cana", "ref": "JHN:4:46" }
+      ]
+    },
+    {
+      "slug": "philip-and-the-ethiopian",
+      "title": "Philip and the Ethiopian",
+      "certainty": "probable",
+      "passage": "Acts 8:5–40",
+      "bookId": "ACT",
+      "chapterStart": 8,
+      "chapterEnd": 8,
+      "sortOrder": 160,
+      "stops": [
+        { "place": "samaria-2", "ref": "ACT:8:5" },
+        { "place": "ashdod", "ref": "ACT:8:40", "note": "Azotus. Philip met the Ethiopian on the desert road from Jerusalem to Gaza (Acts 8:26)." },
+        { "place": "caesarea", "ref": "ACT:8:40" }
+      ]
+    },
+    {
+      "slug": "paul-road-to-damascus",
+      "title": "Paul's road to Damascus",
+      "certainty": "traditional",
+      "passage": "Acts 9:1–8",
+      "bookId": "ACT",
+      "chapterStart": 9,
+      "chapterEnd": 9,
+      "sortOrder": 170,
+      "stops": [
+        { "place": "jerusalem", "ref": "ACT:9:2" },
+        { "place": "damascus", "ref": "ACT:9:8" }
+      ]
+    },
+    {
+      "slug": "peter-joppa-to-caesarea",
+      "title": "Peter, Joppa to Caesarea",
+      "certainty": "traditional",
+      "passage": "Acts 10",
+      "bookId": "ACT",
+      "chapterStart": 10,
+      "chapterEnd": 10,
+      "sortOrder": 180,
+      "stops": [
+        { "place": "joppa", "ref": "ACT:10:23" },
+        { "place": "caesarea", "ref": "ACT:10:24" }
+      ]
+    },
+    {
+      "slug": "paul-first-journey",
+      "title": "Paul's first journey",
+      "certainty": "traditional",
+      "passage": "Acts 13–14",
+      "bookId": "ACT",
+      "chapterStart": 13,
+      "chapterEnd": 14,
+      "sortOrder": 190,
+      "stops": [
+        { "place": "antioch-1", "ref": "ACT:13:1" },
+        { "place": "seleucia", "ref": "ACT:13:4" },
+        { "place": "salamis", "ref": "ACT:13:5", "by": "sea" },
+        { "place": "paphos", "ref": "ACT:13:6" },
+        { "place": "perga", "ref": "ACT:13:13", "by": "sea" },
+        { "place": "antioch-2", "ref": "ACT:13:14" },
+        { "place": "iconium", "ref": "ACT:13:51" },
+        { "place": "lystra", "ref": "ACT:14:6" },
+        { "place": "derbe", "ref": "ACT:14:20" },
+        { "place": "lystra", "ref": "ACT:14:21", "isReturn": true },
+        { "place": "iconium", "ref": "ACT:14:21", "isReturn": true },
+        { "place": "antioch-2", "ref": "ACT:14:21", "isReturn": true },
+        { "place": "perga", "ref": "ACT:14:25", "isReturn": true },
+        { "place": "attalia", "ref": "ACT:14:25", "isReturn": true },
+        { "place": "antioch-1", "ref": "ACT:14:26", "by": "sea", "isReturn": true }
+      ]
+    },
+    {
+      "slug": "paul-second-journey",
+      "title": "Paul's second journey",
+      "certainty": "traditional",
+      "passage": "Acts 15:36–18:22",
+      "bookId": "ACT",
+      "chapterStart": 15,
+      "chapterEnd": 18,
+      "sortOrder": 200,
+      "stops": [
+        { "place": "antioch-1", "ref": "ACT:15:35" },
+        { "place": "derbe", "ref": "ACT:16:1" },
+        { "place": "lystra", "ref": "ACT:16:1" },
+        { "place": "troas", "ref": "ACT:16:8" },
+        { "place": "samothrace", "ref": "ACT:16:11", "by": "sea" },
+        { "place": "neapolis", "ref": "ACT:16:11", "by": "sea" },
+        { "place": "philippi", "ref": "ACT:16:12" },
+        { "place": "amphipolis", "ref": "ACT:17:1" },
+        { "place": "apollonia", "ref": "ACT:17:1" },
+        { "place": "thessalonica", "ref": "ACT:17:1" },
+        { "place": "berea", "ref": "ACT:17:10" },
+        { "place": "athens", "ref": "ACT:17:15", "by": "sea", "note": "Paul was sent off to the sea (Acts 17:14); the text implies a voyage." },
+        { "place": "corinth", "ref": "ACT:18:1" },
+        { "place": "cenchreae", "ref": "ACT:18:18" },
+        { "place": "ephesus", "ref": "ACT:18:19", "by": "sea", "isReturn": true },
+        { "place": "caesarea", "ref": "ACT:18:22", "by": "sea", "isReturn": true },
+        { "place": "antioch-1", "ref": "ACT:18:22", "isReturn": true }
+      ]
+    },
+    {
+      "slug": "paul-third-journey",
+      "title": "Paul's third journey",
+      "certainty": "traditional",
+      "passage": "Acts 18:23–21:17",
+      "bookId": "ACT",
+      "chapterStart": 18,
+      "chapterEnd": 21,
+      "sortOrder": 210,
+      "stops": [
+        { "place": "antioch-1", "ref": "ACT:18:22" },
+        { "place": "ephesus", "ref": "ACT:19:1", "note": "Through Galatia and Phrygia (Acts 18:23)." },
+        { "place": "philippi", "ref": "ACT:20:6", "note": "Through Macedonia and three months in Greece first (Acts 20:1–3)." },
+        { "place": "troas", "ref": "ACT:20:6", "by": "sea", "isReturn": true },
+        { "place": "assos", "ref": "ACT:20:13", "isReturn": true, "note": "Paul went on foot; the others sailed (Acts 20:13)." },
+        { "place": "mitylene", "ref": "ACT:20:14", "by": "sea", "isReturn": true },
+        { "place": "chios", "ref": "ACT:20:15", "by": "sea", "isReturn": true },
+        { "place": "samos", "ref": "ACT:20:15", "by": "sea", "isReturn": true },
+        { "place": "miletus", "ref": "ACT:20:15", "by": "sea", "isReturn": true },
+        { "place": "cos", "ref": "ACT:21:1", "by": "sea", "isReturn": true },
+        { "place": "rhodes-1", "ref": "ACT:21:1", "by": "sea", "isReturn": true },
+        { "place": "patara", "ref": "ACT:21:1", "by": "sea", "isReturn": true },
+        { "place": "tyre", "ref": "ACT:21:3", "by": "sea", "isReturn": true, "waypoints": [[34.4, 32.6]], "note": "Leaving Cyprus on the left (Acts 21:3)." },
+        { "place": "ptolemais", "ref": "ACT:21:7", "by": "sea", "isReturn": true },
+        { "place": "caesarea", "ref": "ACT:21:8", "isReturn": true },
+        { "place": "jerusalem", "ref": "ACT:21:17", "isReturn": true }
+      ]
+    },
+    {
+      "slug": "paul-to-caesarea-under-guard",
+      "title": "Paul taken to Caesarea under guard",
+      "certainty": "traditional",
+      "passage": "Acts 21:15–23:33",
+      "bookId": "ACT",
+      "chapterStart": 21,
+      "chapterEnd": 23,
+      "sortOrder": 220,
+      "stops": [
+        { "place": "jerusalem", "ref": "ACT:21:17" },
+        { "place": "aphek-2", "ref": "ACT:23:31", "note": "Antipatris, built on the site of Aphek." },
+        { "place": "caesarea", "ref": "ACT:23:33" }
+      ]
+    },
+    {
+      "slug": "paul-voyage-to-rome",
+      "title": "Paul's voyage to Rome",
+      "certainty": "traditional",
+      "passage": "Acts 27:1–28:16",
+      "bookId": "ACT",
+      "chapterStart": 27,
+      "chapterEnd": 28,
+      "sortOrder": 230,
+      "stops": [
+        { "place": "caesarea", "ref": "ACT:25:4", "note": "Paul had been held at Caesarea before sailing for Italy (Acts 27:1)." },
+        { "place": "sidon", "ref": "ACT:27:3", "by": "sea" },
+        { "place": "myra", "ref": "ACT:27:5", "by": "sea", "waypoints": [[35.8, 34.75], [35.65, 32.6]], "note": "Under the lee of Cyprus (Acts 27:4)." },
+        { "place": "cnidus", "ref": "ACT:27:7", "by": "sea" },
+        { "place": "fair-havens", "ref": "ACT:27:8", "by": "sea", "waypoints": [[35.3, 26.45], [34.85, 26.1]], "note": "Under the lee of Crete, off Salmone (Acts 27:7)." },
+        { "place": "cauda", "ref": "ACT:27:16", "by": "sea", "note": "Driven by the storm; they passed under its lee." },
+        { "place": "malta", "ref": "ACT:28:1", "by": "sea", "note": "Shipwrecked here." },
+        { "place": "syracuse", "ref": "ACT:28:12", "by": "sea" },
+        { "place": "rhegium", "ref": "ACT:28:13", "by": "sea" },
+        { "place": "puteoli", "ref": "ACT:28:13", "by": "sea" },
+        { "place": "forum-of-appius", "ref": "ACT:28:15" },
+        { "place": "three-taverns", "ref": "ACT:28:15" },
+        { "place": "rome", "ref": "ACT:28:16" }
+      ]
+    }
+  ]
+}
